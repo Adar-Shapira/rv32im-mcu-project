@@ -1,0 +1,588 @@
+m255
+K4
+z2
+!s11e vcom 2020.1 2020.02, Feb 28 2020
+13
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z0 dC:/Users/Adar/Documents/VHDL Lab/Lab5/SIM/RV32IM_pipeline
+Paux_package
+Z1 DPx4 work 24 cond_compilation_package 0 22 zUzaW3Zh6M]ZcLfLfn=PJ1
+Z2 DPx3 std 6 textio 0 22 zE1`LPoLg^DX3Oz^4Fj1K3
+Z3 DPx4 ieee 14 std_logic_1164 0 22 cVAk:aDinOX8^VGI1ekP<3
+!i122 381
+w1783809811
+R0
+8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/aux_package.vhd
+FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/aux_package.vhd
+l0
+L16 1
+V6J:<M^WA?4iYHH2iJ1akR2
+!s100 f<GB;P5PV><:IbHMM8GMo2
+Z4 OV;C;2020.1;71
+33
+!s110 1786995095
+!i10b 1
+Z5 !s108 1786995095.000000
+!s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/aux_package.vhd|
+!s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/aux_package.vhd|
+!i113 1
+Z6 o-work work -2008 -explicit
+Z7 tExplicit 1 CvgOpt 0
+Pcond_compilation_package
+R2
+R3
+!i122 382
+w1786915993
+R0
+8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/cond_compilation_package.vhd
+FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/cond_compilation_package.vhd
+l0
+L10 1
+VzUzaW3Zh6M]ZcLfLfn=PJ1
+!s100 ^VzTW396I8cIcS8NLkW920
+R4
+33
+Z8 !s110 1786995096
+!i10b 1
+R5
+!s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/cond_compilation_package.vhd|
+!s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/cond_compilation_package.vhd|
+!i113 1
+R6
+R7
+Pconst_package
+R1
+R2
+R3
+!i122 383
+w1783547752
+R0
+8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/const_package.vhd
+FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/const_package.vhd
+l0
+L9 1
+V:5Rk0=4CUkXBGb_6hgRV<2
+!s100 >QRe3=XR6[Hl:aJ6A=5Za0
+R4
+33
+R8
+!i10b 1
+Z9 !s108 1786995096.000000
+!s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/const_package.vhd|
+!s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/const_package.vhd|
+!i113 1
+R6
+R7
+Econtrol
+Z10 w1783808608
+R1
+Z11 DPx4 work 13 const_package 0 22 :5Rk0=4CUkXBGb_6hgRV<2
+Z12 DPx4 ieee 16 std_logic_signed 0 22 C<aanc0R`<LWPSe[JYRP^3
+Z13 DPx4 ieee 15 std_logic_arith 0 22 [G314=:2zXJ`VORJe1J@Z1
+R2
+R3
+!i122 384
+R0
+Z14 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/CONTROL.vhd
+Z15 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/CONTROL.vhd
+l0
+L19 1
+VmFgG9<HN7z`G0WlEHSokD1
+!s100 C3hnWXbIHYWWQ?1Rk?4<00
+R4
+33
+R8
+!i10b 1
+R9
+Z16 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/CONTROL.vhd|
+Z17 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/CONTROL.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R1
+R11
+R12
+R13
+R2
+R3
+DEx4 work 7 control 0 22 mFgG9<HN7z`G0WlEHSokD1
+!i122 384
+l50
+L40 127
+VZ0AR97=_[gT5N88ZC1?V<2
+!s100 [=Re]VAOaf<gQO;]]>YWh3
+R4
+33
+R8
+!i10b 1
+R9
+R16
+R17
+!i113 1
+R6
+R7
+Edmemory
+Z18 w1783809117
+Z19 DPx9 altera_mf 20 altera_mf_components 0 22 BN6nPmY:UEbXa[^5b@FTW1
+R12
+R13
+R2
+R3
+!i122 385
+R0
+Z20 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/DMEMORY.vhd
+Z21 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/DMEMORY.vhd
+l0
+L29 1
+VF6RHF?ehEMYOPRNI3c?J]1
+!s100 ]09DaYgH>z6Hl:Gd;9Gdl1
+R4
+33
+R8
+!i10b 1
+R9
+Z22 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/DMEMORY.vhd|
+Z23 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/DMEMORY.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R19
+R12
+R13
+R2
+R3
+DEx4 work 7 dmemory 0 22 F6RHF?ehEMYOPRNI3c?J]1
+!i122 385
+l82
+L70 79
+VAA<AdgcI0V3:EnNoKV[JX0
+!s100 @iGJVE>8T>`QjQIP2F;E=1
+R4
+33
+R8
+!i10b 1
+R9
+R22
+R23
+!i113 1
+R6
+R7
+Eexecute
+Z24 w1783808933
+R1
+R11
+R12
+R13
+R2
+R3
+!i122 386
+R0
+Z25 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/EXECUTE.vhd
+Z26 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/EXECUTE.vhd
+l0
+L25 1
+V=CB89GOCHgjh6m5>^BTn21
+!s100 =UNK]7:BeRQm<GW70P]_21
+R4
+33
+R8
+!i10b 1
+R9
+Z27 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/EXECUTE.vhd|
+Z28 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/EXECUTE.vhd|
+!i113 1
+R6
+R7
+Astruct
+R1
+R11
+R12
+R13
+R2
+R3
+DEx4 work 7 execute 0 22 =CB89GOCHgjh6m5>^BTn21
+!i122 386
+l142
+L82 411
+VaoMTlEQVSFkRDa<f;gSH:2
+!s100 Fa?iZ6N<NPoR0jR_JKQY;3
+R4
+33
+R8
+!i10b 1
+R9
+R27
+R28
+!i113 1
+R6
+R7
+Eforward_unit
+Z29 w1783809362
+R2
+R3
+!i122 387
+R0
+Z30 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/FORWARD_UNIT.vhd
+Z31 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/FORWARD_UNIT.vhd
+l0
+L36 1
+Vb1`Ee@Q^e`>6e6hUCIjHC1
+!s100 <_TK?Pj5^mkGQ36@Wo^F92
+R4
+33
+R8
+!i10b 1
+R9
+Z32 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/FORWARD_UNIT.vhd|
+Z33 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/FORWARD_UNIT.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R2
+R3
+DEx4 work 12 forward_unit 0 22 b1`Ee@Q^e`>6e6hUCIjHC1
+!i122 387
+l66
+L56 26
+V`hbl9ZfjfE:HiikE^B]Ub0
+!s100 4YVkoU<09iXFIgcS1Hgog1
+R4
+33
+R8
+!i10b 1
+R9
+R32
+R33
+!i113 1
+R6
+R7
+Ehazard_unit
+Z34 w1783809317
+R2
+R3
+!i122 388
+R0
+Z35 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/HAZARD_UNIT.vhd
+Z36 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/HAZARD_UNIT.vhd
+l0
+L40 1
+VR?Kaf8]]:0K1TLNZn:o]X1
+!s100 jVJcgEhgdTPCcDIAbNOkd2
+R4
+33
+Z37 !s110 1786995097
+!i10b 1
+Z38 !s108 1786995097.000000
+Z39 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/HAZARD_UNIT.vhd|
+Z40 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/HAZARD_UNIT.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R2
+R3
+DEx4 work 11 hazard_unit 0 22 R?Kaf8]]:0K1TLNZn:o]X1
+!i122 388
+l58
+L56 11
+Vn[R6LVS6f?@VYjik]GJTf1
+!s100 MjKzEDa?5W?J32?]n]Bg12
+R4
+33
+R37
+!i10b 1
+R38
+R39
+R40
+!i113 1
+R6
+R7
+Eidecode
+Z41 w1783808421
+R1
+R11
+Z42 DPx4 ieee 18 std_logic_unsigned 0 22 ;eZjO2D4ZDz<]0>8AL<ne1
+R13
+R2
+R3
+!i122 389
+R0
+Z43 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IDECODE.vhd
+Z44 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IDECODE.vhd
+l0
+Z45 L26 1
+Vm4Scl6HT6GW0AA8P7U@CA3
+!s100 ?>X=:zz>]U=PDTH]9g:?^0
+R4
+33
+R37
+!i10b 1
+R38
+Z46 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IDECODE.vhd|
+Z47 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IDECODE.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R1
+R11
+R42
+R13
+R2
+R3
+DEx4 work 7 idecode 0 22 m4Scl6HT6GW0AA8P7U@CA3
+!i122 389
+l144
+L95 218
+VE8XBflGU[ENioLL@io7b?2
+!s100 RQSL=`G=K@:Nn<0ez=K>K3
+R4
+33
+R37
+!i10b 1
+R38
+R46
+R47
+!i113 1
+R6
+R7
+Eifetch
+Z48 w1783807509
+R19
+R42
+R13
+R2
+R3
+!i122 390
+R0
+Z49 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IFETCH.vhd
+Z50 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IFETCH.vhd
+l0
+L20 1
+VzFz[2dF_Ad98mTcfY[J]a2
+!s100 cO^o=^8OB=haN<E4;zcd72
+R4
+33
+R37
+!i10b 1
+R38
+Z51 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IFETCH.vhd|
+Z52 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/IFETCH.vhd|
+!i113 1
+R6
+R7
+Abehavior
+R19
+R42
+R13
+R2
+R3
+DEx4 work 6 ifetch 0 22 zFz[2dF_Ad98mTcfY[J]a2
+!i122 390
+l61
+L45 127
+V5gW6kL?j`lzCDoO2L=:B52
+!s100 ]9=j;4<dGa6=4@N8lV:fI2
+R4
+33
+R37
+!i10b 1
+R38
+R51
+R52
+!i113 1
+R6
+R7
+Emul16
+Z53 w1783548239
+R13
+R2
+R3
+!i122 391
+R0
+Z54 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/MUL16.vhd
+Z55 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/MUL16.vhd
+l0
+L15 1
+VOfN<7F92=zV^j2SAi<2QY0
+!s100 <<YUW6laXIB;m7O=[ScV72
+R4
+33
+R37
+!i10b 1
+R38
+Z56 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/MUL16.vhd|
+Z57 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/MUL16.vhd|
+!i113 1
+R6
+R7
+Adataflow
+R13
+R2
+R3
+DEx4 work 5 mul16 0 22 OfN<7F92=zV^j2SAi<2QY0
+!i122 391
+l57
+L30 57
+VE]NXZJWG?P?ZWm=S;OKFX1
+!s100 TbZe0h2b2a:FbmR;`cPnH1
+R4
+33
+R37
+!i10b 1
+R38
+R56
+R57
+!i113 1
+R6
+R7
+Epll
+Z58 w1780971290
+R1
+R2
+R3
+!i122 392
+R0
+Z59 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/PLL.vhd
+Z60 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/PLL.vhd
+l0
+L43 1
+V_2=Rk8PQK3TjBMhG=TnKO2
+!s100 M_]AQfo?<jd6jY2bXXeSj1
+R4
+33
+R37
+!i10b 1
+R38
+Z61 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/PLL.vhd|
+Z62 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/PLL.vhd|
+!i113 1
+R6
+R7
+Asyn
+R1
+R2
+R3
+DEx4 work 3 pll 0 22 _2=Rk8PQK3TjBMhG=TnKO2
+!i122 392
+l131
+L54 153
+V@Yj[;m4hbY5:@<a@zngEj0
+!s100 b4_z2A4RzHz:Bf`iCOK2B2
+R4
+33
+R37
+!i10b 1
+R38
+R61
+R62
+!i113 1
+R6
+R7
+Erv32im_pipe_core
+Z63 w1783809958
+Z64 DPx4 work 11 aux_package 0 22 6J:<M^WA?4iYHH2iJ1akR2
+R1
+R42
+R13
+R2
+R3
+!i122 393
+R0
+Z65 8C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd
+Z66 FC:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd
+l0
+L28 1
+VDIe55bf]GMoNa6@GOO<;g1
+!s100 j1CJ1m8HGRhjlGdh?CLib0
+R4
+33
+Z67 !s110 1786995098
+!i10b 1
+R38
+Z68 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd|
+Z69 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd|
+!i113 1
+R6
+R7
+Astructure
+R64
+R1
+R42
+R13
+R2
+R3
+DEx4 work 16 rv32im_pipe_core 0 22 DIe55bf]GMoNa6@GOO<;g1
+!i122 393
+l161
+L78 435
+VMEmW@3Eg`_lfkJ5Cj6NFd1
+!s100 nJad;k@aOz4dNiYDc>6M;2
+R4
+33
+R67
+!i10b 1
+R38
+R68
+R69
+!i113 1
+R6
+R7
+Etb_rv32im_pipeline
+Z70 w1786915257
+R64
+R1
+Z71 DPx3 std 3 env 0 22 d?`1ck@NdeD@H3RZG7FgZ2
+R42
+R13
+R2
+R3
+!i122 394
+R0
+Z72 8C:/Users/Adar/Documents/VHDL Lab/Lab5/TB/RV32IM_pipeline/tb_RV32IM_pipeline.vhd
+Z73 FC:/Users/Adar/Documents/VHDL Lab/Lab5/TB/RV32IM_pipeline/tb_RV32IM_pipeline.vhd
+l0
+R45
+Vl6MYYTKfcd_b2>eOI]nBC3
+!s100 _VzSEmKK[UZi;<AjGKzXZ3
+R4
+33
+R67
+!i10b 1
+Z74 !s108 1786995098.000000
+Z75 !s90 -reportprogress|300|-work|work|-2008|-explicit|C:/Users/Adar/Documents/VHDL Lab/Lab5/TB/RV32IM_pipeline/tb_RV32IM_pipeline.vhd|
+Z76 !s107 C:/Users/Adar/Documents/VHDL Lab/Lab5/TB/RV32IM_pipeline/tb_RV32IM_pipeline.vhd|
+!i113 1
+R6
+R7
+Astruct
+R64
+R1
+R71
+R42
+R13
+R2
+R3
+Z77 DEx4 work 18 tb_rv32im_pipeline 0 22 l6MYYTKfcd_b2>eOI]nBC3
+!i122 394
+l81
+Z78 L48 129
+Z79 VlgEjmGOG24FN?e>2EfY2R0
+Z80 !s100 VzLTi>`Hf3JEgVcC3`oI]2
+R4
+33
+R67
+!i10b 1
+R74
+R75
+R76
+!i113 1
+R6
+R7

@@ -1,0 +1,28 @@
+Pin Planner - Connected Locations:
+
+Per LAB5 task definition: "You must use push-button KEY0 as a core RESET" and
+"BPADDR_i register is fed by SW7-SW0 located on the FPGA board."
+(Pin numbers per Terasic DE2-115 User Manual, Table 4-2/4-3.)
+
+1) clk_i    = PIN_Y2   (CLOCK_50MHz) = PLL input clock
+2) rst_i    = PIN_M23  (KEY0) -- push-button, active-low: idle='1', pressed='0'.
+              Debounced on-board. The top-level RTL inverts this internally
+              (RSTPOL generate in RV32IM_PIPE_CORE.vhd / RV32IM_CORE.vhd, only
+              for MODELSIM=0 i.e. hardware) so the *effective* behavior is:
+              press KEY0 briefly = reset (PC -> 0), release = core runs.
+              (In simulation the testbench drives rst_i active-high directly
+              and this inversion does not apply, so behavior is unchanged.)
+3) BPADDR_i[0] = PIN_AB28 (SW0)
+   BPADDR_i[1] = PIN_AC28 (SW1)
+   BPADDR_i[2] = PIN_AC27 (SW2)
+   BPADDR_i[3] = PIN_AD27 (SW3)
+   BPADDR_i[4] = PIN_AB27 (SW4)
+   BPADDR_i[5] = PIN_AC26 (SW5)
+   BPADDR_i[6] = PIN_AD26 (SW6)
+   BPADDR_i[7] = PIN_AB26 (SW7)
+   (single-cycle RV32IM_CORE has no BPADDR_i port - N/A there)
+
+Note: all other signals/ports (CLKCNT_o, STCNT_o, FHCNT_o, BPTRIGGER_o,
+pc_o, instruction_o, dtcm/itcm debug ports, etc.) are intentionally left
+unassigned - they are only observed internally via SignalTap and do not
+need a physical top-level pin.

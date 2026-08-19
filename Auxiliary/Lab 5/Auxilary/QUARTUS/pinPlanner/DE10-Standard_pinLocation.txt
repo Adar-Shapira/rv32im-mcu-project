@@ -1,0 +1,6 @@
+Pin Planner - Connected Locations:
+
+1) SW[0] = PIN_AB30 = reset
+2) CLOCK_50MHz = PIN_AF14 = PLL input clock
+
+Note: all the rest MIPS.vhd ports are unassigned

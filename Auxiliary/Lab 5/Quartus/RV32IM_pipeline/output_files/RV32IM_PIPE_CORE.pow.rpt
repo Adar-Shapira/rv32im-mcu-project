@@ -1,0 +1,341 @@
+Power Analyzer report for RV32IM_PIPE_CORE
+Mon Aug 17 23:45:36 2026
+Quartus Prime Version 21.1.0 Build 842 10/21/2021 SJ Lite Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Parallel Compilation
+  3. Power Analyzer Summary
+  4. Power Analyzer Settings
+  5. Indeterminate Toggle Rates
+  6. Operating Conditions Used
+  7. Thermal Power Dissipation by Block
+  8. Thermal Power Dissipation by Block Type
+  9. Thermal Power Dissipation by Hierarchy
+ 10. Core Dynamic Thermal Power Dissipation by Clock Domain
+ 11. Current Drawn from Voltage Supplies Summary
+ 12. VCCIO Supply Current Drawn by I/O Bank
+ 13. VCCIO Supply Current Drawn by Voltage
+ 14. Confidence Metric Details
+ 15. Signal Activities
+ 16. Power Analyzer Messages
+
+
+
+----------------
+; Legal Notice ;
+----------------
+Copyright (C) 2021  Intel Corporation. All rights reserved.
+Your use of Intel Corporation's design tools, logic functions 
+and other software and tools, and any partner logic 
+functions, and any output files from any of the foregoing 
+(including device programming or simulation files), and any 
+associated documentation or information are expressly subject 
+to the terms and conditions of the Intel Program License 
+Subscription Agreement, the Intel Quartus Prime License Agreement,
+the Intel FPGA IP License Agreement, or other applicable license
+agreement, including, without limitation, that your use is for
+the sole purpose of programming logic devices manufactured by
+Intel and sold by Intel or its authorized distributors.  Please
+refer to the applicable agreement for further details, at
+https://fpgasoftware.intel.com/eula.
+
+
+
++------------------------------------------+
+; Parallel Compilation                     ;
++----------------------------+-------------+
+; Processors                 ; Number      ;
++----------------------------+-------------+
+; Number detected on machine ; 8           ;
+; Maximum allowed            ; 4           ;
+;                            ;             ;
+; Average used               ; 1.03        ;
+; Maximum used               ; 4           ;
+;                            ;             ;
+; Usage by Processor         ; % Time Used ;
+;     Processor 1            ; 100.0%      ;
+;     Processors 2-4         ;   1.1%      ;
++----------------------------+-------------+
+
+
++-------------------------------------------------------------------------------------------+
+; Power Analyzer Summary                                                                    ;
++----------------------------------------+--------------------------------------------------+
+; Power Analyzer Status                  ; Successful - Mon Aug 17 23:45:36 2026            ;
+; Quartus Prime Version                  ; 21.1.0 Build 842 10/21/2021 SJ Lite Edition      ;
+; Revision Name                          ; RV32IM_PIPE_CORE                                 ;
+; Top-level Entity Name                  ; RV32IM_PIPE_CORE                                 ;
+; Family                                 ; Cyclone IV E                                     ;
+; Device                                 ; EP4CE115F29C7                                    ;
+; Power Models                           ; Final                                            ;
+; Total Thermal Power Dissipation        ; 299.10 mW                                        ;
+; Core Dynamic Thermal Power Dissipation ; 31.29 mW                                         ;
+; Core Static Thermal Power Dissipation  ; 102.51 mW                                        ;
+; I/O Thermal Power Dissipation          ; 165.30 mW                                        ;
+; Power Estimation Confidence            ; Low: user provided insufficient toggle rate data ;
++----------------------------------------+--------------------------------------------------+
+
+
++--------------------------------------------------------------------------------------------------------------------------+
+; Power Analyzer Settings                                                                                                  ;
++------------------------------------------------------------------+---------------------------------------+---------------+
+; Option                                                           ; Setting                               ; Default Value ;
++------------------------------------------------------------------+---------------------------------------+---------------+
+; Use smart compilation                                            ; Off                                   ; Off           ;
+; Enable parallel Assembler and Timing Analyzer during compilation ; On                                    ; On            ;
+; Enable compact report table                                      ; Off                                   ; Off           ;
+; Preset Cooling Solution                                          ; 23 MM HEAT SINK WITH 200 LFPM AIRFLOW ;               ;
+; Board thermal model                                              ; None (CONSERVATIVE)                   ;               ;
+; Default Power Toggle Rate                                        ; 12.5%                                 ; 12.5%         ;
+; Default Power Input I/O Toggle Rate                              ; 12.5%                                 ; 12.5%         ;
+; Use vectorless estimation                                        ; On                                    ; On            ;
+; Use Input Files                                                  ; Off                                   ; Off           ;
+; Filter Glitches in VCD File Reader                               ; On                                    ; On            ;
+; Power Analyzer Report Signal Activity                            ; Off                                   ; Off           ;
+; Power Analyzer Report Power Dissipation                          ; Off                                   ; Off           ;
+; Device Power Characteristics                                     ; TYPICAL                               ; TYPICAL       ;
+; Automatically Compute Junction Temperature                       ; On                                    ; On            ;
+; Specified Junction Temperature                                   ; 25                                    ; 25            ;
+; Ambient Temperature                                              ; 25                                    ; 25            ;
+; Use Custom Cooling Solution                                      ; Off                                   ; Off           ;
+; Board Temperature                                                ; 25                                    ; 25            ;
++------------------------------------------------------------------+---------------------------------------+---------------+
+
+
++-------------------------------------+
+; Indeterminate Toggle Rates          ;
++-------+-----------------------------+
+; Node  ; Reason                      ;
++-------+-----------------------------+
+; rst_i ; No valid clock domain found ;
++-------+-----------------------------+
+
+
++-------------------------------------------------------------------------+
+; Operating Conditions Used                                               ;
++---------------------------------------------+---------------------------+
+; Setting                                     ; Value                     ;
++---------------------------------------------+---------------------------+
+; Device power characteristics                ; Typical                   ;
+;                                             ;                           ;
+; Voltages                                    ;                           ;
+;     VCCINT                                  ; 1.20 V                    ;
+;     VCCA                                    ; 2.50 V                    ;
+;     VCCD                                    ; 1.20 V                    ;
+;     2.5 V I/O Standard                      ; 2.5 V                     ;
+;                                             ;                           ;
+; Auto computed junction temperature          ; 26.9 degrees Celsius      ;
+;     Ambient temperature                     ; 25.0 degrees Celsius      ;
+;     Junction-to-Case thermal resistance     ; 3.90 degrees Celsius/Watt ;
+;     Case-to-Heat Sink thermal resistance    ; 0.10 degrees Celsius/Watt ;
+;     Heat Sink-to-Ambient thermal resistance ; 2.50 degrees Celsius/Watt ;
+;                                             ;                           ;
+; Board model used                            ; None                      ;
++---------------------------------------------+---------------------------+
+
+
++----------------------------------------------------------------------------------------------------------------------------------------------+
+; Thermal Power Dissipation by Block                                                                                                           ;
++------------+------------+---------------------+-----------------------------+--------------------------------+-------------------------------+
+; Block Name ; Block Type ; Total Thermal Power ; Block Thermal Dynamic Power ; Block Thermal Static Power (1) ; Routing Thermal Dynamic Power ;
++------------+------------+---------------------+-----------------------------+--------------------------------+-------------------------------+
+(1) The "Thermal Power Dissipation by Block" Table has been hidden. To show this table, please select the "Write power dissipation by block to report file" option under "PowerPlay Power Analyzer Settings".
+
+
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Thermal Power Dissipation by Block Type                                                                                                                                                                                   ;
++----------------------------+-----------------------------------+-----------------------------+--------------------------------+-------------------------------+-----------------------------------------------------------+
+; Block Type                 ; Total Thermal Power by Block Type ; Block Thermal Dynamic Power ; Block Thermal Static Power (1) ; Routing Thermal Dynamic Power ; Block Average Toggle Rate (millions of transitions / sec) ;
++----------------------------+-----------------------------------+-----------------------------+--------------------------------+-------------------------------+-----------------------------------------------------------+
+; JTAG                       ; 0.01 mW                           ; 0.00 mW                     ; --                             ; 0.01 mW                       ;    6.875                                                  ;
+; PLL                        ; 11.59 mW                          ; 11.59 mW                    ; --                             ; 0.00 mW                       ;   25.000                                                  ;
+; M9K                        ; 4.82 mW                           ; 4.68 mW                     ; --                             ; 0.14 mW                       ;    0.919                                                  ;
+; Embedded multiplier block  ; 0.28 mW                           ; 0.28 mW                     ; --                             ; 0.00 mW                       ;    1.806                                                  ;
+; Embedded multiplier output ; 0.03 mW                           ; 0.00 mW                     ; --                             ; 0.03 mW                       ;    2.032                                                  ;
+; Combinational cell         ; 4.59 mW                           ; 1.65 mW                     ; --                             ; 2.94 mW                       ;    2.887                                                  ;
+; Clock control block        ; 5.04 mW                           ; 0.00 mW                     ; --                             ; 5.04 mW                       ;   23.333                                                  ;
+; Register cell              ; 4.88 mW                           ; 1.90 mW                     ; --                             ; 2.98 mW                       ;    2.851                                                  ;
+; I/O                        ; 135.35 mW                         ; 8.36 mW                     ; 126.94 mW                      ; 0.05 mW                       ;    3.189                                                  ;
++----------------------------+-----------------------------------+-----------------------------+--------------------------------+-------------------------------+-----------------------------------------------------------+
+(1) The "Block Thermal Static Power" for all block types except Pins and the Voltage Regulator, if one exists, is part of the "Core Static Thermal Power Dissipation" value found on the PowerPlay Power Analyzer-->Summary report panel. The "Core Static Thermal Power Dissipation" also contains the thermal static power dissipated by the routing.
+
+
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Thermal Power Dissipation by Hierarchy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ;
++------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------+---------------------------------+-----------------------------------+-----------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Compilation Hierarchy Node                                                                                                               ; Total Thermal Power by Hierarchy (1) ; Block Thermal Dynamic Power (1) ; Block Thermal Static Power (1)(2) ; Routing Thermal Dynamic Power (1) ; Full Hierarchy Name                                                                                                                                                                                                                                                                                                                                          ;
++------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------+---------------------------------+-----------------------------------+-----------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; |RV32IM_PIPE_CORE                                                                                                                        ; 166.59 mW (136.42 mW)                ; 28.45 mW (8.44 mW)              ; 126.94 mW (126.94 mW)             ; 11.20 mW (1.04 mW)                ; |RV32IM_PIPE_CORE                                                                                                                                                                                                                                                                                                                                            ;
+;     |PLL:\G0:MCLK                                                                                                                        ; 15.73 mW (0.00 mW)                   ; 11.59 mW (0.00 mW)              ; --                                ; 4.14 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|PLL:\G0:MCLK                                                                                                                                                                                                                                                                                                                               ;
+;         |altpll:altpll_component                                                                                                         ; 15.73 mW (15.73 mW)                  ; 11.59 mW (11.59 mW)             ; --                                ; 4.14 mW (4.14 mW)                 ; |RV32IM_PIPE_CORE|PLL:\G0:MCLK|altpll:altpll_component                                                                                                                                                                                                                                                                                                       ;
+;     |hard_block:auto_generated_inst                                                                                                      ; 0.00 mW (0.00 mW)                    ; 0.00 mW (0.00 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|hard_block:auto_generated_inst                                                                                                                                                                                                                                                                                                             ;
+;     |sld_hub:auto_hub                                                                                                                    ; 0.16 mW (0.00 mW)                    ; 0.10 mW (0.00 mW)               ; --                                ; 0.05 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub                                                                                                                                                                                                                                                                                                                           ;
+;         |alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric ; 0.16 mW (0.00 mW)                    ; 0.10 mW (0.00 mW)               ; --                                ; 0.05 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric                                                                                                                                                                                           ;
+;             |alt_sld_fab:instrumentation_fabric                                                                                          ; 0.16 mW (0.00 mW)                    ; 0.10 mW (0.00 mW)               ; --                                ; 0.05 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric                                                                                                                                                        ;
+;                 |alt_sld_fab_alt_sld_fab:alt_sld_fab                                                                                     ; 0.16 mW (0.01 mW)                    ; 0.10 mW (0.01 mW)               ; --                                ; 0.05 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric|alt_sld_fab_alt_sld_fab:alt_sld_fab                                                                                                                    ;
+;                     |alt_sld_fab_alt_sld_fab_sldfabric:sldfabric                                                                         ; 0.15 mW (0.00 mW)                    ; 0.10 mW (0.00 mW)               ; --                                ; 0.05 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric|alt_sld_fab_alt_sld_fab:alt_sld_fab|alt_sld_fab_alt_sld_fab_sldfabric:sldfabric                                                                        ;
+;                         |sld_jtag_hub:\jtag_hub_gen:real_sld_jtag_hub                                                                    ; 0.15 mW (0.11 mW)                    ; 0.10 mW (0.07 mW)               ; --                                ; 0.05 mW (0.04 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric|alt_sld_fab_alt_sld_fab:alt_sld_fab|alt_sld_fab_alt_sld_fab_sldfabric:sldfabric|sld_jtag_hub:\jtag_hub_gen:real_sld_jtag_hub                           ;
+;                             |sld_rom_sr:hub_info_reg                                                                                     ; 0.01 mW (0.01 mW)                    ; 0.01 mW (0.01 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric|alt_sld_fab_alt_sld_fab:alt_sld_fab|alt_sld_fab_alt_sld_fab_sldfabric:sldfabric|sld_jtag_hub:\jtag_hub_gen:real_sld_jtag_hub|sld_rom_sr:hub_info_reg   ;
+;                             |sld_shadow_jsm:shadow_jsm                                                                                   ; 0.03 mW (0.03 mW)                    ; 0.02 mW (0.02 mW)               ; --                                ; 0.01 mW (0.01 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|alt_sld_fab_with_jtag_input:\instrumentation_fabric_with_node_gen:fabric_gen_new_way:with_jtag_input_gen:instrumentation_fabric|alt_sld_fab:instrumentation_fabric|alt_sld_fab_alt_sld_fab:alt_sld_fab|alt_sld_fab_alt_sld_fab_sldfabric:sldfabric|sld_jtag_hub:\jtag_hub_gen:real_sld_jtag_hub|sld_shadow_jsm:shadow_jsm ;
+;         |sld_jtag_interface_mod:\jtag_interface_mod_gen:device_family_mod_inst                                                           ; 0.00 mW (0.00 mW)                    ; 0.00 mW (0.00 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|sld_hub:auto_hub|sld_jtag_interface_mod:\jtag_interface_mod_gen:device_family_mod_inst                                                                                                                                                                                                                                                     ;
+;     |control:CTL                                                                                                                         ; 0.05 mW (0.05 mW)                    ; 0.03 mW (0.03 mW)               ; --                                ; 0.02 mW (0.02 mW)                 ; |RV32IM_PIPE_CORE|control:CTL                                                                                                                                                                                                                                                                                                                                ;
+;     |Execute:EXE                                                                                                                         ; 3.30 mW (2.96 mW)                    ; 1.21 mW (0.91 mW)               ; --                                ; 2.10 mW (2.05 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE                                                                                                                                                                                                                                                                                                                                ;
+;         |MUL16:MUL                                                                                                                       ; 0.35 mW (0.04 mW)                    ; 0.30 mW (0.02 mW)               ; --                                ; 0.05 mW (0.02 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL                                                                                                                                                                                                                                                                                                                      ;
+;             |lpm_mult:Mult0                                                                                                              ; 0.08 mW (0.00 mW)                    ; 0.07 mW (0.00 mW)               ; --                                ; 0.01 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult0                                                                                                                                                                                                                                                                                                       ;
+;                 |mult_aat:auto_generated                                                                                                 ; 0.08 mW (0.08 mW)                    ; 0.07 mW (0.07 mW)               ; --                                ; 0.01 mW (0.01 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult0|mult_aat:auto_generated                                                                                                                                                                                                                                                                               ;
+;             |lpm_mult:Mult1                                                                                                              ; 0.08 mW (0.00 mW)                    ; 0.07 mW (0.00 mW)               ; --                                ; 0.01 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult1                                                                                                                                                                                                                                                                                                       ;
+;                 |mult_aat:auto_generated                                                                                                 ; 0.08 mW (0.08 mW)                    ; 0.07 mW (0.07 mW)               ; --                                ; 0.01 mW (0.01 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult1|mult_aat:auto_generated                                                                                                                                                                                                                                                                               ;
+;             |lpm_mult:Mult2                                                                                                              ; 0.08 mW (0.00 mW)                    ; 0.07 mW (0.00 mW)               ; --                                ; 0.01 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult2                                                                                                                                                                                                                                                                                                       ;
+;                 |mult_aat:auto_generated                                                                                                 ; 0.08 mW (0.08 mW)                    ; 0.07 mW (0.07 mW)               ; --                                ; 0.01 mW (0.01 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult2|mult_aat:auto_generated                                                                                                                                                                                                                                                                               ;
+;             |lpm_mult:Mult3                                                                                                              ; 0.07 mW (0.00 mW)                    ; 0.07 mW (0.00 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult3                                                                                                                                                                                                                                                                                                       ;
+;                 |mult_aat:auto_generated                                                                                                 ; 0.07 mW (0.07 mW)                    ; 0.07 mW (0.07 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Execute:EXE|MUL16:MUL|lpm_mult:Mult3|mult_aat:auto_generated                                                                                                                                                                                                                                                                               ;
+;     |FORWARD_UNIT:FWD                                                                                                                    ; 0.01 mW (0.01 mW)                    ; 0.01 mW (0.01 mW)               ; --                                ; 0.01 mW (0.01 mW)                 ; |RV32IM_PIPE_CORE|FORWARD_UNIT:FWD                                                                                                                                                                                                                                                                                                                           ;
+;     |HAZARD_UNIT:HZD                                                                                                                     ; 0.07 mW (0.07 mW)                    ; 0.00 mW (0.00 mW)               ; --                                ; 0.07 mW (0.07 mW)                 ; |RV32IM_PIPE_CORE|HAZARD_UNIT:HZD                                                                                                                                                                                                                                                                                                                            ;
+;     |Idecode:ID                                                                                                                          ; 4.62 mW (4.62 mW)                    ; 1.92 mW (1.92 mW)               ; --                                ; 2.70 mW (2.70 mW)                 ; |RV32IM_PIPE_CORE|Idecode:ID                                                                                                                                                                                                                                                                                                                                 ;
+;     |Ifetch:IFE                                                                                                                          ; 3.35 mW (0.98 mW)                    ; 2.51 mW (0.22 mW)               ; --                                ; 0.84 mW (0.76 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE                                                                                                                                                                                                                                                                                                                                 ;
+;         |altsyncram:inst_memory                                                                                                          ; 2.37 mW (0.00 mW)                    ; 2.29 mW (0.00 mW)               ; --                                ; 0.08 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory                                                                                                                                                                                                                                                                                                          ;
+;             |altsyncram_ccv3:auto_generated                                                                                              ; 2.37 mW (0.00 mW)                    ; 2.29 mW (0.00 mW)               ; --                                ; 0.08 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory|altsyncram_ccv3:auto_generated                                                                                                                                                                                                                                                                           ;
+;                 |altsyncram_gmt2:altsyncram1                                                                                             ; 2.25 mW (2.25 mW)                    ; 2.23 mW (2.23 mW)               ; --                                ; 0.02 mW (0.02 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory|altsyncram_ccv3:auto_generated|altsyncram_gmt2:altsyncram1                                                                                                                                                                                                                                               ;
+;                 |sld_mod_ram_rom:mgl_prim2                                                                                               ; 0.12 mW (0.11 mW)                    ; 0.05 mW (0.05 mW)               ; --                                ; 0.06 mW (0.06 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory|altsyncram_ccv3:auto_generated|sld_mod_ram_rom:mgl_prim2                                                                                                                                                                                                                                                 ;
+;                     |sld_rom_sr:\ram_rom_logic_gen:name_gen:info_rom_sr                                                                  ; 0.01 mW (0.01 mW)                    ; 0.01 mW (0.01 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory|altsyncram_ccv3:auto_generated|sld_mod_ram_rom:mgl_prim2|sld_rom_sr:\ram_rom_logic_gen:name_gen:info_rom_sr                                                                                                                                                                                              ;
+;                     |sld_jtag_endpoint_adapter:jtag_signal_adapter                                                                       ; 0.00 mW (0.00 mW)                    ; 0.00 mW (0.00 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|Ifetch:IFE|altsyncram:inst_memory|altsyncram_ccv3:auto_generated|sld_mod_ram_rom:mgl_prim2|sld_jtag_endpoint_adapter:jtag_signal_adapter                                                                                                                                                                                                   ;
+;     |dmemory:MEM                                                                                                                         ; 2.88 mW (0.20 mW)                    ; 2.64 mW (0.14 mW)               ; --                                ; 0.24 mW (0.06 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM                                                                                                                                                                                                                                                                                                                                ;
+;         |altsyncram:data_memory                                                                                                          ; 2.68 mW (0.00 mW)                    ; 2.50 mW (0.00 mW)               ; --                                ; 0.18 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory                                                                                                                                                                                                                                                                                                         ;
+;             |altsyncram_gf14:auto_generated                                                                                              ; 2.68 mW (0.00 mW)                    ; 2.50 mW (0.00 mW)               ; --                                ; 0.18 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory|altsyncram_gf14:auto_generated                                                                                                                                                                                                                                                                          ;
+;                 |altsyncram_1vu2:altsyncram1                                                                                             ; 2.57 mW (2.57 mW)                    ; 2.44 mW (2.44 mW)               ; --                                ; 0.12 mW (0.12 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory|altsyncram_gf14:auto_generated|altsyncram_1vu2:altsyncram1                                                                                                                                                                                                                                              ;
+;                 |sld_mod_ram_rom:mgl_prim2                                                                                               ; 0.11 mW (0.10 mW)                    ; 0.05 mW (0.05 mW)               ; --                                ; 0.06 mW (0.05 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory|altsyncram_gf14:auto_generated|sld_mod_ram_rom:mgl_prim2                                                                                                                                                                                                                                                ;
+;                     |sld_rom_sr:\ram_rom_logic_gen:name_gen:info_rom_sr                                                                  ; 0.01 mW (0.01 mW)                    ; 0.01 mW (0.01 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory|altsyncram_gf14:auto_generated|sld_mod_ram_rom:mgl_prim2|sld_rom_sr:\ram_rom_logic_gen:name_gen:info_rom_sr                                                                                                                                                                                             ;
+;                     |sld_jtag_endpoint_adapter:jtag_signal_adapter                                                                       ; 0.00 mW (0.00 mW)                    ; 0.00 mW (0.00 mW)               ; --                                ; 0.00 mW (0.00 mW)                 ; |RV32IM_PIPE_CORE|dmemory:MEM|altsyncram:data_memory|altsyncram_gf14:auto_generated|sld_mod_ram_rom:mgl_prim2|sld_jtag_endpoint_adapter:jtag_signal_adapter                                                                                                                                                                                                  ;
++------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------+---------------------------------+-----------------------------------+-----------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+(1) Value in parentheses is the power consumed at that level of hierarchy. Value not in parentheses is the power consumed at that level of hierarchy plus the power consumed by all levels of hierarchy below it.
+
+(2) The "Block Thermal Static Power" for all levels of hierarchy except the top-level hierarchy is part of the "Core Static Thermal Power Dissipation" value found on the PowerPlay Power Analyzer-->Summary report panel. The "Core Static Thermal Power Dissipation" also contains the thermal static power dissipated by the routing.
+
+
++-----------------------------------------------------------------------------------------------+
+; Core Dynamic Thermal Power Dissipation by Clock Domain                                        ;
++--------------------------------------------+-----------------------+--------------------------+
+; Clock Domain                               ; Clock Frequency (MHz) ; Total Core Dynamic Power ;
++--------------------------------------------+-----------------------+--------------------------+
+; PLL:\G0:MCLK|altpll:altpll_component|_clk0 ; 25.00                 ; 29.71                    ;
+; clk_i                                      ; 50.00                 ; 0.00                     ;
+; altera_reserved_tck                        ; 10.00                 ; 1.30                     ;
+; No clock domain                            ; 0.00                  ; 0.28                     ;
++--------------------------------------------+-----------------------+--------------------------+
+
+
++------------------------------------------------------------------------------------------------------------------------------------+
+; Current Drawn from Voltage Supplies Summary                                                                                        ;
++----------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+; Voltage Supply ; Total Current Drawn (1) ; Dynamic Current Drawn (1) ; Static Current Drawn (1) ; Minimum Power Supply Current (2) ;
++----------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+; VCCINT         ; 127.72 mA               ; 17.51 mA                  ; 110.21 mA                ; 127.72 mA                        ;
+; VCCIO          ; 16.07 mA                ; 2.88 mA                   ; 13.19 mA                 ; 16.07 mA                         ;
+; VCCA           ; 37.78 mA                ; 2.19 mA                   ; 35.59 mA                 ; 37.78 mA                         ;
+; VCCD           ; 9.47 mA                 ; 5.09 mA                   ; 4.38 mA                  ; 9.47 mA                          ;
++----------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+(1) Currents reported in columns "Total Current Drawn", "Dynamic Current Drawn", and "Static Current Drawn" are sufficient for user operation of the device.  
+(2) Currents reported in column "Minimum Power Supply Current" are sufficient for power-up, configuration, and user operation of the device.
+
+
++-----------------------------------------------------------------------------------------------+
+; VCCIO Supply Current Drawn by I/O Bank                                                        ;
++----------+---------------+---------------------+-----------------------+----------------------+
+; I/O Bank ; VCCIO Voltage ; Total Current Drawn ; Dynamic Current Drawn ; Static Current Drawn ;
++----------+---------------+---------------------+-----------------------+----------------------+
+; 1        ; 2.5V          ; 1.79 mA             ; 0.19 mA               ; 1.60 mA              ;
+; 2        ; 2.5V          ; 1.95 mA             ; 0.31 mA               ; 1.64 mA              ;
+; 3        ; 2.5V          ; 2.24 mA             ; 0.53 mA               ; 1.71 mA              ;
+; 4        ; 2.5V          ; 2.25 mA             ; 0.53 mA               ; 1.71 mA              ;
+; 5        ; 2.5V          ; 1.90 mA             ; 0.29 mA               ; 1.61 mA              ;
+; 6        ; 2.5V          ; 1.74 mA             ; 0.17 mA               ; 1.57 mA              ;
+; 7        ; 2.5V          ; 2.22 mA             ; 0.52 mA               ; 1.70 mA              ;
+; 8        ; 2.5V          ; 1.99 mA             ; 0.34 mA               ; 1.64 mA              ;
++----------+---------------+---------------------+-----------------------+----------------------+
+
+
++-----------------------------------------------------------------------------------------------------------------------------------+
+; VCCIO Supply Current Drawn by Voltage                                                                                             ;
++---------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+; VCCIO Voltage ; Total Current Drawn (1) ; Dynamic Current Drawn (1) ; Static Current Drawn (1) ; Minimum Power Supply Current (2) ;
++---------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+; 2.5V          ; 16.07 mA                ; 2.88 mA                   ; 13.19 mA                 ; 16.07 mA                         ;
++---------------+-------------------------+---------------------------+--------------------------+----------------------------------+
+(1) Currents reported in columns "Total Current Drawn", "Dynamic Current Drawn", and "Static Current Drawn" are sufficient for user operation of the device.  
+(2) Currents reported in column "Minimum Power Supply Current" are sufficient for power-up, configuration, and user operation of the device.
+
+
++-----------------------------------------------------------------------------------------------------------------------------------------------------+
+; Confidence Metric Details                                                                                                                           ;
++----------------------------------------------------------------------------------------+--------------+-------------+---------------+---------------+
+; Data Source                                                                            ; Total        ; Pin         ; Registered    ; Combinational ;
++----------------------------------------------------------------------------------------+--------------+-------------+---------------+---------------+
+; Simulation (from file)                                                                 ;              ;             ;               ;               ;
+;     -- Number of signals with Toggle Rate from Simulation                              ; 0 (0.0%)     ; 0 (0.0%)    ; 0 (0.0%)      ; 0 (0.0%)      ;
+;     -- Number of signals with Static Probability from Simulation                       ; 0 (0.0%)     ; 0 (0.0%)    ; 0 (0.0%)      ; 0 (0.0%)      ;
+;                                                                                        ;              ;             ;               ;               ;
+; Node, entity or clock assignment                                                       ;              ;             ;               ;               ;
+;     -- Number of signals with Toggle Rate from Node, entity or clock assignment        ; 3 (0.0%)     ; 2 (0.7%)    ; 0 (0.0%)      ; 1 (0.0%)      ;
+;     -- Number of signals with Static Probability from Node, entity or clock assignment ; 3 (0.0%)     ; 2 (0.7%)    ; 0 (0.0%)      ; 1 (0.0%)      ;
+;                                                                                        ;              ;             ;               ;               ;
+; Vectorless estimation                                                                  ;              ;             ;               ;               ;
+;     -- Number of signals with Toggle Rate from Vectorless estimation                   ; 6133 (99.7%) ; 291 (95.1%) ; 1696 (100.0%) ; 4146 (100.0%) ;
+;     -- Number of signals with Zero toggle rate, from Vectorless estimation             ; 18 (0.3%)    ; 2 (0.7%)    ; 1 (0.1%)      ; 15 (0.4%)     ;
+;     -- Number of signals with Static Probability from Vectorless estimation            ; 6133 (99.7%) ; 291 (95.1%) ; 1696 (100.0%) ; 4146 (100.0%) ;
+;                                                                                        ;              ;             ;               ;               ;
+; Default assignment                                                                     ;              ;             ;               ;               ;
+;     -- Number of signals with Toggle Rate from Default assignment                      ; 10 (0.2%)    ; 10 (3.3%)   ; 0 (0.0%)      ; 0 (0.0%)      ;
+;     -- Number of signals with Static Probability from Default assignment               ; 13 (0.2%)    ; 13 (4.2%)   ; 0 (0.0%)      ; 0 (0.0%)      ;
+;                                                                                        ;              ;             ;               ;               ;
+; Assumed 0                                                                              ;              ;             ;               ;               ;
+;     -- Number of signals with Toggle Rate assumed 0                                    ; 3 (0.0%)     ; 3 (1.0%)    ; 0 (0.0%)      ; 0 (0.0%)      ;
++----------------------------------------------------------------------------------------+--------------+-------------+---------------+---------------+
+
+
++---------------------------------------------------------------------------------------------------------------------------------------------+
+; Signal Activities                                                                                                                           ;
++--------+------+---------------------------------------------+-------------------------+--------------------+--------------------------------+
+; Signal ; Type ; Toggle Rate (millions of transitions / sec) ; Toggle Rate Data Source ; Static Probability ; Static Probability Data Source ;
++--------+------+---------------------------------------------+-------------------------+--------------------+--------------------------------+
+(1) The "Signal Activity" Table has been hidden. To show this table, please select the "Write signal activities to report file" option under "PowerPlay Power Analyzer Settings".
+
+
++-------------------------+
+; Power Analyzer Messages ;
++-------------------------+
+Info: *******************************************************************
+Info: Running Quartus Prime Power Analyzer
+    Info: Version 21.1.0 Build 842 10/21/2021 SJ Lite Edition
+    Info: Processing started: Mon Aug 17 23:45:24 2026
+Info: Command: quartus_pow --read_settings_files=on --write_settings_files=off RV32IM_PIPE_CORE -c RV32IM_PIPE_CORE
+Warning (18236): Number of processors has not been specified which may cause overloading on shared machines.  Set the global assignment NUM_PARALLEL_PROCESSORS in your QSF to an appropriate value for best performance.
+Info (21077): Low junction temperature is 0 degrees C
+Info (21077): High junction temperature is 85 degrees C
+Info (332164): Evaluating HDL-embedded SDC commands
+    Info (332165): Entity sld_hub
+        Info (332166): create_clock -name altera_reserved_tck [get_ports {altera_reserved_tck}] -period 10MHz   
+        Info (332166): set_clock_groups -asynchronous -group {altera_reserved_tck}
+Info (332104): Reading SDC File: 'RV32IM_pipeline.sdc'
+Info (332110): Deriving PLL clocks
+    Info (332110): create_generated_clock -source {\G0:MCLK|altpll_component|pll|inclk[0]} -divide_by 2 -duty_cycle 50.00 -name {\G0:MCLK|altpll_component|pll|clk[0]} {\G0:MCLK|altpll_component|pll|clk[0]}
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in the Timing Analyzer to see clock uncertainties.
+Info (223000): Starting Vectorless Power Activity Estimation
+Warning (222013): Relative toggle rates could not be calculated because no clock domain could be identified for some nodes
+Info (223001): Completed Vectorless Power Activity Estimation
+Info (218000): Using Advanced I/O Power to simulate I/O buffers with the specified board trace model
+Info (334003): Started post-fitting delay annotation
+Info (334004): Delay annotation completed successfully
+Info (215049): Average toggle rate for this design is 2.848 millions of transitions / sec
+Info (215031): Total thermal power estimate for the design is 299.10 mW
+Info: Quartus Prime Power Analyzer was successful. 0 errors, 2 warnings
+    Info: Peak virtual memory: 5199 megabytes
+    Info: Processing ended: Mon Aug 17 23:45:36 2026
+    Info: Elapsed time: 00:00:12
+    Info: Total CPU time (on all processors): 00:00:12
+
+
