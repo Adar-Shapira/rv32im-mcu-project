@@ -1,0 +1,53 @@
+onerror {resume}
+quietly WaveActivateNextPane {} 0
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/rst_i
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/clk_i
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/pc_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/instruction_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/RegWrite_ctrl_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/MemWrite_ctrl_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/Branch_ctrl_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/read_data1_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/read_data2_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/write_data_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/alu_res_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/brTaken_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/dtcm_addr_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/dtcm_data_wr_o
+add wave -noupdate -expand -group TOP -radix hexadecimal /tb_rv32impipelinedmcu/dtcm_data_rd_o
+add wave -noupdate -expand -group PIPE_CTRL -radix hexadecimal /tb_rv32impipelinedmcu/stall_o
+add wave -noupdate -expand -group PIPE_CTRL -radix hexadecimal /tb_rv32impipelinedmcu/flush_o
+add wave -noupdate -expand -group PIPE_CTRL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/redirect_addr_w
+add wave -noupdate -expand -group PIPE_CTRL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/forward_a_w
+add wave -noupdate -expand -group PIPE_CTRL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/forward_b_w
+add wave -noupdate -expand -group COUNTERS -radix unsigned /tb_rv32impipelinedmcu/CLKCNT_o
+add wave -noupdate -expand -group COUNTERS -radix unsigned /tb_rv32impipelinedmcu/STCNT_o
+add wave -noupdate -expand -group COUNTERS -radix unsigned /tb_rv32impipelinedmcu/FHCNT_o
+add wave -noupdate -expand -group COUNTERS -radix hexadecimal /tb_rv32impipelinedmcu/BPADDR_i
+add wave -noupdate -expand -group COUNTERS -radix hexadecimal /tb_rv32impipelinedmcu/BPTRIGGER_o
+add wave -noupdate -expand -group CONTROL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/CTL/Jal_ctrl_o
+add wave -noupdate -expand -group CONTROL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/CTL/Jalr_ctrl_o
+add wave -noupdate -expand -group CONTROL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/CTL/ALUOp_ctrl_o
+add wave -noupdate -expand -group CONTROL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/CTL/mul_w
+add wave -noupdate -expand -group MUL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/EXE/MUL/a_i
+add wave -noupdate -expand -group MUL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/EXE/MUL/b_i
+add wave -noupdate -expand -group MUL -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/EXE/MUL/res_o
+add wave -noupdate -expand -group REGFILE -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/ID/RF_q
+TreeUpdate [SetDefaultTree]
+WaveRestoreCursors {{Cursor 1} {0 ns} 0}
+quietly wave cursor active 0
+configure wave -namecolwidth 290
+configure wave -valuecolwidth 100
+configure wave -justifyvalue left
+configure wave -signalnamewidth 0
+configure wave -snapdistance 10
+configure wave -datasetprefix 0
+configure wave -rowmargin 4
+configure wave -childrowmargin 2
+configure wave -gridoffset 0
+configure wave -gridperiod 1
+configure wave -griddelta 40
+configure wave -timeline 0
+configure wave -timelineunits ns
+update
+WaveRestoreZoom {0 ns} {914 ns}

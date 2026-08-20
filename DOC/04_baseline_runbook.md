@@ -227,3 +227,64 @@ Write the outcome into the plan file's status table, and save under `Screenshots
 If any of the four cycle counts differs from section 5.1, **stop**. Do not start Step 3. A baseline
 that does not reproduce means the environment differs from the one that produced these numbers, and
 every later result would be uninterpretable.
+
+---
+
+## 8. Phase 1 verification — the same numbers through the new wrapper
+
+Section 4–5 prove the *reference*. This section proves that our new structural top level is
+behaviourally transparent, which is the Phase 1 exit criterion.
+
+Nothing about the CPU changed between the two runs. The only difference is that
+`RV32IMscMCU` now sits between the testbench and `RV32IM_CORE`, conditioning reset and gating the
+observation ports. If the cycle counts move, the wrapper is not transparent and must be fixed before
+any further work.
+
+### 8.1 ModelSim
+
+1. **File → Change Directory…** → `SIM\RV32IMscMCU` (the project tree, not `Auxiliary`).
+2. Execute `compile.do`. Expected: **0 errors**, and the same three known
+   "Non-locally static OTHERS choice" warnings on `EXECUTE.vhd`.
+3. Edit `set N` in `run_test.do`, execute it, for N = 1..4.
+
+**No source edit is needed to switch to simulation.** `run_test.do` passes `-gMODELSIM=1`, which the
+testbench forwards to the wrapper and the core. `cond_compilation_package.vhd` keeps its shipped
+default of `0` so Quartus needs no edit either.
+
+**Expected: identical to section 5.1** — `mclk_cnt_o` = 134 / 1514 / 2725 / 2735, halting at `pc_o` =
+`0070` / `0070` / `00CC` / `004C` with `instruction_o = 00000063`, and `DTCM.mem` matching each
+`RARS/DTCM.h` in all 1024 words.
+
+If a dump comes out **empty**, the hierarchical path in `mem_dump.do` is wrong. It must be
+`/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the wrapper and
+is easy to omit. An empty dump is not reported as an error by `mem save`.
+
+Then repeat for `SIM\RV32IMpipelinedMCU`. Its `run_test.do` already prints `CLKCNT_o`, `STCNT_o` and
+`FHCNT_o`; **record all three per test** — they are the input to the IPC check and are written down
+nowhere (G-205).
+
+### 8.2 Quartus
+
+Open `Quartus\RV32IMscMCU\RV32IMscMCU.qpf` and compile.
+
+- Top entity must resolve to `RV32IMscMCU`.
+- `G_MODELSIM` stays `0` — no edit.
+- **The Fitter will report unassigned pins.** That is correct and expected: this is the
+  *performance* revision, deliberately carrying no pin assignments so the PPA numbers describe the
+  design rather than the board. Pins arrive in the separate `_hw` revision later.
+
+**The number that matters:** the Fitter's area report must show **131,072 embedded memory bits**
+(= 2 × 2048 × 32). If it shows 483,328, a SignalTap instance has crept back in — that was exactly
+the defect in repo commit `8a71ffb`, and reverting it is why this revision came from commit
+`cfc4b4f`.
+
+Compare the rest against the reference build for a sanity check, not as a target: single-cycle
+Fmax 26.81 MHz on `\G0:MCLK|altpll_component|pll|clk[0]`, Slow 1200 mV 85 °C. The wrapper adds
+combinational conditioning on reset and a gate on the debug ports, so small movements in logic
+elements are expected; a large jump is not.
+
+### 8.3 Record
+
+Into the plan file's Phase 1 row: the four SC cycle counts, the four pipeline
+`CLKCNT`/`STCNT`/`FHCNT` triples, the compile error and warning counts, and the memory-bit figure
+from both perf revisions.

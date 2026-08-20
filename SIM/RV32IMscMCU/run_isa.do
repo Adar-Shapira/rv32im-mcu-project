@@ -1,0 +1,25 @@
+# run_isa.do - run the directed, self-checking ISA test
+#
+# Regenerate the inputs first if the suite changed:
+#     python3 tools/gen_isa_test.py
+# then compile.do, then this macro.
+#
+# The images live in this directory under isa/, but the RTL always loads from
+# C:\TestPrograms\Quartus21_1\app_bin (init_file is hardcoded in IFETCH.vhd:64
+# and DMEMORY.vhd:50), so they are staged there exactly like a benchmark.
+
+file copy -force isa/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force isa/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
+
+vsim -t ns -gMODELSIM=1 work.tb_isa_directed
+
+# The testbench stops itself at the sentinel after printing the summary, and the
+# watchdog fires with severity failure if the PC ever leaves the program. The
+# bound below only backstops a hang in the tool itself.
+run 250 us
+
+echo ""
+echo "Read the SUMMARY block above."
+echo "  Before Phase 3: 20 mismatches is the expected result (EXPECTED_DEFECT_COUNT)."
+echo "  After  Phase 3: 0 mismatches is the expected result."
+echo "  Which cases and why: SIM/RV32IMscMCU/isa/listing.txt"

@@ -13,7 +13,29 @@
       "Bash(mv \"Auxiliary/Benchmark Apps/Interupt-based IO\" \"Auxiliary/Benchmark Apps/_superseded/Interupt-based IO\")",
       "Bash(cp -R '/Users/yehonatandadkha/Downloads/Benchmark apps/Intrrupt-based IO' 'Auxiliary/Benchmark Apps/Intrrupt-based IO')",
       "Bash(cd ~/Downloads/rv32im-mcu-project *)",
-      "Read(//Users/yehonatandadkha/Downloads/Benchmark apps/Intrrupt-based IO/**)"
+      "Read(//Users/yehonatandadkha/Downloads/Benchmark apps/Intrrupt-based IO/**)",
+      "Bash(sed -i '' -e 's|../../DUT/RV32IM_sc/|../../DUT/RV32IMscMCU/|g' -e 's|-name TOP_LEVEL_ENTITY RV32IM_CORE|-name TOP_LEVEL_ENTITY RV32IMscMCU|' -e 's|\\\\\\(-name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IM_CORE.vhd\\\\\\)|-name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IMscMCU.vhd\\\\nset_global_assignment \\\\1|' RV32IM_CORE.qsf)",
+      "Bash(mv RV32IM_CORE.qsf RV32IMscMCU.qsf)",
+      "Bash(sed -i '' -e 's|RV32IM_CORE|RV32IMscMCU|g' RV32IM_CORE.qpf)",
+      "Bash(mv RV32IM_CORE.qpf RV32IMscMCU.qpf)",
+      "Bash(mv RV32IM_sc.sdc RV32IMscMCU.sdc)",
+      "Bash(sed -n '/gen_clk/,$p' TB/RV32IMpipelinedMCU/tb_RV32IM_pipeline.vhd)",
+      "Bash(sed -n '/^ENTITY tb_RV32IM_pipeline/,/^END tb_RV32IM_pipeline/p' TB/RV32IMpipelinedMCU/tb_RV32IM_pipeline.vhd)",
+      "Bash(sed -i '' -e 's|\\\\.\\\\./\\\\.\\\\./DUT/RV32IM_pipeline/|../../DUT/RV32IMpipelinedMCU/|g' -e 's|-name TOP_LEVEL_ENTITY RV32IM_PIPE_CORE|-name TOP_LEVEL_ENTITY RV32IMpipelinedMCU|' -e 's|-name SDC_FILE RV32IM_pipeline.sdc|-name SDC_FILE RV32IMpipelinedMCU.sdc|' -e 's|\\\\\\(-name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/RV32IM_PIPE_CORE.vhd\\\\\\)|-name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/RV32IMpipelinedMCU.vhd\\\\nset_global_assignment \\\\1|' RV32IM_PIPE_CORE.qsf)",
+      "Bash(mv RV32IM_PIPE_CORE.qsf RV32IMpipelinedMCU.qsf)",
+      "Bash(sed -i '' -e 's|RV32IM_PIPE_CORE|RV32IMpipelinedMCU|g' RV32IM_PIPE_CORE.qpf)",
+      "Bash(mv RV32IM_PIPE_CORE.qpf RV32IMpipelinedMCU.qpf)",
+      "Bash(mv RV32IM_pipeline.sdc RV32IMpipelinedMCU.sdc)",
+      "Bash(python3 tools/gen_isa_test.py)",
+      "Bash(cat)",
+      "Bash(sed -n '/EXPECTED : expected_array_t/,+5p' TB/RV32IMscMCU/isa_expected_pkg.vhd)",
+      "Bash(sed -i '' -e 's|C:\\\\\\\\TestPrograms\\\\\\\\Quartus21_1\\\\\\\\app_bin|C:/TestPrograms/Quartus21_1/app_bin|' TB/RV32IMscMCU/tb_isa_directed.vhd)",
+      "Bash(sed -i '' -e '/variable expected_fails\t: natural := 0;/d' -e '/variable surprises\t\t: natural := 0;/d' TB/RV32IMscMCU/tb_isa_directed.vhd)",
+      "Bash(sed -n '/scoreboard : process/,/^\tbegin/p' TB/RV32IMscMCU/tb_isa_directed.vhd)",
+      "Bash(awk '{print $4}')",
+      "Bash(sed -i '' -e 's|The expected result is \\\\*\\\\*exactly 19 mismatches\\\\*\\\\*|The expected result is **exactly 20 mismatches**|' -e 's|A count other than 19 is the interesting outcome|A count other than 20 is the interesting outcome|' -e 's|^The 19: |The 20: |' rv32im_mcu_project_0a7e2b8a.plan.md)",
+      "Bash(sed -i '' -e 's|\"  Before Phase 3: 18 mismatches is the expected result.\"|\"  Before Phase 3: 20 mismatches is the expected result \\(EXPECTED_DEFECT_COUNT\\).\"|' SIM/RV32IMscMCU/run_isa.do)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

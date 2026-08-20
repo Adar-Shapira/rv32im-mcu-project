@@ -22,6 +22,156 @@ references most closely.
 
 ---
 
+# 0. How the two of us work  ·  read this first
+
+**Yehonatan — MacBook.** No simulator, no synthesiser. Writes and reviews VHDL, generates and
+analyses memory images, maintains this plan and the `DOC/` documents. Cannot compile or run anything.
+
+**Adar — Lenovo.** Has Quartus and ModelSim, and the board. Runs everything, records the numbers, and
+reports back what actually happened.
+
+So every phase splits in two: **prepared** on the Mac, **verified** on the Lenovo. A phase is not
+done until Adar's numbers are in this file. Nothing here has ever been compiled.
+
+## 0.1 Getting the code
+
+```
+git clone https://github.com/Adar-Shapira/rv32im-mcu-project.git
+cd rv32im-mcu-project
+git pull                     # before every session
+```
+
+> **Yehonatan: the Phase 1 and Phase 2 work is still uncommitted.** 51 files across `DUT/`, `TB/`,
+> `SIM/`, `Quartus/`, `tools/` and `DOC/`. Commit and push before Adar starts, or he pulls an empty
+> tree.
+
+## 0.2 One-time setup on the Lenovo
+
+| # | What | Detail |
+| --- | --- | --- |
+| 1 | **Quartus Prime 21.1.0 Lite** | Device support for Cyclone IV E. The projects target `EP4CE115F29C7`. |
+| 2 | **ModelSim – Intel FPGA Starter Edition 20.1** | Expected at `C:\intelFPGA\20.1\modelsim_ase`. The version matters: `mem_dump.do` reaches into the precompiled `altsyncram` model's internals (`m_mem_data_a`), which is version-locked. A different ModelSim fails at the dump step, not at compile. |
+| 3 | **Python 3** | Only needed to regenerate the ISA test (`tools/gen_isa_test.py`). The generated files are committed, so this is optional at first. |
+| 4 | **Stage the benchmark images** | Run the PowerShell block in `DOC/04_baseline_runbook.md` §3 from the repo root. It builds `C:\TestPrograms\Quartus21_1\{app_bin, test1..4\bin, test1..4\RARS}` from files already in the repo. Nothing has to be downloaded. |
+
+Why `C:\TestPrograms\Quartus21_1\` and not a path inside the repo: the RTL hardcodes
+`init_file => "C:\TestPrograms\Quartus21_1\app_bin\{ITCM,DTCM}.hex"` at `IFETCH.vhd:64` and
+`DMEMORY.vhd:50`. That is the convention Lab 5 already used and it is deliberately left alone until
+the submission is staged — changing it now would mean the measured baseline no longer reproduces.
+
+## 0.3 What Adar runs, in order
+
+Two ModelSim sessions get us through everything that is currently prepared. **Stop at the first one
+that does not match** and report the numbers — do not carry on.
+
+### Run 1 — Baseline (Phase 0). Proves the tools, not our code.
+
+Working directory: `Auxiliary\Lab 5 - as submitted\SIM\RV32IM_sc`
+
+1. Edit `DUT\RV32IM_sc\cond_compilation_package.vhd:51` → `G_MODELSIM := 1`. *(Only this tree needs
+   the manual edit; ours does not — see Run 2.)*
+2. Execute `compile.do`. Expect **0 errors**, and three "Non-locally static OTHERS choice" warnings on
+   `EXECUTE.vhd` — those are known and harmless.
+3. For `N` = 1, 2, 3, 4: set `set N <n>` in `run_test.do`, execute it.
+
+| Test | `mclk_cnt_o` | stops at | `pc_o` | `DTCM.mem` vs `testN\RARS\DTCM.h` |
+| --- | --- | --- | --- | --- |
+| test1 | **134** | 13.4 µs | `0070` | identical, 1024 words |
+| test2 | **1514** | 151.4 µs | `0070` | identical |
+| test3 | **2725** | 272.5 µs | `00CC` | identical |
+| test4 | **2735** | 273.5 µs | `004C` | identical |
+
+Then repeat in `SIM\RV32IM_pipeline` and **write down `CLKCNT_o`, `STCNT_o`, `FHCNT_o` per test** —
+those three numbers exist nowhere and Phase 11's IPC check needs them.
+
+*If the counts do not match:* the environment differs from the one that produced them. Do not start
+Run 2. Report the ModelSim version and the transcript.
+
+### Run 2 — Our tree (Phases 1 and 2).
+
+Working directory: `SIM\RV32IMscMCU`
+
+**No source edit.** `run_test.do` and `run_isa.do` both pass `-gMODELSIM=1`, which the testbench
+forwards to the wrapper and the core. Quartus keeps the package default of `0` and also needs no
+edit. If you ever find yourself editing `cond_compilation_package.vhd` in our tree, something is
+wrong — say so.
+
+1. Execute `compile.do`. Expect 0 errors and the same three warnings.
+2. **Phase 1:** run `run_test.do` for `N` = 1..4. Expect the **same four counts as Run 1**
+   (134 / 1514 / 2725 / 2735). The only change is that `RV32IMscMCU` now sits between the testbench
+   and the core, so identical counts prove the new top level is transparent.
+   - *An empty `DTCM.mem` means the hierarchical path in `mem_dump.do` is wrong.* It must be
+     `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the new
+     wrapper. `mem save` does not report this as an error.
+3. **Phase 2:** run `run_isa.do`. Expect **exactly 20 mismatches**, then a `SUMMARY` block.
+   - **20 is the pass condition.** These are the known defects; the suite exists to measure them.
+   - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
+   - **Any other number is a finding.** A mismatch on a case the listing does not mark `DEFECT` is a
+     new bug; a `DEFECT` case that passes means the bug is not where we think. Either way, paste the
+     whole `ISA TEST FAIL` list back.
+   - Which 20, and the citation for each: `SIM\RV32IMscMCU\isa\listing.txt`.
+4. Repeat step 2 in `SIM\RV32IMpipelinedMCU`.
+
+### Run 3 — Quartus (still Phase 1).
+
+Open `Quartus\RV32IMscMCU\RV32IMscMCU.qpf`, compile.
+
+- The top entity must resolve to `RV32IMscMCU`.
+- **The Fitter will warn about unassigned pins. That is correct.** This is the *performance* revision
+  and deliberately carries no pin assignments, so the PPA numbers describe the design and not the
+  board. The pinned revision comes later, in Phase 14.
+- **The number that matters: embedded memory bits must be 131,072** (= 2 × 2048 × 32). If it reads
+  **483,328**, a SignalTap instance has crept back in — that was the exact defect in Lab 5 commit
+  `8a71ffb`, and avoiding it is why our tree was built from commit `cfc4b4f`.
+- Sanity reference, not a target: single-cycle Fmax was **26.81 MHz** on
+  `\G0:MCLK|altpll_component|pll|clk[0]`, Slow 1200 mV 85 °C. The wrapper adds a little
+  combinational logic, so small movement is expected; a large jump is not.
+
+Then the same for `Quartus\RV32IMpipelinedMCU\RV32IMpipelinedMCU.qpf`.
+
+## 0.4 Where Adar writes the results
+
+Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase 2 each have a
+**"Adar's results"** block waiting. Screenshots go to `Screenshots\ModelSim\` and
+`Screenshots\Quartus\`. Commit and push; the numbers are the deliverable, not a side note.
+
+## 0.5 Ownership per phase
+
+| Phase | Prepared by | Verified by | State |
+| --- | --- | --- | --- |
+| 0 Baseline | — (supplied material) | **Adar** | ready to run |
+| 1 Clean structural base | Yehonatan ✔ | **Adar** | ready to run |
+| 2 Directed ISA test | Yehonatan ✔ | **Adar** | ready to run |
+| 3 Repair the core | Yehonatan | Adar | waits on Phase 2's result |
+| 4 Clock tree / CDC | Yehonatan | Adar | waits on Q2 |
+| 5 Bus interface + DTCM | Yehonatan | Adar | |
+| 6 GPIO | Yehonatan | Adar | waits on Q5 |
+| 7 Divider | Yehonatan | Adar | waits on Q6 |
+| 8 Basic Timer | Yehonatan | Adar | waits on Q3, Q4, Q8 |
+| 9 Interrupt controller | Yehonatan | Adar | waits on Q7 |
+| 10 SC benchmarks | Yehonatan | Adar | |
+| 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
+| 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
+| 13 Regression | Yehonatan | Adar | |
+| 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
+| 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
+| 16 Report + ZIP | both | Adar checks the clean-room build | |
+
+## 0.6 What Adar can also help with, off the critical path
+
+- **Send Q1, Q2, Q3 to Hanan or the TA** (`DOC/03_open_questions.md`): which board, the three clock
+  frequencies, and the 8× `SEC_PERIOD` discrepancy. Each already has a provisional decision so
+  nothing is blocked, but answers take time — send early.
+- **Answer G-207:** what is already inside the `finalProj` Quartus project on your machine? It exists
+  in no local copy and its contents are unknown.
+- **Answer G-208:** the two circled Quartus settings in the photos from 19 Aug — "Use smart
+  compilation" and "Advanced Physical Optimization = Off". Were those staff instructions? Both change
+  the PPA numbers, so if they are instructions they are requirements and not our choice.
+- **Find the DE2-115 expansion-header pin table** (G-504). It is in the Terasic User Manual and in no
+  file we have. Needed for the UART pins in Phase 12.
+
+---
+
 # 1. Why commit 1 is the base
 
 The repository has three commits. Their contents were diffed file by file.
@@ -186,7 +336,7 @@ ports are gated by a generic inside a `generate`, satisfying §7 directly.
 Every phase states its exit criterion. A phase is not done until its criterion is measured, not
 argued.
 
-## Phase 0 — Baseline  ·  blocked on Windows
+## Phase 0 — Baseline  ·  **Adar: Run 1**
 
 Prove the environment before changing anything.
 
@@ -197,7 +347,96 @@ Prove the environment before changing anything.
 
 Gaps: **G-202**, G-201, G-206.
 
-## Phase 1 — Clean structural base
+### ▸ Adar's results — Phase 0
+
+Single-cycle, in `Auxiliary\Lab 5 - as submitted\SIM\RV32IM_sc`:
+
+| Test | expected `mclk_cnt_o` | **measured** | `pc_o` | golden compare |
+| --- | --- | --- | --- | --- |
+| test1 | 134 | | | |
+| test2 | 1514 | | | |
+| test3 | 2725 | | | |
+| test4 | 2735 | | | |
+
+Pipeline, in `...\SIM\RV32IM_pipeline` — these three columns exist nowhere yet and Phase 11 needs
+them (**G-205**):
+
+| Test | `CLKCNT_o` | `STCNT_o` | `FHCNT_o` | computed IPC |
+| --- | --- | --- | --- | --- |
+| test1 | | | | |
+| test2 | | | | |
+| test3 | | | | |
+| test4 | | | | |
+
+IPC per LAB5 clause 6.iii.b: `(CLKCNT − (STCNT + 4 + 3·FHCNT)) / CLKCNT`, with depth = 3 because
+branches resolve in stage 4.
+
+- ModelSim version string: ______
+- Compile: ____ errors, ____ warnings (3 expected on `EXECUTE.vhd`)
+- Anything unexpected: ______
+
+## Phase 1 — Clean structural base  ·  **built, awaiting verification**
+
+Done on 2026-08-20. Every file is in place; nothing has been compiled, because that needs Windows.
+
+| Done | What |
+| --- | --- |
+| ✔ | `DUT/RV32IMscMCU/` and `DUT/RV32IMpipelinedMCU/` populated from commit **`cfc4b4f`** — 24 files, cores without `RSTPOL` |
+| ✔ | `RV32IMscMCU.vhd` and `RV32IMpipelinedMCU.vhd` written — the outer structural level §3 requires, with reset conditioning and the §7 `GEN_DEBUG_PORTS` gate |
+| ✔ | `RST_ACTIVE_LOW` is an **independent** generic, not tied to `MODELSIM`. **D-1 reverted.** |
+| ✔ | Both component declarations added to the two `aux_package.vhd` files |
+| ✔ | `TB/RV32IMscMCU/tb_RV32IMscMCU.vhd` and `TB/RV32IMpipelinedMCU/tb_RV32IMpipelinedMCU.vhd` — the names §10 mandates. Clock, reset waveform and commit 2's auto-stop preserved byte-for-byte; the pipeline TB's external names retargeted through the new level. |
+| ✔ | `SIM/*/{compile,run_test,mem_dump,wave,batch_verify}.do` retargeted. `mem_dump.do`'s hierarchical path gained the `MCU` level — getting this wrong yields an empty dump, not an error. |
+| ✔ | `vsim -gMODELSIM=1` added to every `vsim` line. **G-201 closed** — and it needed no RTL change, because the testbench already exposed `MODELSIM` as a generic and forwarded it. |
+| ✔ | Quartus projects renamed to `RV32IMscMCU.{qpf,qsf,sdc}` / `RV32IMpipelinedMCU.{qpf,qsf,sdc}`, top entity set to the wrapper, wrapper added to the file list. Taken from commit 1, so **no pin assignments and no SignalTap. D-2 reverted.** |
+| ✔ | All six hand-written port maps cross-checked against their entities: 16/16 and 22/22, zero mismatches |
+
+**Verified absent / present in the new tree:** `RSTPOL` 0 occurrences · `std.env.stop` 2 files ·
+`signaltap` 0 in `.qsf` · `set_location_assignment` 0 · and the four defect sites still present and
+untouched at `CONTROL.vhd:142`, `const_package.vhd:27`, `EXECUTE.vhd:10`, `EXECUTE.vhd:200`.
+
+**Still to do in this phase:** the second Quartus revision per configuration (`*_hw` with pins and
+SignalTap) — deferred until there are pins worth assigning, i.e. after Phase 6. The perf revision
+exists now and is what the PPA tables need.
+
+**Exit criterion, not yet met:** compile both wrappers in ModelSim and Quartus, and reproduce
+134 / 1514 / 2725 / 2735 *through the wrapper*. Procedure in `DOC/04_baseline_runbook.md` §8.
+
+### ▸ Adar's results — Phase 1  (Run 2 steps 1–2, and Run 3)
+
+ModelSim, in `SIM\RV32IMscMCU`. **No source edit — `run_test.do` passes `-gMODELSIM=1`.**
+
+| Test | expected | **measured** | same as Phase 0? |
+| --- | --- | --- | --- |
+| test1 | 134 | | |
+| test2 | 1514 | | |
+| test3 | 2725 | | |
+| test4 | 2735 | | |
+
+Identical counts are the whole point: they prove `RV32IMscMCU` is behaviourally transparent. A
+difference means the wrapper changed something and must be fixed before Phase 3.
+
+Then the same in `SIM\RV32IMpipelinedMCU`: ______
+
+Quartus, `Quartus\RV32IMscMCU\RV32IMscMCU.qpf`:
+
+| | expected | **measured** |
+| --- | --- | --- |
+| Top entity resolved | `RV32IMscMCU` | |
+| **Embedded memory bits** | **131,072** | |
+| Logic elements | ~3,384 was the pipeline reference; SC is smaller | |
+| Registers | | |
+| Fmax | 26.81 MHz was the pre-wrapper reference | |
+| Errors / critical warnings | 0 | |
+
+**131,072 is the load-bearing number.** 483,328 would mean SignalTap is instrumenting the build
+again, which is the defect D-2 this whole tree exists to avoid.
+
+Unassigned-pin warnings are expected and correct here — this is the pinless performance revision.
+
+Then `Quartus\RV32IMpipelinedMCU\RV32IMpipelinedMCU.qpf`: ______
+
+### Original phase description
 
 Establish the tree from commit 1's shape, not HEAD's.
 
@@ -219,7 +458,101 @@ Establish the tree from commit 1's shape, not HEAD's.
 
 Gaps: G-311 (clock tree), D-1, D-2, D-3.
 
-## Phase 2 — Directed ISA verification
+## Phase 2 — Directed ISA verification  ·  **built, awaiting verification**
+
+Done on 2026-08-20. Written and self-validated here; the ModelSim run is on Windows.
+
+| Done | What |
+| --- | --- |
+| ✔ | `tools/gen_isa_test.py` — generates the test program, the memory images, the expected-store package and a human listing, all from **one** table, so program and expectations cannot drift apart |
+| ✔ | `TB/RV32IMscMCU/tb_isa_directed.vhd` — self-checking scoreboard, **41 declared cases**, 43 stores |
+| ✔ | `TB/RV32IMscMCU/isa_expected_pkg.vhd` + `SIM/RV32IMscMCU/isa/{ITCM,DTCM}.hex` + `listing.txt` — generated |
+| ✔ | `SIM/RV32IMscMCU/run_isa.do`, and the two new files added to `compile.do` |
+
+**Three design problems and how each was solved**
+
+*How does the testbench see results?* There is no register-file port. But
+`MemWrite_ctrl_o`, `dtcm_addr_o` and `dtcm_data_wr_o` are declared outputs, so the scoreboard snoops
+the store bus. No external names, no memory introspection, nothing tied to a precompiled Altera
+model. The program publishes each case with `sw rX, slot*4(x0)`, so the store sequence *is* the
+result sequence.
+
+*When is a store valid?* `DMEMORY` drives its `altsyncram` with `wrclk_w <= NOT clk_i`, so the DTCM
+commits on the **falling** edge of `clk_i`. The scoreboard samples there. Sampling the rising edge
+would race the instruction fetch.
+
+*What can the harness rely on?* Four of the five defects break exactly the instructions a harness
+normally leans on — `lui` writes 0, loads ignore their offset, `sra` is `srl`, unsigned compares are
+signed. So every case builds operands with `addi`/`slli` and publishes with `sw`. A 32-bit constant
+is assembled a byte at a time (`li32`) because `lui` cannot be trusted.
+
+**Self-validation that ran here, with no simulator**
+
+- **Encoder self-test, 9/9.** Every encoding checked against a known word — including
+  `addi s0,s0,160 = 0x0A040413` taken straight from the supplied `test1` ITCM image, and the two
+  sentinels `0x00000063` / `0x0000006F`.
+- **Reference RV32IM interpreter, 41/41.** A second, independent implementation written from the
+  unprivileged ISA spec executes the generated program and produces the store sequence. Every
+  declared expectation is cross-checked against it, so **a mismatch in ModelSim is a hardware
+  finding, not a bad expectation.**
+- **Structural check on all 8 hand-written VHDL files** — parens balanced, `process`/`component`
+  blocks matched, no aggregate element missing a comma.
+- **Image well-formedness** — 206 instruction records plus the EOF record, and the last instruction
+  is the `0x00000063` sentinel.
+
+**Two real bugs the self-validation caught before Windows ever saw the code**
+
+1. The reference run reported **43 stores against 41 cases**: two cases perform scratch `sw`s while
+   setting up, and those are real stores on the bus. Left unfixed the whole sequence would have been
+   off by two and 19 cases would have mis-reported. Scratch data moved to words 200+ and the expected
+   sequence is now derived from the reference run, so setup stores are accounted for explicitly.
+2. `mulh` of `0x12345678 × 2` is **0** — which is also what an undecoded instruction writes, so all
+   three high-multiply cases would have passed while testing nothing. Operands changed to
+   `0x12345678 × 0x10000000`, whose high word is `0x01234567`.
+
+**Exit criterion, not yet met:** run `run_isa.do`. The expected result is **exactly 20 mismatches** —
+the number is a generated constant (`EXPECTED_DEFECT_COUNT`), and the testbench compares its own
+tally against it, so it cannot drift. Zero mismatches would mean the images never reached `app_bin`.
+A count other than 20 is the interesting outcome: a mismatch on a case not marked `DEFECT` is a new
+finding, and a `DEFECT` case that passes means the defect is not where we think it is.
+
+The 20: `andi`, `ori`, `sltiu`, `sltu`, `srai`, `sra`, `lui`, `lw_offset`, `sb_then_lbu`, `mul_wide`,
+`mul_hi_low`, `mulh`, `mulhu`, `mulhsu`, `div`, `divu`, `rem`, `remu`, `bltu_nottaken`,
+`bgeu_taken` — each with its citation in `SIM/RV32IMscMCU/isa/listing.txt`.
+
+### ▸ Adar's results — Phase 2  (Run 2 step 3)
+
+`SIM\RV32IMscMCU` → `run_isa.do`. Read the `SUMMARY` block it prints.
+
+- Stores observed: ____ of 43
+- **Mismatches: ____ ** (20 expected)
+- Cycles: ____
+
+Then tick each predicted case. A blank means it **passed**, which for these is itself a finding —
+it would mean the defect is not where we think.
+
+| # | case | mismatched? | # | case | mismatched? |
+| --- | --- | --- | --- | --- | --- |
+| 7 | `andi` | | 25 | `mul_wide` | |
+| 8 | `ori` | | 26 | `mul_hi_low` | |
+| 12 | `sltiu` | | 27 | `mulh` | |
+| 14 | `sltu` | | 28 | `mulhu` | |
+| 18 | `srai` | | 29 | `mulhsu` | |
+| 19 | `sra` | | 30 | `div` | |
+| 20 | `lui` | | 31 | `divu` | |
+| 22 | `lw_offset` | | 32 | `rem` | |
+| 23 | `sb_then_lbu` | | 33 | `remu` | |
+| 38 | `bltu_nottaken` | | 39 | `bgeu_taken` | |
+
+**Any case NOT in this table that mismatched — paste the full `ISA TEST FAIL` line here:**
+
+```
+```
+
+That is the highest-value output of the whole phase: it is a defect nobody has found yet, and Phase 3
+has to account for it.
+
+### Original phase description
 
 The first real test infrastructure. Authorable now, runnable on Windows.
 
@@ -234,7 +567,7 @@ The first real test infrastructure. Authorable now, runnable on Windows.
 
 Gaps: **G-402**, G-401.
 
-## Phase 3 — Repair and complete the core
+## Phase 3 — Repair and complete the core  ·  Yehonatan writes · Adar verifies · **gated on Phase 2's numbers**
 
 - Fix the five defects. Cite each: one from Hanan's baseline `CONTROL.VHD:141`, four designed by us
   with the reasoning recorded.
@@ -252,7 +585,7 @@ Gaps: **G-402**, G-401.
 
 Gaps: G-321…G-327, G-307, G-308, G-309.
 
-## Phase 4 — Clock tree, reset, CDC
+## Phase 4 — Clock tree, reset, CDC  ·  Yehonatan writes · Adar verifies
 
 - Regenerate the ALTPLL with `c0`/`c1`/`c2` → `mclk`, `smclk`, `accelclk`. All three existing copies
   expose only `c0`. Worked non-trivial-ratio example: `Auxilary/Lab4/DUT/pll.vhd`, 50 → 2 MHz.
@@ -265,7 +598,7 @@ Gaps: G-321…G-327, G-307, G-308, G-309.
 
 Gaps: G-310, G-311. Blocked on **Q2**.
 
-## Phase 5 — Bus interface and DTCM
+## Phase 5 — Bus interface and DTCM  ·  Yehonatan writes · Adar verifies
 
 - Implement Figure 5's decoder: `A13..A4, A3, A2` → `CS_1..CS_n`, `A0` separating the HEX pairs.
 - Split `0x0000–0x1FFF` → DTCM, `0x2000–0x3FFF` → MMIO, **before** narrowing to the RAM address.
@@ -282,7 +615,7 @@ Gaps: G-310, G-311. Blocked on **Q2**.
 
 Gaps: G-305, G-309.
 
-## Phase 6 — GPIO
+## Phase 6 — GPIO  ·  Yehonatan writes · Adar verifies
 
 - `hex_decoder.vhd` from `Auxilary/Lab4/DUT/` — **use as is**, active-low DE2-115, complete 0–F table.
 - Latched LEDR7-0 and six HEX nibble registers per Figure 5; SW7-0 and KEY3-1 reads.
@@ -292,7 +625,7 @@ Gaps: G-305, G-309.
 
 Gaps: G-306. Blocked on **Q5**.
 
-## Phase 7 — Division accelerator
+## Phase 7 — Division accelerator  ·  Yehonatan writes · Adar verifies
 
 - Figure 9 specifies it completely: dividend left-shift register, divisor register, subtractor
   `Result = Y − X` with non-negative feedback driving the quotient bit, quotient left-shift register;
@@ -306,7 +639,7 @@ Gaps: G-306. Blocked on **Q5**.
 
 Gaps: G-301. Blocked on **Q6**.
 
-## Phase 8 — Basic Timer
+## Phase 8 — Basic Timer  ·  Yehonatan writes · Adar verifies
 
 - 32-bit `BTCNT` up-counter, `BTSSEL` 4-to-1 clock mux (`00`→÷1 … `11`→÷8), `BTHOLD` enable,
   `BTCLR` clear.
@@ -322,7 +655,7 @@ Gaps: G-301. Blocked on **Q6**.
 
 Gaps: G-302. Blocked on **Q3, Q4, Q8**.
 
-## Phase 9 — Interrupt controller and CPU protocol
+## Phase 9 — Interrupt controller and CPU protocol  ·  Yehonatan writes · Adar verifies
 
 - `IE`/`IFG`/`TYPE` per p14. Bit positions verified from two independent sources: the PDF tables and
   the benchmark masks (`BTIE = 0x04` → bit 2; `0x38` → bits 5,4,3; `0xFFF7`/`0xFFEF`/`0xFFDF` clear
@@ -342,7 +675,7 @@ Gaps: G-302. Blocked on **Q3, Q4, Q8**.
 
 Gaps: G-303, G-304. Blocked on **Q7**.
 
-## Phase 10 — Single-cycle benchmark progression
+## Phase 10 — Single-cycle benchmark progression  ·  **Adar runs**
 
 - Interrupt test1 with scripted KEY1/2/3 pulses; test2 one-second BT interrupts; test3 the four
   periods; test4 in compare, PWM and capture modes.
@@ -353,7 +686,7 @@ Gaps: G-303, G-304. Blocked on **Q7**.
 - **Exit:** all mandatory checks pass with saved logs, memory diffs and report-ready waveforms.
   **G-204**: `mem_dump.do` exports 1024 of 2048 DTCM words — extend it or document the limit.
 
-## Phase 11 — Pipeline port  ·  bonus 10%
+## Phase 11 — Pipeline port  ·  bonus 10%  ·  Yehonatan writes · Adar verifies
 
 - Fork only after the single-cycle system is stable. Reuse the same bus interface, peripherals,
   divider and register maps.
@@ -369,7 +702,7 @@ Gaps: G-303, G-304. Blocked on **Q7**.
   `IPC = (CLKCNT_o − (STCNT_o + 4 + depth·FHCNT_o)) / CLKCNT_o`, with `depth` = 3 (branches resolve
   in stage 4). Capture the pipeline's own cycle counts — **G-205**, they are recorded nowhere.
 
-## Phase 12 — UART  ·  bonus 20%
+## Phase 12 — UART  ·  bonus 20%  ·  Yehonatan writes · **Adar needs the cable and the board**
 
 - Base: `UART_FPGA_option1` (jakubcabal, MIT). Keep the licence header.
 - **Most of the register layer is new work** — neither supplied option has separate `RXBUF`/`TXBUF`,
@@ -389,7 +722,7 @@ Gaps: G-303, G-304. Blocked on **Q7**.
 
 Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
 
-## Phase 13 — Regression and evidence
+## Phase 13 — Regression and evidence  ·  **Adar runs**
 
 - Scripts per core × configuration × benchmark: select images, run bounded stimuli, dump memory,
   compare, **return a non-zero exit status on mismatch**. `batch_verify.do` currently only echoes —
@@ -401,7 +734,7 @@ Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
 - **Exit:** one regression summary covering every required test, with no manual source edits anywhere
   in the flow.
 
-## Phase 14 — Quartus PPA
+## Phase 14 — Quartus PPA  ·  **Adar only** — six revisions
 
 - Three perf revisions (A, B, C), no pins, SignalTap off, consistent settings. These produce the
   three tables.
@@ -417,7 +750,7 @@ Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
 
 Gaps: G-206, G-208.
 
-## Phase 15 — Hardware validation
+## Phase 15 — Hardware validation  ·  **Adar only** — needs the DE2-115
 
 - Program each `.sof`; KEY0 reset; exercise GPIO, interrupt and UART scenarios on the DE2-115.
 - SignalTap: at least one KEY ISR, one BT ISR, a divider stall and completion, a pipeline
@@ -429,7 +762,7 @@ Gaps: G-206, G-208.
 
 Blocked on **Q1**.
 
-## Phase 16 — Report and submission
+## Phase 16 — Report and submission  ·  both
 
 - `Final_report.pdf`, structured on `Auxiliary/Lab 5 - as submitted/DOC/Report_lab5.pdf`. Figures and
   tables numbered, captions **below**.
@@ -540,9 +873,35 @@ Gaps: G-501…G-505.
 
 ---
 
-# 7. Next three actions
+# 7. Next actions
 
-1. **Run `DOC/04_baseline_runbook.md` on Windows.** ~30 minutes. Closes G-202 and gates everything.
-2. **Send Q1, Q2, Q3 to course staff** — board, clock frequencies, the 8× `SEC_PERIOD` discrepancy.
-3. **Write the directed ISA testbench** (Phase 2 / G-402). Authorable without a simulator; it turns
-   G-321…G-326 from a claim into a measurement.
+## Adar — Lenovo
+
+1. **One-time setup**, §0.2. Quartus 21.1, ModelSim 20.1, then the PowerShell staging block from
+   `DOC/04_baseline_runbook.md` §3.
+2. **Run 1 — Phase 0 baseline.** ~30 min. Fill in the Phase 0 results table. **This gates
+   everything**; if the four counts do not reproduce, stop and report.
+3. **Run 2 — Phases 1 and 2.** Fill in both results tables. The Phase 2 mismatch count is the input
+   Phase 3 needs.
+4. **Run 3 — Quartus.** Confirm 131,072 memory bits.
+5. **Send Q1, Q2, Q3** to Hanan or the TA (§0.6).
+6. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
+   were instructions.
+
+## Yehonatan — MacBook
+
+1. **Commit and push the Phase 1 + Phase 2 work.** 51 files are uncommitted; without this Adar pulls
+   nothing.
+2. **Prepare Phase 3** — the core repairs. Four of the five defects have to be designed rather than
+   copied, since only `andi`/`ori` has a clean source in Hanan's baseline. Can be written now, but
+   **must not be applied before Phase 2's numbers arrive** — the rules require the failure to be
+   measured before the fix, and a surprise in Adar's mismatch list would change the work.
+3. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for `c0`/`c1`/`c2`
+   and all three existing copies expose only `c0`.
+
+## The gate between us
+
+Phase 3 does not start on either machine until the Phase 2 table above has a number in it. That is
+the point of the whole exercise: measure the defect, then fix it, then measure again with the same
+suite. If the count is 20 the plan proceeds as written. If it is anything else, the difference is a
+finding and we deal with it first.
