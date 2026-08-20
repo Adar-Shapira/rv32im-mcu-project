@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 - /private/tmp/claude-501/-Users-yehonatandadkha-Downloads-rv32im-mcu-project/d30acf67-1f38-4d04-9a2d-2a5b0cda4319/tasks/w4vj88axz.output /private/tmp/claude-501/-Users-yehonatandadkha-Downloads-rv32im-mcu-project/d30acf67-1f38-4d04-9a2d-2a5b0cda4319/scratchpad)",
+      "Bash(ls -la \"/Users/yehonatandadkha/.claude/projects/-Users-yehonatandadkha-Downloads-rv32im-mcu-project/memory/\" 2>&1; echo \"--- MEMORY.md ---\"; cat \"/Users/yehonatandadkha/.claude/projects/-Users-yehonatandadkha-Downloads-rv32im-mcu-project/memory/MEMORY.md\" 2>&1)",
+      "Read(//Users/yehonatandadkha/.claude/projects/-Users-yehonatandadkha-Downloads-rv32im-mcu-project/memory/**)",
+      "Bash(cd /Users/yehonatandadkha/Downloads && echo \"########## Lab5-main ##########\" && find \"Lab5-main\" -type f -not -name '.DS_Store' | head -60 && echo \"  ... total files:\" && find \"Lab5-main\" -type f -not -name '.DS_Store' | wc -l && echo && echo \"########## Benchmark apps \\(lowercase a\\) ##########\" && find \"Benchmark apps\" -type f -not -name '.DS_Store' | head -40 && echo \"  ... total:\" && find \"Benchmark apps\" -type f -not -name '.DS_Store' | wc -l && echo && echo \"########## UART_FPGA_GitHub ##########\" && find \"UART_FPGA_GitHub\" -type f -not -name '.DS_Store' | head -30 && echo && echo \"########## loose new images/pdf ##########\" && ls -la 1.jpeg 2.jpeg \"Final Project 2026 definition.pdf\" 2>&1)",
+      "Read(//Users/yehonatandadkha/Downloads/**)",
+      "Bash(set -e)",
+      "Bash(cd ~/Downloads && ls -la | grep '^d')",
+      "Bash(cd ~/Downloads *)",
+      "Bash(mkdir -p \"Auxiliary/Benchmark Apps/_superseded\")",
+      "Bash(mv \"Auxiliary/Benchmark Apps/Interupt-based IO\" \"Auxiliary/Benchmark Apps/_superseded/Interupt-based IO\")",
+      "Bash(cp -R '/Users/yehonatandadkha/Downloads/Benchmark apps/Intrrupt-based IO' 'Auxiliary/Benchmark Apps/Intrrupt-based IO')",
+      "Bash(cd ~/Downloads/rv32im-mcu-project *)",
+      "Read(//Users/yehonatandadkha/Downloads/Benchmark apps/Intrrupt-based IO/**)"
+    ]
+  }
+}
