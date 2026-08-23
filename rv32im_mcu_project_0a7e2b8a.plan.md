@@ -22,6 +22,127 @@ references most closely.
 
 ---
 
+# 0. NEW — the Lab 5 reference was replaced on 2026-08-23
+
+> `Auxiliary/Lab 5 - as submitted/` is no longer the tree this plan was written against. It was
+> replaced with the **actual final Lab 5 submission**, and the change is large enough that several
+> earlier conclusions in this file are now out of date. Read this section before anything else.
+
+**What is in the folder now** — 341 files, including three things that were not there before:
+
+| New | What it is |
+| --- | --- |
+| `209580208_211468582/` | The real submission staging directory, with the `.sof` files and the `.stp`. Byte-identical to the top-level `DUT/`, `TB/`, so it is a copy, not a variant. |
+| `Auxilary/RV32I/`, `Auxilary/Benchmarks/`, `Auxilary/Ori/` | Hanan's distribution, restructured into proper subfolders — plus a folder called `Ori` that is new. See the provenance warning below. |
+| `PROJECT_EXPLANATION.md`, `DOC/HANDOVER_Report_lab5.md` | 1,400 and 640 lines of prose describing the design, the measured numbers and the report rewrite. The most useful documents in the whole reference tree. |
+
+## 0.a The single most important finding: the pipeline is the repaired core
+
+**The pipelined core repairs all of the single-cycle core's ISA defects, and it was submitted and
+hardware-validated that way.** That changes Phase 3 completely: the repairs no longer have to be
+designed by us. Each one is a transcription from a sibling core in the same submission that passed
+all four benchmarks against the RARS golden DTCM.
+
+And there are **seven** defects, not five. Two were found in the revised reference and had never been
+recorded here:
+
+| # | Defect | Broken at (our tree) | Repaired at (reference pipeline) |
+| --- | --- | --- | --- |
+| 1 | `andi` decodes as OR; `ori` matches the AND arm first | `CONTROL.vhd:142` | `CONTROL.vhd:147` |
+| 2 | `lui` immediate is 0 | `const_package.vhd:27`, `IDECODE.vhd:102` | `const_package.vhd:28-29`, `IDECODE.vhd:181-182` |
+| 3 | every load addresses `rs1+0` | `IDECODE.vhd:97-104` | `IDECODE.vhd:178` |
+| 4 | `sra` ≡ `srl` | `EXECUTE.vhd:200` | `brl_shr_pad_r <= (others => '1')` |
+| 5 | `sltu`/`sltiu`/`bltu`/`bgeu` compare signed | `EXECUTE.vhd:10,81` | `EXECUTE.vhd:196-197` |
+| **6 — new** | **branch/`jal` displacement truncated one bit** | `EXECUTE.vhd:66` | `EXECUTE.vhd:181` |
+| **7 — new** | **`jalr` does not clear the target's bit 0** | `IFETCH.vhd:93` | `RV32IM_PIPE_CORE.vhd:190` |
+
+Defect 6 in detail, because it is the one nobody would find by running the benchmarks: `IDECODE`
+delivers the B/J-type immediate as `imm[12:1]`, so the adder must shift left by one. The
+as-submitted slice is `sign_extend_i(PC_WIDTH-3 DOWNTO 0)` = bits 10..0, which **drops immediate bit
+11** — byte-offset bit 12 — halving the reachable branch range to ±2 KiB inside a 13-bit, 8 KiB PC.
+No supplied benchmark branches that far, so all four still match their golden DTCM. It is latent,
+not benign. (The original `-- << 2` comment on that line is also wrong; the code shifts by one,
+correctly.)
+
+The reference even ships its own regression for these:
+`Auxiliary/Lab 5 - as submitted/SIM/RV32IM_pipeline/directed_isa.do`. Our
+`SIM/RV32IMscMCU/repair_check.do` is the single-cycle port of it.
+
+## 0.b The pipeline was rewritten, and our copy was a revision behind
+
+The revised pipeline is a different design from the one Phase 1 imported:
+
+| Changed | From | To |
+| --- | --- | --- |
+| Multiplier | one `MUL16` in EX | **split**: `MULT_1` (EX, four 8×8 products) + `MULT_2` (MEM, combine) |
+| Write-back mux | inside `IDECODE` | its own module, **`WRITEBACK.vhd`** |
+| Signal-Tap trigger | `BPTRIGGER_o` | **`STRIGGER_o`** |
+| `STCNT_o` / `FHCNT_o` | 8-bit | **16-bit** |
+| Observation ports | one `pc_o`/`instruction_o` + datapath signals | **five** per-stage PC/instruction pairs (Figure 8) |
+| `stall_o`, `flush_o` | top-level ports | **internal** (`stall_w`, `flush_w`) — observe in the wave window, not on a pin |
+| `MUL16.vhd` | instantiated | present but **not instantiated**; removed from our tree |
+| `STCNT` policy | every stall cycle | only `stall='1' and flush='0'` |
+
+Our `DUT/RV32IMpipelinedMCU/` has been re-imported and the wrapper, testbench and `.do` scripts
+rewritten to match. Details in Phase 3D.
+
+## 0.c Measured numbers from the reference — use these, not the old ones
+
+From `DOC/HANDOVER_Report_lab5.md` §3 and §6. The single-cycle row is unchanged; every pipeline
+number moved.
+
+| | Logic elements | Registers | I/O pins | Memory bits | 9-bit multipliers | Fmax | Total power |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Single-cycle | 3,120 | 1,279 | 270 | **131,072** | 4 | **26.81 MHz** | 275.98 mW |
+| Pipeline | 3,538 | 1,877 | 284 | **131,072** | 4 | **51.7 MHz** | 292.21 mW |
+
+The old pipeline figures (3,384 LE / 1,696 regs / 297 pins / 41.84 MHz / 299.10 mW) are **stale** —
+`HANDOVER §4.6` lists them as the copy-paste tell. Memory bits stay 131,072 in both, which is still
+the number that catches a stray SignalTap instance.
+
+## 0.d Provenance warning — `Auxilary/Ori/`
+
+`Auxilary/Ori/DUT/` is a **complete second pipeline implementation** matching the Figure 7 / Figure 8
+structure (`FORWARD.vhd`, `STALL.vhd`, `MULT_1`, `MULT_2`, `WRITEBACK`, `RV32IM_CORE` with the exact
+Figure 8 port list). What it is has **not** been established from the material:
+
+- It is not mentioned in `DOC/readme.txt`, `PROJECT_EXPLANATION.md`, or `Auxilary/_lab5_extract.txt`.
+- Only 2 of its 15 files carry a header, and those are Hanan's `cond_compilation_package.vhd` and
+  `const_package.vhd`. Hanan's own files all carry headers; the other 13 have none.
+- It differs from Hanan's `Auxilary/RV32I/DUT/` baseline in **every** file, including `PLL.vhd` —
+  the one file that was previously md5-identical everywhere.
+- It carries the same five original decode defects as the baseline, so it derives from the baseline
+  but is not the repair source.
+- It uses `STD_LOGIC_ARITH` / `std_logic_unsigned` throughout, a different style from our tree, and
+  one comment reads `-- Inverted reset for DE-10 hardware` — **DE-10**, while our tree is DE2-115.
+
+**Assumption, flagged as such:** this is a third party's implementation (another student's or a TA's)
+obtained as a reference. Under the source hierarchy in `CLAUDE.md` it therefore ranks *below* Hanan's
+supplied code and below our own Lab 5, and using it raises a question that is not ours to answer
+quietly. **Nothing in Phase 3 uses it.** Every repair cites our own submitted pipeline instead.
+
+> **Yehonatan / Adar: decide explicitly whether `Auxilary/Ori/` may be used at all, and say where it
+> came from.** If it is another student's work, it should be deleted from the tree rather than left
+> sitting in a folder named `Auxilary` where a reader will assume the lecturer supplied it.
+
+## 0.e What else changed that affects the runbook
+
+- **`run_test.do`, `mem_dump.do` and `batch_verify.do` no longer exist in the reference.** They were
+  deleted; the reference now ships `compile.do`, `golden.do`, `wave.do` and (pipeline only)
+  `directed_isa.do`. Our tree still has its own copies, which is what Phase 0 and Phase 1 use — but
+  Phase 0's baseline procedure can no longer be run from the reference folder as written. See the
+  note in Phase 0.
+- **The single-cycle testbench lost its auto-stop process.** `std.env.stop` on the sentinel is gone,
+  so a plain GUI *Run -All* never terminates. The `.do` script owns the stop condition again.
+- **The single-cycle core now inverts reset internally**:
+  `rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i`. This is decision **D-1** re-introduced. We keep
+  polarity in the wrapper's `RST_ACTIVE_LOW` generic instead, and **our core does not invert** — so
+  there is no double inversion. Verified.
+- `DOC/readme.txt` still says `BPTRIGGER` in two places (lines 103, 211) where the port is now
+  `STRIGGER_o`. Reference-internal inconsistency; the RTL is authoritative.
+
+---
+
 # 0. How the two of us work  ·  read this first
 
 **Yehonatan — MacBook.** No simulator, no synthesiser. Writes and reviews VHDL, generates and
@@ -103,14 +224,27 @@ wrong — say so.
    - *An empty `DTCM.mem` means the hierarchical path in `mem_dump.do` is wrong.* It must be
      `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the new
      wrapper. `mem save` does not report this as an error.
-3. **Phase 2:** run `run_isa.do`. Expect **exactly 20 mismatches**, then a `SUMMARY` block.
+3. **Phase 2 — the "before" measurement.** Run `run_isa.do` with the tree exactly as cloned
+   (`G_ISA_REPAIR = FALSE`). Expect **exactly 20 mismatches**, then a `SUMMARY` block.
    - **20 is the pass condition.** These are the known defects; the suite exists to measure them.
    - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
    - **Any other number is a finding.** A mismatch on a case the listing does not mark `DEFECT` is a
      new bug; a `DEFECT` case that passes means the bug is not where we think. Either way, paste the
      whole `ISA TEST FAIL` list back.
    - Which 20, and the citation for each: `SIM\RV32IMscMCU\isa\listing.txt`.
-4. Repeat step 2 in `SIM\RV32IMpipelinedMCU`.
+   - The `SUMMARY` block now prints which configuration it was compiled against and how many
+     mismatches that configuration should give, so there is no number to remember.
+4. **Phase 3A — the "after" measurement.** One edit, then two runs.
+   - In `DUT\RV32IMscMCU\cond_compilation_package.vhd`, set `G_ISA_REPAIR := TRUE`.
+     **This is the one source edit the project asks for, and it is the switch's whole purpose.**
+   - Re-run `compile.do` — a package change invalidates everything, so it is a full recompile.
+   - `do repair_check.do` → expect **all 15 checks PASS**. This is the submodule-level proof that each
+     repaired expression computes the right value.
+   - `do run_isa.do` → expect **exactly 10 mismatches**. Not 0. The 10 that remain are the cases
+     blocked on later work, and `run_isa.do` prints the breakdown.
+   - Then set it back to `FALSE` before committing, unless we have agreed to flip the default.
+5. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
+   pipeline — new file list in `compile.do`, and `golden.do` is now the wave script to prefer.
 
 ### Run 3 — Quartus (still Phase 1).
 
@@ -142,7 +276,10 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 0 Baseline | — (supplied material) | **Adar** | ready to run |
 | 1 Clean structural base | Yehonatan ✔ | **Adar** | ready to run |
 | 2 Directed ISA test | Yehonatan ✔ | **Adar** | ready to run |
-| 3 Repair the core | Yehonatan | Adar | waits on Phase 2's result |
+| 3A Seven ISA repairs | Yehonatan ✔ | **Adar** | ready to run — flip `G_ISA_REPAIR` |
+| 3B Byte enables / sub-word | Yehonatan | Adar | next on the Mac; mandatory |
+| 3C `mul` width, `mulh`, `div` | — | — | **blocked on Hanan** (Q6 + mul width) |
+| 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4 Clock tree / CDC | Yehonatan | Adar | waits on Q2 |
 | 5 Bus interface + DTCM | Yehonatan | Adar | |
 | 6 GPIO | Yehonatan | Adar | waits on Q5 |
@@ -345,7 +482,26 @@ Prove the environment before changing anything.
   `RARS/DTCM.h` in all 1024 words.
 - If the numbers do not reproduce, stop. Do not start Phase 1.
 
-Gaps: **G-202**, G-201, G-206.
+> **Changed by the 2026-08-23 reference replacement (§0.e).** The reference folder no longer contains
+> `run_test.do`, `mem_dump.do` or `batch_verify.do` — they were deleted from the submission, which
+> now ships only `compile.do`, `golden.do`, `wave.do` and the pipeline's `directed_isa.do`. So the
+> runbook's "run `run_test.do` in the reference folder" step cannot be followed literally any more.
+>
+> Two ways to still get the baseline, and either is fine as long as you say which you used:
+> 1. **Copy our own `SIM/RV32IMscMCU/{run_test.do,mem_dump.do}` into the reference SIM folder** and
+>    fix the hierarchy paths — the reference has no `MCU` wrapper level, so drop `MCU/` from every
+>    path. This keeps the measurement method identical to ours.
+> 2. **Run it by hand:** `compile.do`, then `vsim -t ns -gMODELSIM=1 work.tb_rv32im_sc`, then
+>    `do golden.do`, `run 300 us`, and read `mclk_cnt_o`. The testbench no longer stops itself
+>    (§0.e), so a bounded `run` is required.
+>
+> The four expected counts are unchanged and are independently confirmed by
+> `Auxiliary/Lab 5 - as submitted/DOC/HANDOVER_Report_lab5.md` §5.3 and
+> `PROJECT_EXPLANATION.md` §7 — 134 / 1514 / 2725 / 2735, at terminal PCs
+> `0x0070` / `0x0070` / `0x00CC` / `0x004C`. That is now two independent written sources for the
+> baseline, which is worth more than the scripts we lost.
+
+Gaps: **G-202**, G-201, G-206, G-332.
 
 ### ▸ Adar's results — Phase 0
 
@@ -567,23 +723,126 @@ The first real test infrastructure. Authorable now, runnable on Windows.
 
 Gaps: **G-402**, G-401.
 
-## Phase 3 — Repair and complete the core  ·  Yehonatan writes · Adar verifies · **gated on Phase 2's numbers**
+## Phase 3 — Repair and complete the core
 
-- Fix the five defects. Cite each: one from Hanan's baseline `CONTROL.VHD:141`, four designed by us
-  with the reasoning recorded.
-- `sra`: candidate repair from `Auxilary/Lab4/DUT/Shifter.vhd`, a generic structural barrel shifter.
-- Replace `USE IEEE.STD_LOGIC_SIGNED` with explicit `signed`/`unsigned` casts so both compare forms
-  are correct.
-- Add `div`, `divu`, `rem`, `remu` decode. Masks already exist at `const_package.vhd:243-273`.
-- Decide `mulh`/`mulhsu`/`mulhu` scope — LAB5 calls it "MULDIV partial". Q on the list.
-- Add byte enables and sub-word load/store: `byteena_a` on the `altsyncram`, a funct3-driven
-  extract-and-extend mux, write-strobe generation. **Mandatory** — the benchmarks `sw` to byte
-  addresses.
-- **Exit:** the Phase 2 suite passes fully, and `Benchmark Apps/RV32IM/test1` (both `man_compiled`
-  and `gcc_compiled`) matches its RARS golden. Note **G-404**: the `output/RARS/DTCM.hex` golden
-  there is stale; use `DTCM.h`.
+Split into four parts because they have different owners and different blockers. **3A and 3D are
+written; 3B is next on the Mac; 3C is deliberately not started.**
 
-Gaps: G-321…G-327, G-307, G-308, G-309.
+### Phase 3A — the seven ISA repairs  ·  **built, awaiting verification**
+
+Done 2026-08-23. Every repair is a transcription from the reference pipeline (§0.a), so none of it is
+our invention and each carries a file:line citation in the code itself.
+
+| Done | What |
+| --- | --- |
+| ✔ | `G_ISA_REPAIR` switch added to `DUT/RV32IMscMCU/cond_compilation_package.vhd`, following the `G_MODELSIM` idiom that already lives in that file |
+| ✔ | Defects 1–7 repaired in `CONTROL.vhd`, `IDECODE.vhd`, `EXECUTE.vhd`, `IFETCH.vhd`, `const_package.vhd` — each gated by the switch, each commented with the defect, the mechanism, and the reference line |
+| ✔ | `LOAD_OPC`, `AUIPC_OPC`, `LUI_OPC` added to `const_package.vhd`, values taken verbatim from the pipeline's own package |
+| ✔ | `SIM/RV32IMscMCU/repair_check.do` — 15 directed checks, ported from the reference's `directed_isa.do` |
+| ✔ | `tools/gen_isa_test.py` emits `EXPECTED_DEFECT_COUNT_REPAIRED`; `tb_isa_directed.vhd` picks the right count from `G_ISA_REPAIR`, so the suite predicts correctly in both configurations |
+
+**Why a switch instead of just editing the code.** `CLAUDE.md` requires the failure to be measured
+before the fix. The switch gets both measurements out of one build tree, in one sitting, with no
+branch to juggle and no chance of the "before" and "after" runs disagreeing about anything except the
+repair. `G_ISA_REPAIR = FALSE` reproduces the submitted core bit-for-bit — that was checked
+expression by expression, not assumed.
+
+**Which cases the repairs close, and which they do not.** The 20 Phase-2 mismatches were never all
+decode defects:
+
+| Gap | Cases | Closed by 3A? | Blocked on |
+| --- | --- | --- | --- |
+| G-321 `andi`/`ori` | 2 | ✔ | — |
+| G-325 signed compares | 4 | ✔ | — |
+| G-324 `sra` pad | 2 | ✔ | — |
+| G-322 `lui` | 1 | ✔ | — |
+| G-323 load offset | 1 | ✔ | — |
+| G-309 sub-word access | 1 | ✘ | Phase 3B |
+| G-326 `MUL16` is 16×16 | 2 | ✘ | open question — mul width |
+| G-308 `mulh`/`mulhu`/`mulhsu` | 3 | ✘ | open question — "MULDIV partial" |
+| G-307 `div`/`divu`/`rem`/`remu` | 4 | ✘ | Phase 7, Q6 |
+
+**20 → 10.** Defects 6 and 7 are not in that table because the Phase-2 suite does not reach them —
+its branches are all short and it never executes an odd `jalr` target. That is what
+`repair_check.do` is for.
+
+**What was validated here, with no simulator:** the memory images are byte-identical after
+regenerating the suite (`ITCM.hex` md5 `cb934246…`, `DTCM.hex` md5 `e0c27360…` — the frozen contract
+holds, only the header constants changed); parens and `if`/`end if` balance in every edited file,
+checked against the pristine reference copies as a control; `EXPECTED_DEFECT_COUNT_REPAIRED` computed
+to 10, matching the table above independently.
+
+**Exit:** `repair_check.do` 15/15, and `run_isa.do` exactly 10.
+
+#### ▸ Adar's results — Phase 3A  (Run 2 step 4)
+
+- `repair_check.do` — passed: ____ of 15, failed: ____
+- `run_isa.do` — mismatches: ____ (10 expected)
+
+If **every** `repair_check.do` line failed, the design was compiled with `G_ISA_REPAIR = FALSE`;
+recompile. A *partial* failure is a real finding — one of the repairs is wrong. Paste the failing
+lines:
+
+```
+```
+
+Then re-run the four benchmarks with the repair on. **The four counts should not change**
+(134 / 1514 / 2725 / 2735) and all four DTCM dumps should still match their RARS goldens — the
+repairs touch instructions the benchmarks either use correctly already or never use. A count that
+*does* move is a finding worth stopping for.
+
+| Test | cycles, repair OFF | cycles, repair ON | DTCM matches golden? |
+| --- | --- | --- | --- |
+| 1 | 134 | | |
+| 2 | 1514 | | |
+| 3 | 2725 | | |
+| 4 | 2735 | | |
+
+### Phase 3B — byte enables and sub-word load/store  ·  Yehonatan writes next · **not started**
+
+The one genuinely missing feature, and it is mandatory: the benchmarks `sw` to byte-resolution MMIO
+addresses, and `DMEMORY.vhd`'s `altsyncram` is instantiated with **no `byteena_a`** while `CONTROL`
+detects `lb`/`lh`/`lbu`/`lhu`/`sb`/`sh` and then discards the width. Needs `byteena_a`, a
+funct3-driven extract-and-extend mux on the read path, and write-strobe generation.
+
+No reference exists — the reference pipeline does not implement it either
+(`PROJECT_EXPLANATION.md` §4.4 states it plainly). This is our design, and it will be documented as
+such. Closes G-309, and takes the ISA suite from 10 mismatches to 9.
+
+### Phase 3C — `mul` width, `mulh`, and `div`  ·  **deliberately not started**
+
+Nine of the ten remaining mismatches are here, and **all of them are blocked on a question, not on
+effort.** Implementing them now would be inventing requirements:
+
+- `MUL16` multiplies only `rs1(15:0) × rs2(15:0)`. `PROJECT_EXPLANATION.md` §1 calls the submitted
+  design "an RV32I-oriented teaching core extended with a tested 16-bit `mul` datapath" and it was
+  accepted that way. Whether the final project needs a full 32×32 `mul` is unanswered.
+- `mulh`/`mulhsu`/`mulhu` — masks exist in `const_package.vhd`, no ALU op consumes them. LAB5 calls
+  the whole thing "MULDIV **partial**".
+- `div`/`divu`/`rem`/`remu` — the Final Project defines a **division accelerator** as a peripheral
+  (Figure 9: `DIVIDEND`/`DIVISOR`/`QUOTIENT`/`RESIDUE`, `DIVCLK`/`DIVRST`/`DIVENA`/`DIVBUSY`), not as
+  an ISA instruction. Q6 asks whether those registers are memory-mapped or core-internal, and until
+  that is answered, adding `div` to the ALU may well be building the wrong thing.
+
+**Ask Hanan before writing any of this.** Q6 plus a new question on `mul` width.
+
+### Phase 3D — re-import the revised pipeline  ·  **built, awaiting verification**
+
+Forced by the reference update (§0.b), not a design choice. Our copy was an entire revision behind
+and the wrapper was wired to a port list that no longer exists — it could not have compiled.
+
+| Done | What |
+| --- | --- |
+| ✔ | 14 files re-imported from the revised reference; all md5-verified against it. `MUL16.vhd` deleted — present in the reference but not instantiated |
+| ✔ | `RV32IMpipelinedMCU.vhd` rewritten for the Figure 8 interface. Port map cross-checked against the component declaration: 17 ports, 12 generics, none missing, none extra |
+| ✔ | `aux_package.vhd` — the wrapper's component declaration re-added to the fresh copy |
+| ✔ | `tb_RV32IMpipelinedMCU.vhd` rewritten, clock/reset/`BPADDR_i` stimulus copied from the reference testbench unchanged |
+| ✔ | `compile.do` new file list; `golden.do` and `wave.do` retargeted from the reference; `run_test.do` and `batch_verify.do` stop condition moved from the retired `flush_o` port to `MCU/CORE/flush_w` |
+| ✔ | Every hierarchical path in every pipeline `.do` file verified to exist in the revised RTL |
+
+**Exit:** `compile.do` runs clean and the four benchmarks reproduce through the wrapper.
+
+Gaps: G-321…G-327 (3A), G-309 (3B), G-307, G-308, G-326 (3C), G-330 (3D).
 
 ## Phase 4 — Clock tree, reset, CDC  ·  Yehonatan writes · Adar verifies
 
@@ -807,6 +1066,8 @@ Gaps: G-501…G-505.
 | **G-206** | Quartus never compiled from this repo. |
 | **G-207** | `finalProj` Quartus project exists on the Windows machine and in no local copy. Contents unknown. |
 | **G-208** | "Use smart compilation" and "Advanced Physical Optimization = Off" circled in staff photos; both change PPA numbers. Instruction or observation? |
+| **G-332** | **NEW.** The reference folder no longer ships `run_test.do`, `mem_dump.do` or `batch_verify.do` (§0.e), so `DOC/04_baseline_runbook.md` describes a procedure that cannot be followed literally. Two workarounds are in Phase 0; the runbook itself still needs rewriting. |
+| **G-333** | **NEW.** The reference single-cycle testbench lost its `std.env.stop` auto-stop process, so a plain GUI *Run -All* never terminates there. Our `tb_RV32IMscMCU.vhd` and `tb_isa_directed.vhd` are unaffected — the ISA testbench stops itself at the sentinel and has a watchdog. |
 
 ## Design — no supplied code exists
 
@@ -828,15 +1089,24 @@ Gaps: G-501…G-505.
 
 ## Design — defects in supplied code
 
-| ID | Defect | Origin |
-| --- | --- | --- |
-| **G-321** | `andi` writes 0; `ori` computes AND | student regression; baseline `CONTROL.VHD:141` is correct |
-| **G-322** | `lui` writes 0 | **lecturer's baseline**, `const_package.vhd:27` |
-| **G-323** | Loads address `rs1 + 0` | **lecturer's baseline**, `IDECODE.VHD:94-101` |
-| **G-324** | `sra` ≡ `srl` | **lecturer's baseline**, `EXECUTE.VHD:179` |
-| **G-325** | Unsigned compares are signed | **lecturer's baseline**, `EXECUTE.VHD:9` |
-| **G-326** | `mul` is 16×16 unsigned, lower half-words only | `EXECUTE.vhd:93-94` |
-| **G-327** | test4's capture input never changes; `CAPISEL` stays at GND | supplied benchmark, current revision |
+Status column added 2026-08-23. **"repaired"** means the fix is written and gated behind
+`G_ISA_REPAIR`; it becomes *closed* when Adar's `repair_check.do` and `run_isa.do` numbers are in
+Phase 3A above. Every repair is a transcription from the reference pipeline — see §0.a for the
+before/after line pairs.
+
+| ID | Defect | Origin | Status |
+| --- | --- | --- | --- |
+| **G-321** | `andi` writes 0; `ori` computes AND | student regression; baseline `CONTROL.VHD:141` is correct | repaired (3A) |
+| **G-322** | `lui` writes 0 | **lecturer's baseline**, `const_package.vhd:27` | repaired (3A) |
+| **G-323** | Loads address `rs1 + 0` | **lecturer's baseline**, `IDECODE.VHD:94-101` | repaired (3A) |
+| **G-324** | `sra` ≡ `srl` | **lecturer's baseline**, `EXECUTE.VHD:179` | repaired (3A) |
+| **G-325** | Unsigned compares are signed | **lecturer's baseline**, `EXECUTE.VHD:9` | repaired (3A) |
+| **G-326** | `mul` is 16×16 unsigned, lower half-words only | `EXECUTE.vhd:93-94` | open — Phase 3C, needs a question answered |
+| **G-327** | test4's capture input never changes; `CAPISEL` stays at GND | supplied benchmark, current revision | open |
+| **G-328** | **NEW.** Branch/`jal` displacement truncated one bit: `EXECUTE.vhd:66` slices `(PC_WIDTH-3 DOWNTO 0)`, dropping immediate bit 11, so branch range is ±2 KiB instead of the full 8 KiB PC. No benchmark reaches that far, so it is latent and the golden DTCMs still match. | **lecturer's baseline**, `EXECUTE.VHD` | repaired (3A) |
+| **G-329** | **NEW.** `jalr` does not clear the target's bit 0 (`IFETCH.vhd:93`). Masked today by the word-granular ITCM dropping bits 1..0, but `pc_o`, `pc_plus4` and every link address carry the odd value. | **lecturer's baseline**, `IFETCH.vhd` | repaired (3A) |
+| **G-330** | **NEW.** Our `DUT/RV32IMpipelinedMCU/` was an entire revision behind the reference and its wrapper referenced retired ports (`BPTRIGGER_o`, `stall_o`, `flush_o`, 8-bit counters) — it could not have compiled. | our tree, from the 2026-08-23 reference update | re-imported (3D) |
+| **G-331** | **NEW.** `Auxilary/Ori/` is an unattributed second pipeline implementation sitting inside a folder a reader will assume the lecturer supplied. Provenance undetermined; nothing in our tree uses it. | unknown — see §0.d | **needs a decision from us** |
 
 ## Verification
 
@@ -875,33 +1145,56 @@ Gaps: G-501…G-505.
 
 # 7. Next actions
 
+*Updated 2026-08-23, after the reference replacement (§0) and Phase 3A/3D.*
+
 ## Adar — Lenovo
 
 1. **One-time setup**, §0.2. Quartus 21.1, ModelSim 20.1, then the PowerShell staging block from
    `DOC/04_baseline_runbook.md` §3.
 2. **Run 1 — Phase 0 baseline.** ~30 min. Fill in the Phase 0 results table. **This gates
    everything**; if the four counts do not reproduce, stop and report.
-3. **Run 2 — Phases 1 and 2.** Fill in both results tables. The Phase 2 mismatch count is the input
-   Phase 3 needs.
-4. **Run 3 — Quartus.** Confirm 131,072 memory bits.
-5. **Send Q1, Q2, Q3** to Hanan or the TA (§0.6).
+3. **Run 2 — Phases 1, 2, 3A.** Four result tables to fill. Steps in §0.3; the only source edit in
+   the whole sequence is flipping `G_ISA_REPAIR` between step 3 and step 4.
+   - step 3, repair OFF → **20** mismatches
+   - step 4, repair ON → **15/15** on `repair_check.do`, **10** mismatches on `run_isa.do`, and the
+     four benchmark counts unchanged
+4. **Run 3 — Quartus.** Confirm **131,072** memory bits. The reference's own numbers to compare
+   against are now in §0.c — note the pipeline figures all changed.
+5. **Send the questions** (§0.6): Q1, Q2, Q3, plus Q6 and the new one on `mul` width. Q6 and `mul`
+   width are what block Phase 3C, so they are worth sending first.
 6. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
    were instructions.
+7. **Answer G-331: where did `Auxilary/Ori/` come from?** See §0.d. If it is another student's
+   pipeline it should come out of the tree.
 
 ## Yehonatan — MacBook
 
-1. **Commit and push the Phase 1 + Phase 2 work.** 51 files are uncommitted; without this Adar pulls
-   nothing.
-2. **Prepare Phase 3** — the core repairs. Four of the five defects have to be designed rather than
-   copied, since only `andi`/`ori` has a clean source in Hanan's baseline. Can be written now, but
-   **must not be applied before Phase 2's numbers arrive** — the rules require the failure to be
-   measured before the fix, and a surprise in Adar's mismatch list would change the work.
-3. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for `c0`/`c1`/`c2`
-   and all three existing copies expose only `c0`.
+1. **Commit and push.** Still not done, and it is still the only thing standing between Adar and any
+   of the above. Now covers Phase 1, 2, 3A and 3D plus the replaced reference folder.
+2. **Phase 3B — byte enables and sub-word load/store.** The next real design work, and the only
+   remaining *mandatory* item in Phase 3. No reference exists; the reference pipeline does not
+   implement it either.
+3. **Update the `DOC/` documents for the new reference.** `01_source_inventory.md` and
+   `02_requirements_traceability.md` both describe the old Lab 5 tree — in particular the
+   defect-provenance table is now five rows where it should be seven, and
+   `04_baseline_runbook.md` still tells Adar to run `run_test.do` from a reference folder that no
+   longer contains it.
+4. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for
+   `c0`/`c1`/`c2` and all three existing copies expose only `c0`.
 
 ## The gate between us
 
-Phase 3 does not start on either machine until the Phase 2 table above has a number in it. That is
-the point of the whole exercise: measure the defect, then fix it, then measure again with the same
-suite. If the count is 20 the plan proceeds as written. If it is anything else, the difference is a
-finding and we deal with it first.
+**Phase 3A changed what the gate is.** It used to be "no repairs before the numbers arrive". The
+switch replaced that: both measurements now come out of one build in one sitting, so nothing is
+blocked on waiting.
+
+What still gates:
+
+- **Phase 3C is blocked on Hanan**, not on us. Nine of the ten remaining ISA mismatches are there,
+  and every one of them needs a question answered before it can be written without inventing
+  requirements.
+- **Phase 4 onward is gated on Run 1.** If the Phase 0 baseline does not reproduce, nothing built on
+  top of it means anything, and that is still true no matter how much is written on the Mac.
+- **A partial `repair_check.do` failure stops everything.** All 15 failing means the wrong
+  configuration was compiled. Some failing means a repair is wrong, and that has to be understood
+  before any further component is built.

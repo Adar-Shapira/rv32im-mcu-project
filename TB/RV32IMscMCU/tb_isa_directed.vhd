@@ -95,6 +95,22 @@ ARCHITECTURE test OF tb_isa_directed IS
 	-- the auto-stop sentinel the whole project already uses: beq x0,x0,0
 	constant SENTINEL			: STD_LOGIC_VECTOR(31 DOWNTO 0) := x"00000063";
 
+	-- How many mismatches this build is supposed to produce. Selected by the same
+	-- package constant the RTL compiles against, so the prediction and the core
+	-- can never disagree about which configuration is under test. A function
+	-- rather than a "when/else" expression because a conditional expression is
+	-- not legal in a constant initializer.
+	function predicted_count(repair : boolean) return natural is
+	begin
+		if repair then
+			return EXPECTED_DEFECT_COUNT_REPAIRED;
+		else
+			return EXPECTED_DEFECT_COUNT;
+		end if;
+	end function predicted_count;
+
+	constant PREDICTED			: natural := predicted_count(G_ISA_REPAIR);
+
 	function addr_of(v : STD_LOGIC_VECTOR) return natural is
 		variable n : natural := 0;
 	begin
@@ -222,30 +238,45 @@ BEGIN
 						severity error;
 				end if;
 
-				-- The verdict depends on which phase we are in, so state both
-				-- readings rather than guessing. EXPECTED_DEFECT_COUNT comes from
-				-- the generated package, so it cannot drift from the suite.
-				report "  expected today  : " &
-					integer'image(EXPECTED_DEFECT_COUNT) &
-					" mismatch(es) on the unfixed core" severity note;
+				-- Which count applies depends on how the design was compiled, and the
+				-- testbench can read that directly: G_ISA_REPAIR is the same package
+				-- constant the RTL uses, so the prediction cannot disagree with the
+				-- core under test. Both numbers come from the generated package, so
+				-- neither can drift away from the suite.
+				if G_ISA_REPAIR then
+					report "  configuration   : G_ISA_REPAIR = TRUE " &
+						"(Phase 3A repairs applied)" severity note;
+				else
+					report "  configuration   : G_ISA_REPAIR = FALSE " &
+						"(core exactly as LAB5 submitted)" severity note;
+				end if;
+				report "  expected here   : " & integer'image(PREDICTED) &
+					" mismatch(es)" severity note;
 
-				if fails = 0 then
-					report "  VERDICT: zero mismatches." severity note;
-					report "  Before Phase 3 this is a FAILURE OF THE SUITE, not a pass - " &
-						integer'image(EXPECTED_DEFECT_COUNT) & " stores are supposed to " &
-						"mismatch. The usual cause is that isa/ITCM.hex never reached " &
-						"C:/TestPrograms/Quartus21_1/app_bin, so a different program ran."
-						severity note;
-					report "  After Phase 3 this is the expected PASS." severity note;
-				elsif fails = EXPECTED_DEFECT_COUNT then
+				if fails = PREDICTED and PREDICTED = 0 then
+					report "  VERDICT: zero mismatches, as predicted - full PASS." severity note;
+				elsif fails = PREDICTED then
 					report "  VERDICT: " & integer'image(fails) &
 						" mismatch(es) - exactly the predicted set." severity note;
-					report "  This is the expected Phase 2 result. Every mismatch above " &
-						"is a confirmed defect; see SIM/RV32IMscMCU/isa/listing.txt " &
-						"for the citation attached to each one." severity note;
+					if G_ISA_REPAIR then
+						report "  This is the expected Phase 3A result. The seven repairs " &
+							"closed G-321/322/323/324/325; what remains is blocked on " &
+							"G-309 (byte enables, Phase 3B), G-326/G-308 (mul width) and " &
+							"G-307 (divider, Phase 7)." severity note;
+					else
+						report "  This is the expected Phase 2 result. Every mismatch above " &
+							"is a confirmed defect; see SIM/RV32IMscMCU/isa/listing.txt " &
+							"for the citation attached to each one." severity note;
+					end if;
+				elsif fails = 0 then
+					report "  VERDICT: zero mismatches, but " & integer'image(PREDICTED) &
+						" were predicted. This is a FAILURE OF THE SUITE, not a pass." severity note;
+					report "  The usual cause is that isa/ITCM.hex never reached " &
+						"C:/TestPrograms/Quartus21_1/app_bin, so a different program ran."
+						severity note;
 				else
 					report "  VERDICT: " & integer'image(fails) & " mismatch(es), but " &
-						integer'image(EXPECTED_DEFECT_COUNT) & " were predicted." severity note;
+						integer'image(PREDICTED) & " were predicted." severity note;
 					report "  The difference is the interesting part: a mismatch on a case " &
 						"not marked DEFECT in the listing is a NEW finding, and a case " &
 						"marked DEFECT that passed means the defect is not where we " &

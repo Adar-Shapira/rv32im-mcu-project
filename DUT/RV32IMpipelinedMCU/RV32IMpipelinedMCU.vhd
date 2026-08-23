@@ -10,22 +10,58 @@
 -- through a generate parameter. See DUT/RV32IMscMCU/RV32IMscMCU.vhd for the
 -- full reasoning; only the differences are noted here.
 --
--- DIFFERENCES FROM THE SINGLE-CYCLE WRAPPER
---   The pipeline core carries the LAB5 clause 6.iii validation instrumentation:
---   BPADDR_i in, and BPTRIGGER_o / CLKCNT_o / STCNT_o / FHCNT_o out. These feed
---   the Signal-Tap trigger and the IPC equation
+-- REWRITTEN 2026-08-23 FOR THE REVISED PIPELINE
+--   The LAB5 pipeline was revised after this wrapper was first written, and the
+--   core's interface changed with it. Reference:
+--     Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd
+--     Auxiliary/Lab 5 - as submitted/DOC/HANDOVER_Report_lab5.md §4.3, §4.6
+--   What changed, and why this file had to follow:
+--     * BPTRIGGER_o          -> STRIGGER_o
+--     * STCNT_o / FHCNT_o     8-bit -> 16-bit
+--     * one pc_o/instruction_o pair -> five, one per stage (Figure 8):
+--       IFpc_o/IFinstruction_o … WBpc_o/WBinstruction_o
+--     * stall_o and flush_o are no longer top-level ports. They are internal
+--       to the core (stall_w / flush_w) and must be observed through the wave
+--       window or a Signal-Tap tap, not through a pin.
+--     * the datapath observation ports the single-cycle core exposes
+--       (RegWrite/MemWrite/Branch, read_data1/2, write_data, alu_res, brTaken,
+--       dtcm_*) are NOT on the revised pipeline core at all. Figure 8 replaced
+--       them with the five per-stage PC/instruction pairs, which is the more
+--       useful view for a pipeline: those single signals each belonged to a
+--       different stage and were easy to misread as one instruction.
+--   Nothing here is invented. The port list below is exactly the core's, and
+--   the wrapper adds only reset conditioning and the debug-port gate.
+--
+-- VALIDATION INSTRUMENTATION (LAB5 clause 6.iii)
+--   BPADDR_i in, STRIGGER_o / CLKCNT_o / STCNT_o / FHCNT_o out. These feed the
+--   Signal-Tap trigger and the IPC equation
 --       IPC = (CLKCNT_o - (STCNT_o + 4 + depth*FHCNT_o)) / CLKCNT_o
---   with depth = 3, because branches and jumps resolve in stage 4.
+--   with depth = 3, because branches and jumps resolve in stage 4 (MEM).
 --
 --   BPADDR_i is a board input (SW7-SW0) used only during validation, so
 --   GEN_DEBUG_PORTS also gates it: tied to zero in a performance revision so no
 --   pin is assigned, driven from the port in a hardware revision.
 --
--- PHASE 1 SCOPE
+-- WHY RESET POLARITY LIVES HERE AND NOT IN THE CORE
+--   The revised single-cycle core welds polarity to the simulation switch
+--   (RV32IM_sc/RV32IM_CORE.vhd: rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i),
+--   which makes "active-low reset" and "FPGA build" the same decision and blocks
+--   an active-high board reset or an active-low simulation. Keeping the polarity
+--   in the wrapper as its own generic separates the two, and matches what the
+--   students' own Lab 4 already did (Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38,
+--   the RSTPOL generate). The pipeline core does not invert at all, so this
+--   wrapper is the single owner of polarity — there is no double inversion.
+--
+-- PHASE SCOPE
 --   Thin, as on the single-cycle side. The core keeps its own PLL and DTCM; the
 --   clock tree, bus interface and peripherals attach in later phases. The
 --   wrapper must be behaviourally transparent so the pipeline baseline
 --   reproduces through it unchanged.
+--
+--   The pipeline needs no G_ISA_REPAIR switch. It is the core that already
+--   repairs all seven ISA defects, and it is the repair reference the
+--   single-cycle side transcribes from — so there is no defective
+--   configuration of it to reproduce.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
@@ -47,8 +83,8 @@ ENTITY RV32IMpipelinedMCU IS
 		MA_WIDTH			: integer	:= G_MA_WIDTH;
 		DATA_WORDS_NUM		: integer	:= G_DATA_WORDSNUM;
 		CLK_CNT_WIDTH		: integer	:= 16;
-		STCNT_WIDTH			: integer	:= 8;
-		FHCNT_WIDTH			: integer	:= 8;
+		STCNT_WIDTH			: integer	:= 16;	-- 16 in the revised core, was 8
+		FHCNT_WIDTH			: integer	:= 16;	-- 16 in the revised core, was 8
 		BP_ADDR_WIDTH		: integer	:= 8
 	);
 	PORT(
@@ -57,28 +93,21 @@ ENTITY RV32IMpipelinedMCU IS
 		rst_i				:IN		STD_LOGIC;		-- KEY0,     PIN_M23
 		BPADDR_i			:IN		STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);	-- SW7-SW0, validation only
 
-		--=== Observation ports — Signal-Tap only, gated by GEN_DEBUG_PORTS ===
-		pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
-		instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		--=== Figure 8 observation interface — gated by GEN_DEBUG_PORTS ===
+		-- Five PC/instruction pairs, one per pipeline stage. They describe five
+		-- DIFFERENT instructions in the same cycle; do not read them as one.
+		IFpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		IFinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		IDpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		IDinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		EXpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		EXinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		MEMpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		MEMinstruction_o	:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		WBpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		WBinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
-		RegWrite_ctrl_o		:OUT	STD_LOGIC;
-		MemWrite_ctrl_o		:OUT	STD_LOGIC;
-		Branch_ctrl_o		:OUT	STD_LOGIC;
-
-		read_data1_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		read_data2_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		write_data_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-
-		alu_res_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		brTaken_o			:OUT	STD_LOGIC;
-
-		dtcm_addr_o			:OUT	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
-		dtcm_data_wr_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		dtcm_data_rd_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-
-		stall_o				:OUT	STD_LOGIC;
-		flush_o				:OUT	STD_LOGIC;
-		BPTRIGGER_o			:OUT	STD_LOGIC;
+		STRIGGER_o			:OUT	STD_LOGIC;	-- (IF PC word address = BPADDR_i)
 
 		CLKCNT_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
 		STCNT_o				:OUT	STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0);
@@ -88,53 +117,45 @@ END RV32IMpipelinedMCU;
 --============================================================================
 ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 
-	SIGNAL rst_w				: STD_LOGIC;
+	SIGNAL rst_w				: STD_LOGIC;	-- active-high internal reset
 	SIGNAL bpaddr_w				: STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);
 
-	SIGNAL pc_w					: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
-	SIGNAL instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL RegWrite_ctrl_w		: STD_LOGIC;
-	SIGNAL MemWrite_ctrl_w		: STD_LOGIC;
-	SIGNAL Branch_ctrl_w		: STD_LOGIC;
-	SIGNAL read_data1_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL read_data2_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL write_data_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL alu_res_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL brTaken_w			: STD_LOGIC;
-	SIGNAL dtcm_addr_w			: STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
-	SIGNAL dtcm_data_wr_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL dtcm_data_rd_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL stall_w				: STD_LOGIC;
-	SIGNAL flush_w				: STD_LOGIC;
-	SIGNAL BPTRIGGER_w			: STD_LOGIC;
+	-- Core observation outputs, brought out here so the debug gate below can
+	-- choose between driving the pins and tying them off.
+	SIGNAL IFpc_w, IDpc_w, EXpc_w, MEMpc_w, WBpc_w
+								: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL IFinst_w, IDinst_w, EXinst_w, MEMinst_w, WBinst_w
+								: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL STRIGGER_w			: STD_LOGIC;
 	SIGNAL CLKCNT_w				: STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
 	SIGNAL STCNT_w				: STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0);
 	SIGNAL FHCNT_w				: STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0);
 
 BEGIN
-	--=======================================
-	-- Reset conditioning at the board boundary
-	--=======================================
+	--=======================================================================
+	-- Reset conditioning. The only board-level signal shaping in this wrapper.
+	--=======================================================================
 	RSTCOND:
 	if (RST_ACTIVE_LOW) generate
-		rst_w	<= not rst_i;
+		rst_w <= not rst_i;
 	else generate
-		rst_w	<= rst_i;
-	end generate;
+		rst_w <= rst_i;
+	end generate RSTCOND;
 
-	--=======================================
-	-- Breakpoint address — validation only
-	--=======================================
+	--=======================================================================
+	-- Breakpoint address. Real switches in a hardware revision; constant zero
+	-- in a performance revision, so the fitter assigns no pins for it (§7).
+	--=======================================================================
 	BPIN:
 	if (GEN_DEBUG_PORTS) generate
-		bpaddr_w	<= BPADDR_i;
+		bpaddr_w <= BPADDR_i;
 	else generate
-		bpaddr_w	<= (others => '0');
-	end generate;
+		bpaddr_w <= (others => '0');
+	end generate BPIN;
 
-	--=======================================
-	-- RV32IM pipelined core
-	--=======================================
+	--=======================================================================
+	-- The CPU core
+	--=======================================================================
 	CORE : RV32IM_PIPE_CORE
 	generic map(
 		WORD_GRANULARITY	=> WORD_GRANULARITY,
@@ -150,84 +171,67 @@ BEGIN
 		FHCNT_WIDTH			=> FHCNT_WIDTH,
 		BP_ADDR_WIDTH		=> BP_ADDR_WIDTH
 	)
-	PORT MAP (
+	PORT MAP(
 		--Inputs
 		rst_i				=> rst_w,
 		clk_i				=> clk_i,
 		BPADDR_i			=> bpaddr_w,
 
 		--Outputs
-		pc_o				=> pc_w,
-		instruction_o		=> instruction_w,
-
-		RegWrite_ctrl_o		=> RegWrite_ctrl_w,
-		MemWrite_ctrl_o		=> MemWrite_ctrl_w,
-		Branch_ctrl_o		=> Branch_ctrl_w,
-
-		read_data1_o		=> read_data1_w,
-		read_data2_o		=> read_data2_w,
-		write_data_o		=> write_data_w,
-
-		alu_res_o			=> alu_res_w,
-		brTaken_o			=> brTaken_w,
-
-		dtcm_addr_o			=> dtcm_addr_w,
-		dtcm_data_wr_o		=> dtcm_data_wr_w,
-		dtcm_data_rd_o		=> dtcm_data_rd_w,
-
-		stall_o				=> stall_w,
-		flush_o				=> flush_w,
-		BPTRIGGER_o			=> BPTRIGGER_w,
-
 		CLKCNT_o			=> CLKCNT_w,
-		STCNT_o				=> STCNT_w,
-		FHCNT_o				=> FHCNT_w
+		IFpc_o				=> IFpc_w,
+		IFinstruction_o		=> IFinst_w,
+		IDpc_o				=> IDpc_w,
+		IDinstruction_o		=> IDinst_w,
+		EXpc_o				=> EXpc_w,
+		EXinstruction_o		=> EXinst_w,
+		MEMpc_o				=> MEMpc_w,
+		MEMinstruction_o	=> MEMinst_w,
+		WBpc_o				=> WBpc_w,
+		WBinstruction_o		=> WBinst_w,
+		STRIGGER_o			=> STRIGGER_w,
+		FHCNT_o				=> FHCNT_w,
+		STCNT_o				=> STCNT_w
 	);
 
-	--=======================================
-	-- Observation ports (§7)
-	--=======================================
+	--=======================================================================
+	-- Observation ports. Driven in a hardware revision; tied off in a
+	-- performance revision so the fitter assigns no pins and the PPA area
+	-- figure reflects the CPU rather than the debug harness. Assignment
+	-- definition §7. Same pattern as the students' own Lab 4 two-revision
+	-- split (Auxilary/Lab4/DUT/perf_wrapper.vhd).
+	--=======================================================================
 	DBGPORTS:
 	if (GEN_DEBUG_PORTS) generate
-		pc_o				<= pc_w;
-		instruction_o		<= instruction_w;
-		RegWrite_ctrl_o		<= RegWrite_ctrl_w;
-		MemWrite_ctrl_o		<= MemWrite_ctrl_w;
-		Branch_ctrl_o		<= Branch_ctrl_w;
-		read_data1_o		<= read_data1_w;
-		read_data2_o		<= read_data2_w;
-		write_data_o		<= write_data_w;
-		alu_res_o			<= alu_res_w;
-		brTaken_o			<= brTaken_w;
-		dtcm_addr_o			<= dtcm_addr_w;
-		dtcm_data_wr_o		<= dtcm_data_wr_w;
-		dtcm_data_rd_o		<= dtcm_data_rd_w;
-		stall_o				<= stall_w;
-		flush_o				<= flush_w;
-		BPTRIGGER_o			<= BPTRIGGER_w;
+		IFpc_o				<= IFpc_w;
+		IFinstruction_o		<= IFinst_w;
+		IDpc_o				<= IDpc_w;
+		IDinstruction_o		<= IDinst_w;
+		EXpc_o				<= EXpc_w;
+		EXinstruction_o		<= EXinst_w;
+		MEMpc_o				<= MEMpc_w;
+		MEMinstruction_o	<= MEMinst_w;
+		WBpc_o				<= WBpc_w;
+		WBinstruction_o		<= WBinst_w;
+		STRIGGER_o			<= STRIGGER_w;
 		CLKCNT_o			<= CLKCNT_w;
 		STCNT_o				<= STCNT_w;
 		FHCNT_o				<= FHCNT_w;
 	else generate
-		pc_o				<= (others => '0');
-		instruction_o		<= (others => '0');
-		RegWrite_ctrl_o		<= '0';
-		MemWrite_ctrl_o		<= '0';
-		Branch_ctrl_o		<= '0';
-		read_data1_o		<= (others => '0');
-		read_data2_o		<= (others => '0');
-		write_data_o		<= (others => '0');
-		alu_res_o			<= (others => '0');
-		brTaken_o			<= '0';
-		dtcm_addr_o			<= (others => '0');
-		dtcm_data_wr_o		<= (others => '0');
-		dtcm_data_rd_o		<= (others => '0');
-		stall_o				<= '0';
-		flush_o				<= '0';
-		BPTRIGGER_o			<= '0';
+		IFpc_o				<= (others => '0');
+		IFinstruction_o		<= (others => '0');
+		IDpc_o				<= (others => '0');
+		IDinstruction_o		<= (others => '0');
+		EXpc_o				<= (others => '0');
+		EXinstruction_o		<= (others => '0');
+		MEMpc_o				<= (others => '0');
+		MEMinstruction_o	<= (others => '0');
+		WBpc_o				<= (others => '0');
+		WBinstruction_o		<= (others => '0');
+		STRIGGER_o			<= '0';
 		CLKCNT_o			<= (others => '0');
 		STCNT_o				<= (others => '0');
 		FHCNT_o				<= (others => '0');
-	end generate;
+	end generate DBGPORTS;
 
 END structure;

@@ -1,0 +1,79 @@
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE IEEE.STD_LOGIC_ARITH.ALL;
+USE IEEE.STD_LOGIC_SIGNED.ALL;
+use work.aux_package.all;
+
+LIBRARY altera_mf;
+USE altera_mf.altera_mf_components.all;
+
+ENTITY dmemory IS
+	generic(
+		DATA_BUS_WIDTH 		: integer := 32;
+		DTCM_ADDR_WIDTH 	: integer := 8;
+		WORDS_NUM 			: integer := 256
+	);
+	PORT(	
+		-- Standard Memory Inputs
+		clk_i				: IN 	STD_LOGIC;
+		rst_i				: IN 	STD_LOGIC;
+		dtcm_addr_i 		: IN 	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
+		dtcm_data_wr_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		MemRead_ctrl_i  	: IN 	STD_LOGIC;
+		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
+		
+		-- Multiplier Stage 2 Inputs (From EX/MEM)
+		P0_i 				: IN 	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		P1_i 				: IN 	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		P2_i 				: IN 	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		P3_i 				: IN 	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		
+		-- Outputs to MEM/WB
+		dtcm_data_rd_o 		: OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		mul_res_o 		: OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
+	);
+END dmemory;
+
+
+
+ARCHITECTURE behavior OF dmemory IS
+	SIGNAL wrclk_w 		: STD_LOGIC;
+	
+BEGIN
+	-- Clock inversion for structural hazard prevention (writes on falling edge)
+	wrclk_w <= NOT clk_i;
+	
+	data_memory : altsyncram
+	GENERIC MAP  (
+		operation_mode					=> "SINGLE_PORT",
+		width_a							=> DATA_BUS_WIDTH,
+		widthad_a						=> DTCM_ADDR_WIDTH,
+		numwords_a 						=> WORDS_NUM,
+		lpm_hint 						=> "ENABLE_RUNTIME_MOD = YES,INSTANCE_NAME = DTCM",
+		lpm_type 						=> "altsyncram",
+		outdata_reg_a 					=> "UNREGISTERED",
+		init_file 						=> "C:\Users\oripa\Documents\Benchmark_Apps\test3\RV32IM\bin\M9K-intel\DTCM.hex",  -- Change path for data file
+		intended_device_family 			=> "Cyclone"
+	)
+	PORT MAP (
+		wren_a 							=> MemWrite_ctrl_i,
+		clock0							=> wrclk_w,
+		address_a						=> dtcm_addr_i,
+		data_a							=> dtcm_data_wr_i,
+		q_a								=> dtcm_data_rd_o	
+	);
+	
+-----------------------------------------------------------------------------------------
+-- Hardware Multiplier (M-Extension Stage 2)
+-----------------------------------------------------------------------------------------
+	MULT_2_INST: multiplier_2
+	PORT MAP(
+		P0_i => P0_i,
+		P1_i => P1_i,
+		P2_i => P2_i,
+		P3_i => P3_i,
+		Res  => mul_res_o
+	);
+	
+END behavior;
+

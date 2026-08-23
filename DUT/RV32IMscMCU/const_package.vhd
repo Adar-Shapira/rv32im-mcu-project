@@ -24,8 +24,18 @@ package const_package is
 	constant ITYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010011";
 	constant STYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0100011";
 	constant SBTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "1100011";
-	constant UTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111" and "0110111";	--Upper immediate 
+	constant UTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111" and "0110111";	--Upper immediate
 	constant UJTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "1101111";
+-- Three opcode constants the single-cycle const_package never declared. Values and names
+-- taken verbatim from the pipelined core of the same LAB5 submission, which needs them for
+-- the same three selected-assignment arms:
+--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/const_package.vhd:25,28,29
+-- UTYPE_OPC above is kept because CONTROL.vhd:51 still uses it, where the bitwise AND
+-- happens to give the correct answer for both lui and auipc; only IDECODE's exact-match
+-- select was broken by it (defect 2).
+	constant LOAD_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0000011";	--lb/lh/lw/lbu/lhu
+	constant AUIPC_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111";	--auipc
+	constant LUI_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0110111";	--lui
 --------------------------------------------------------------------
 -- ALU Operations
 --------------------------------------------------------------------

@@ -2,13 +2,13 @@
 -- Copyright 2026 Hananya Ribo 
 -- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
 -- Pipelined RISC-V RV32IM Core - MEM stage
--- DMEMORY holds the DTCM (altsyncram, written on the inverted clock exactly
--- as in the single-cycle version) and the MEM/WB pipeline register.
+-- DMEMORY holds multiplier stage 2, the DTCM (altsyncram, written on the
+-- inverted clock exactly as in the single-cycle version), and MEM/WB.
 -- Pipeline changes vs the single-cycle version:
 --   * the MEM/WB pipeline register is added around the DTCM: it carries the
 --     load data, the ALU result, PC+4, the destination register and the
---     WB-stage control bits (RegDst/RegWrite/MemtoReg) to the write-back
---     mux in IDECODE; wb_rd_o/wb_RegWrite_ctrl_o also feed FORWARD_UNIT
+--     WB-stage control bits (RegDst/RegWrite/MemtoReg) to WRITEBACK;
+--     wb_rd_o/wb_RegWrite_ctrl_o also feed FORWARD_UNIT
 --   * no stall/flush port: branches and jumps are resolved in the MEM
 --     stage, so the MEM-stage instruction is always older than any
 --     redirect/stall and always proceeds to WB
@@ -43,9 +43,17 @@ ENTITY dmemory IS
 		MemRead_ctrl_i  	: IN 	STD_LOGIC;
 		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
 		-- MEM-stage values carried through to the MEM/WB register
+		pc_i				: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		pc_plus4_i			: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- WB value for jal/jalr
+		instruction_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		alu_res_i			: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB value for ALU instructions
 		rd_i				: IN 	STD_LOGIC_VECTOR(4 DOWNTO 0);
+		-- Figure 7 EX/MEM multiplier partial products and control
+		mul_p0_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p1_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p2_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p3_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		Mul_ctrl_i			: IN	STD_LOGIC;
 		-- WB-stage control bits (from the EX/MEM register)
 		RegDst_ctrl_i 		: IN 	STD_LOGIC;
 		RegWrite_ctrl_i 	: IN 	STD_LOGIC;
@@ -54,8 +62,11 @@ ENTITY dmemory IS
 		--Outputs
 		-- MEM-stage (combinational) - debug/Signal-Tap
 		dtcm_data_rd_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		mem_forward_data_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		-- MEM/WB pipeline register outputs (WB-stage view, to IDECODE + FORWARD_UNIT)
+		wb_pc_o				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		wb_pc_plus4_o		: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		wb_instruction_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		wb_alu_res_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		wb_dtcm_data_rd_o 	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB value for loads
 		wb_rd_o				: OUT	STD_LOGIC_VECTOR(4 DOWNTO 0);					-- FORWARD_UNIT + RF write port
@@ -68,10 +79,25 @@ END dmemory;
 
 
 ARCHITECTURE behavior OF dmemory IS
+	CONSTANT NOP_INSTRUCTION		: STD_LOGIC_VECTOR(31 DOWNTO 0) := X"00000013";
+	COMPONENT multiplier_2 IS
+		PORT(
+			p0_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p1_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p2_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p3_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			res_o	: OUT	STD_LOGIC_VECTOR(31 DOWNTO 0)
+		);
+	END COMPONENT;
+
 	SIGNAL wrclk_w 				: STD_LOGIC;
 	SIGNAL dtcm_data_rd_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mul_res_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_result_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	-- MEM/WB pipeline register
+	SIGNAL mem_wb_pc_q			: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_wb_pc_plus4_q	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_instruction_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_wb_alu_res_q		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_wb_dtcm_data_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_wb_rd_q			: STD_LOGIC_VECTOR(4 DOWNTO 0);
@@ -80,6 +106,20 @@ ARCHITECTURE behavior OF dmemory IS
 	SIGNAL mem_wb_MemtoReg_q	: STD_LOGIC;
 	
 BEGIN
+	-- Figure 7 multiplier stage 2 (MEM): combine the partial products that
+	-- crossed the EX/MEM register. The selected result is used for both
+	-- MEM forwarding and the MEM/WB ALU-result field.
+	MUL2: multiplier_2
+	PORT MAP(
+		p0_i	=> mul_p0_i,
+		p1_i	=> mul_p1_i,
+		p2_i	=> mul_p2_i,
+		p3_i	=> mul_p3_i,
+		res_o	=> mul_res_w
+	);
+
+	mem_result_w <= mul_res_w WHEN Mul_ctrl_i = '1' ELSE alu_res_i;
+
 	--=======================================
 	-- DTCM (RAM) connection - unchanged
 	--=======================================
@@ -113,7 +153,9 @@ BEGIN
 PROCESS (clk_i, rst_i)
 BEGIN
 	IF rst_i = '1' THEN
+		mem_wb_pc_q			<= (OTHERS => '0');
 		mem_wb_pc_plus4_q	<= (OTHERS => '0');
+		mem_wb_instruction_q	<= NOP_INSTRUCTION;
 		mem_wb_alu_res_q	<= (OTHERS => '0');
 		mem_wb_dtcm_data_q	<= (OTHERS => '0');
 		mem_wb_rd_q			<= (OTHERS => '0');
@@ -121,8 +163,10 @@ BEGIN
 		mem_wb_RegWrite_q	<= '0';
 		mem_wb_MemtoReg_q	<= '0';
 	ELSIF (clk_i'EVENT AND clk_i='1') THEN
+		mem_wb_pc_q			<= pc_i;
 		mem_wb_pc_plus4_q	<= pc_plus4_i;
-		mem_wb_alu_res_q	<= alu_res_i;
+		mem_wb_instruction_q	<= instruction_i;
+		mem_wb_alu_res_q	<= mem_result_w;
 		mem_wb_dtcm_data_q	<= dtcm_data_rd_w;
 		mem_wb_rd_q			<= rd_i;
 		mem_wb_RegDst_q		<= RegDst_ctrl_i;
@@ -134,9 +178,12 @@ END PROCESS;
 --------------------------------------------------------------------------------------------------------
 	-- MEM-stage output (combinational)
 	dtcm_data_rd_o		<= dtcm_data_rd_w;
+	mem_forward_data_o	<= mem_result_w;
 	
 	-- MEM/WB register outputs (WB-stage view)
+	wb_pc_o				<= mem_wb_pc_q;
 	wb_pc_plus4_o		<= mem_wb_pc_plus4_q;
+	wb_instruction_o	<= mem_wb_instruction_q;
 	wb_alu_res_o		<= mem_wb_alu_res_q;
 	wb_dtcm_data_rd_o	<= mem_wb_dtcm_data_q;
 	wb_rd_o				<= mem_wb_rd_q;

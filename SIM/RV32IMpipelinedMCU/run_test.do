@@ -17,7 +17,7 @@ do wave.do
 # flushing instruction's own PC (target+4 == mem_pc_plus4) can only be the
 # final self-jump. The 5 ms bound only catches a runaway (bug) case.
 onbreak {resume}
-when {/tb_rv32impipelinedmcu/flush_o == "1"} {
+when {/tb_rv32impipelinedmcu/MCU/CORE/flush_w == "1"} {
     set tgt  [examine -unsigned /tb_rv32impipelinedmcu/MCU/CORE/redirect_addr_w]
     set pcp4 [examine -unsigned /tb_rv32impipelinedmcu/MCU/CORE/mem_pc_plus4_w]
     if {$tgt + 4 == $pcp4} {

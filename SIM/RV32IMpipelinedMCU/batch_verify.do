@@ -12,7 +12,7 @@ for {set N 1} {$N <= 4} {incr N} {
     vsim -t ns -gMODELSIM=1 work.tb_rv32impipelinedmcu
 
     onbreak {resume}
-    when {/tb_rv32impipelinedmcu/flush_o == "1"} {
+    when {/tb_rv32impipelinedmcu/MCU/CORE/flush_w == "1"} {
         set tgt  [examine -unsigned /tb_rv32impipelinedmcu/MCU/CORE/redirect_addr_w]
         set pcp4 [examine -unsigned /tb_rv32impipelinedmcu/MCU/CORE/mem_pc_plus4_w]
         if {$tgt + 4 == $pcp4} {

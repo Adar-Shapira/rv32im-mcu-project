@@ -8,6 +8,7 @@ LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_UNSIGNED.ALL;
+USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 LIBRARY altera_mf;
 USE altera_mf.altera_mf_components.all;
 
@@ -45,6 +46,7 @@ ARCHITECTURE behavior OF Ifetch IS
 	SIGNAL pc_plus4_r 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL itcm_addr_w		: STD_LOGIC_VECTOR(ITCM_ADDR_WIDTH-1 DOWNTO 0);
 	SIGNAL next_pc_w  		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL jalr_target_w	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);	-- defect 7: jalr target, bit 0 gated
 	SIGNAL brTaken_w  		: STD_LOGIC;
 	SIGNAL rst_q  			: STD_LOGIC;
 	
@@ -89,8 +91,19 @@ END PROCESS;
 	-- Decision MUX for the next PC value
 	brTaken_w 	<= 	Branch_ctrl_i AND brTaken_i;
 	
+	-- Defect 7 (jalr does not clear the target's low bit). RV32I requires
+	-- pc <- (rs1 + imm) with bit 0 forced to zero. The as-submitted mux takes alu_res_i
+	-- unmasked, so an odd jalr target misaligns the PC. Today it is masked by the
+	-- word-granular ITCM (bits 1..0 are dropped on the way to the RAM address), so the
+	-- fetch still lands on the right word -- but pc_o, pc_plus4 and every downstream link
+	-- address carry the odd value. Repair reference:
+	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd:190
+	--     redirect_addr_w <= mem_alu_res_w(PC_WIDTH-1 DOWNTO 1) & '0' WHEN mem_Jalr_w = '1'
+	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN G_ISA_REPAIR ELSE
+						alu_res_i(PC_WIDTH-1 DOWNTO 0);
+
 	next_pc_w	<=	(others => '0') 					WHEN	rst_q 					ELSE
-					alu_res_i(PC_WIDTH-1 DOWNTO 0)		WHEN	Jalr_ctrl_i				ELSE	-- case of jalr
+					jalr_target_w						WHEN	Jalr_ctrl_i				ELSE	-- case of jalr
 					addr_gen_i(PC_WIDTH-1 DOWNTO 0)		WHEN	brTaken_w or Jal_ctrl_i ELSE	-- case of Branch Taken or jal 
 					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);											-- case of Branch Not-Taken 				
 -----------------------------------------------------------------------------------

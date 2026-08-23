@@ -10,6 +10,7 @@ USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_SIGNED.ALL;
 USE work.const_package.all;
 USE work.aux_package.all;
+USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 
 
 ENTITY  Execute IS
@@ -40,6 +41,8 @@ ARCHITECTURE struct OF Execute IS
 	SIGNAL 	bin_w 				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL 	sub_res_w 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL 	ltu_res_w 			: STD_LOGIC;
+	SIGNAL	ltu_fixed_w			: STD_LOGIC;	-- defect 5: true unsigned compare
+	SIGNAL	ltu_orig_w			: STD_LOGIC;	-- defect 5: as-submitted signed compare
 	SIGNAL 	eq_res_w			: STD_LOGIC;
 	SIGNAL	msbneq_res_w		: STD_LOGIC;
 	SIGNAL	alu_res_r 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -61,9 +64,21 @@ ARCHITECTURE struct OF Execute IS
 BEGIN
 --------------------------------------------------------------------------------------------------------
 -- Branch Address Adder
--- addr_gen_o = pc_i + (sign_extend_i << 2)
---------------------------------------------------------------------------------------------------------					  
-addr_gen_o	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-3 DOWNTO 0) & '0');
+-- addr_gen_o = pc_i + (branch/jump displacement)
+--
+-- Defect 6 (branch/jal displacement truncated one bit too far). IDECODE delivers the
+-- B/J-type immediate as imm[12:1] sign-extended, so the byte displacement is that value
+-- shifted left by one. The as-submitted slice is (PC_WIDTH-3 DOWNTO 0) = bits 10..0, which
+-- drops immediate bit 11 -- i.e. byte-offset bit 12 -- and halves the reachable branch
+-- range to +/-2 KiB inside a 13-bit / 8 KiB PC. No supplied benchmark branches that far,
+-- which is why all four still match their golden DTCM; it is latent, not benign.
+-- (The "<< 2" in the original comment was wrong too: the code shifts by one, correctly.)
+-- Repair reference:
+--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd:181
+--     addr_gen_w <= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');
+--------------------------------------------------------------------------------------------------------
+addr_gen_o	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0')	WHEN G_ISA_REPAIR ELSE
+			   pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-3 DOWNTO 0) & '0');
 
 --------------------------------------------------------------------------------------------------------
 --ALU
@@ -76,9 +91,19 @@ WITH UpperIm_ctrl_i SELECT
 bin_w <= 	read_data2_i	WHEN not ALUSrc_ctrl_i ELSE	sign_extend_i(DATA_BUS_WIDTH-1 DOWNTO 0);
 
 
---Reused resuls 
+--Reused resuls
 sub_res_w			<= ain_w - bin_w;
-ltu_res_w			<= '1' WHEN ain_w < bin_w 			ELSE '0';
+
+-- Defect 5 (unsigned compares are signed). This file opens IEEE.STD_LOGIC_SIGNED, so the
+-- bare "<" is a signed comparison and sltu / sltiu / bltu / bgeu all compare signed --
+-- every operand with bit 31 set is treated as negative. Repair reference:
+--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd:196-197
+-- Prefixing a '0' widens both operands to 33 bits with a clear sign bit, which makes the
+-- signed-package comparison give the unsigned answer -- so the fix needs no library change
+-- and cannot disturb the genuinely signed slt / blt / bge paths.
+ltu_fixed_w			<= '1' WHEN ('0' & ain_w) < ('0' & bin_w)	ELSE '0';
+ltu_orig_w			<= '1' WHEN ain_w < bin_w 					ELSE '0';
+ltu_res_w			<= ltu_fixed_w WHEN G_ISA_REPAIR ELSE ltu_orig_w;
 eq_res_w			<= '1' WHEN ain_w = bin_w 			ELSE '0'; 
 msbneq_res_w		<= '1' WHEN ain_w(31) /= bin_w(31) 	ELSE '0';
 
@@ -195,9 +220,20 @@ BEGIN
     ------------------------------------------------------		
 		-- srl, srli, sra, srai	
  	 	WHEN ALU_SHIFTR | ALU_SHIFTR_ARITH 	=>
-			--if sra? pad with 1's else pad with 0's 
+			--if sra? pad with 1's else pad with 0's
+			-- Defect 4 (sra behaves as srl). 32x"FFFF" is a 32-bit value equal to 0x0000FFFF,
+			-- so it sets only bits 15..0 -- but the barrel-shifter stages below read only
+			-- brl_shr_pad_r(31 DOWNTO 16), which stay '0'. The arithmetic pad is therefore
+			-- always zero and sra / srai are indistinguishable from srl / srli.
+			-- Repair reference:
+			--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd
+			--     brl_shr_pad_r <= (others => '1');
 			if (ain_w(31) = '1' and (ALUOp_ctrl_i = ALU_SHIFTR_ARITH)) then
-				brl_shr_pad_r <= 32x"FFFF";
+				if G_ISA_REPAIR then
+					brl_shr_pad_r <= (OTHERS => '1');
+				else
+					brl_shr_pad_r <= 32x"FFFF";
+				end if;
 			else
 				brl_shr_pad_r <= 32x"0000";
 			end if;

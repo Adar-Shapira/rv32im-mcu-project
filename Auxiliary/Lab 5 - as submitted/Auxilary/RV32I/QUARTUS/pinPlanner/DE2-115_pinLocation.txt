@@ -1,0 +1,7 @@
+Pin Planner - Connected Locations:
+
+1) rst_i = PIN_AB28(SW0)
+2) clk_i = PIN_Y2(CLOCK_50MHz) = PLL input clock
+
+Note: all the rest signals pins and ports are unassigned
+

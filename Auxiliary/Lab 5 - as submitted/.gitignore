@@ -1,0 +1,19 @@
+# Quartus build artifacts
+**/db/
+**/incremental_db/
+**/output_files/
+**/simulation/
+*.qws
+*.rpt
+*.summary
+*.smsg
+*.jdi
+*.pin
+*.sld
+*.done
+
+# ModelSim artifacts
+**/work/
+*.wlf
+transcript
+vsim.wlf

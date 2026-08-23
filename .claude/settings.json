@@ -35,7 +35,15 @@
       "Bash(awk '{print $4}')",
       "Bash(sed -i '' -e 's|The expected result is \\\\*\\\\*exactly 19 mismatches\\\\*\\\\*|The expected result is **exactly 20 mismatches**|' -e 's|A count other than 19 is the interesting outcome|A count other than 20 is the interesting outcome|' -e 's|^The 19: |The 20: |' rv32im_mcu_project_0a7e2b8a.plan.md)",
       "Bash(sed -i '' -e 's|\"  Before Phase 3: 18 mismatches is the expected result.\"|\"  Before Phase 3: 20 mismatches is the expected result \\(EXPECTED_DEFECT_COUNT\\).\"|' SIM/RV32IMscMCU/run_isa.do)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(sed -n '/ARCHITECTURE\\\\|architecture/,$p' DUT/RV32IM_pipeline/HAZARD_UNIT.vhd)",
+      "Bash(sed -n '/ARCHITECTURE\\\\|architecture/,$p' DUT/RV32IM_pipeline/FORWARD_UNIT.vhd)",
+      "Bash(git diff *)",
+      "Bash(grep -oE '\\\\$\\\\{CORE\\\\}/[A-Za-z0-9_/]+|/tb_rv32im_pipeline/[A-Za-z0-9_]+' \"Auxiliary/Lab 5 - as submitted/SIM/RV32IM_pipeline/golden.do\")",
+      "Bash(awk -F/ '{print \\($2==\"\"\\)? \"  <TB signal> \"$0 : \"  \"$0}')",
+      "Bash(sed -n '/^ENTITY control/,/^END control/p' CONTROL.vhd)",
+      "Bash(sed -n '/component control/,/end component/p' aux_package.vhd)",
+      "Bash(sed -n '/component dmemory/,/end component/p' aux_package.vhd)"
     ]
   }
 }

@@ -8,6 +8,7 @@ USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_SIGNED.ALL;
 USE work.const_package.all;
+USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 
 
 ENTITY control IS
@@ -40,9 +41,16 @@ ARCHITECTURE behavior OF control IS
 	SIGNAL	srl_w, srli_w, sub_w, xor_w, xori_w, auipc_w, lui_w, slt_w, slti_w, sltu_w, sltiu_w	: STD_LOGIC;
 	SIGNAL	mul_w : STD_LOGIC;	-- M-extension: mul detector
 	SIGNAL  opc_w : STD_LOGIC_VECTOR(6 DOWNTO 0);
+	-- Defect 1 (andi): the as-submitted ALUOp select tests ori_w on the ALU_AND arm, so
+	-- andi never reaches ALU_AND (it falls through to ALU_OR, computing an OR) and the
+	-- ALU_OR arm fires for both andi and ori. Repair reference:
+	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/CONTROL.vhd:147
+	--     ALU_AND WHEN and_w or andi_w ELSE
+	SIGNAL	andi_sel_w : STD_LOGIC;
 
-BEGIN           
+BEGIN
 	opc_w 		<=	instruction_i(6 DOWNTO 0);
+	andi_sel_w	<=	andi_w WHEN G_ISA_REPAIR ELSE ori_w;
 	-- Code to generate control signals using opcode bits
 	Rtype_w		<=  '1'	WHEN	opc_w = RTYPE_OPC  ELSE '0';
 	Itype_w		<=  '1'	WHEN	(opc_w = ITYPE_OPC) or (ld_w = '1') or (jalr_w = '1') ELSE '0';
@@ -139,7 +147,7 @@ BEGIN
 							"00";
 		  						      		
 	ALUOp_ctrl_o		<=  ALU_ADD					WHEN	add_w	or 	addi_w or auipc_w or lui_w or jal_w or jalr_w or ld_w or st_w 	ELSE																																																				
-							ALU_AND					WHEN	and_w 	or 	ori_w	ELSE																			
+							ALU_AND					WHEN	and_w 	or 	andi_sel_w	ELSE
 							ALU_OR					WHEN	or_w 	or 	ori_w	ELSE
 							ALU_SHIFTL				WHEN	sll_w 	or	slli_w	ELSE																					
 							ALU_SHIFTR_ARITH		WHEN	sra_w 	or	srai_w	ELSE 																									
