@@ -49,6 +49,11 @@ DTCM_raw.mem
 *.elf
 *.lst
 
+# ─── Claude Code ──────────────────────────────────────────────────────────────
+# Local agent settings and permissions. Not relevant for compilation, so it also
+# does not belong in the submission ZIP.
+.claude/
+
 # ─── OS and editor ────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

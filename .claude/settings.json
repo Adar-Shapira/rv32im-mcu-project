@@ -43,7 +43,8 @@
       "Bash(awk -F/ '{print \\($2==\"\"\\)? \"  <TB signal> \"$0 : \"  \"$0}')",
       "Bash(sed -n '/^ENTITY control/,/^END control/p' CONTROL.vhd)",
       "Bash(sed -n '/component control/,/end component/p' aux_package.vhd)",
-      "Bash(sed -n '/component dmemory/,/end component/p' aux_package.vhd)"
+      "Bash(sed -n '/component dmemory/,/end component/p' aux_package.vhd)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
