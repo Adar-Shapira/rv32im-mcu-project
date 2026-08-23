@@ -27,7 +27,11 @@ ENTITY control IS
 		Jal_ctrl_o 			: OUT 	STD_LOGIC;
 		Jalr_ctrl_o 		: OUT 	STD_LOGIC;
 		UpperIm_ctrl_o		: OUT 	STD_LOGIC_VECTOR(1 DOWNTO 0);
-		ALUOp_ctrl_o	 	: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0)
+		ALUOp_ctrl_o	 	: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0);
+		-- Phase 3B (G-309): the access width and signedness of a load or store.
+		-- CONTROL already detected lb/lh/lw/lbu/lhu/sb/sh/sw and then threw the
+		-- width away; this port is what carries it to DMEMORY.
+		MemOp_ctrl_o		: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0)
 	);
 END control;
 
@@ -145,6 +149,18 @@ BEGIN
 	UpperIm_ctrl_o		<=	"01" WHEN auipc_w 	ELSE
 							"10" WHEN	lui_w	ELSE
 							"00";
+
+	-- Phase 3B (G-309): access width / signedness, from the existing detectors.
+	-- lb and sb share MEM_B and lh and sh share MEM_H because DMEMORY needs the
+	-- width, and only a load needs the signedness. Everything else -- including
+	-- lw, sw, lwu (RV64-only but detected above) and every non-memory
+	-- instruction -- resolves to MEM_W, so an unrecognised funct3 degrades to a
+	-- full-word access rather than to an undefined one.
+	MemOp_ctrl_o		<=	MEM_B	WHEN (lb_w  or sb_w) = '1'	ELSE
+							MEM_H	WHEN (lh_w  or sh_w) = '1'	ELSE
+							MEM_BU	WHEN  lbu_w          = '1'	ELSE
+							MEM_HU	WHEN  lhu_w          = '1'	ELSE
+							MEM_W;
 		  						      		
 	ALUOp_ctrl_o		<=  ALU_ADD					WHEN	add_w	or 	addi_w or auipc_w or lui_w or jal_w or jalr_w or ld_w or st_w 	ELSE																																																				
 							ALU_AND					WHEN	and_w 	or 	andi_sel_w	ELSE

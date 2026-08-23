@@ -74,6 +74,10 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 	SIGNAL mem_write_w 			: STD_LOGIC;
 	SIGNAL MemtoReg_w 			: STD_LOGIC;
 	SIGNAL mem_read_w 			: STD_LOGIC;
+	-- Phase 3B (G-309): sub-word access width, and the byte offset the word
+	-- address drops on its way to the RAM.
+	SIGNAL mem_op_w				: STD_LOGIC_VECTOR(2 DOWNTO 0);
+	SIGNAL byte_sel_w			: STD_LOGIC_VECTOR(1 DOWNTO 0);
 	SIGNAL upper_im_w			: STD_LOGIC_VECTOR(1 DOWNTO 0);
 	SIGNAL alu_op_w 			: STD_LOGIC_VECTOR(4 DOWNTO 0);
 	SIGNAL instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -166,7 +170,8 @@ BEGIN
 		Jal_ctrl_o 			=> Jal_ctrl_w,
 		Jalr_ctrl_o			=> Jalr_ctrl_w,
 		UpperIm_ctrl_o 		=> upper_im_w,
-		ALUOp_ctrl_o 		=> alu_op_w
+		ALUOp_ctrl_o 		=> alu_op_w,
+		MemOp_ctrl_o		=> mem_op_w			-- Phase 3B (G-309): access width
 	);
 	--=======================================
 	-- EXECUTE module connection
@@ -201,24 +206,35 @@ BEGIN
 		dtcm_addr_w	<= alu_res_w(MA_WIDTH-1 DOWNTO 0);
 	end generate;
 	
+	-- Phase 3B (G-309): the two low bits of the byte address. G1 above narrows
+	-- alu_res_w to the word address and drops exactly these bits, so they have
+	-- to be carried to DMEMORY separately to select the byte lane.
+	-- Under WORD_GRANULARITY = False the memory is byte-addressed and this
+	-- signal is meaningless -- that configuration is not used by this project
+	-- (the RAM is 32 bits wide, so it was never self-consistent) and is not
+	-- exercised by any test.
+	byte_sel_w <= alu_res_w(1 DOWNTO 0);
+
 	MEM:  dmemory
 	generic map(
-		DATA_BUS_WIDTH		=> 	DATA_BUS_WIDTH, 
+		DATA_BUS_WIDTH		=> 	DATA_BUS_WIDTH,
 		DTCM_ADDR_WIDTH		=> 	DTCM_ADDR_WIDTH,
 		WORDS_NUM			=>	DATA_WORDS_NUM
 	)
-	PORT MAP (	
+	PORT MAP (
 		--Inputs
-		clk_i 				=> mclk_w,  
+		clk_i 				=> mclk_w,
 		rst_i 				=> rst_i,
 		dtcm_addr_i 		=> dtcm_addr_w,
 		dtcm_data_wr_i 		=> read_data2_w,
-		MemRead_ctrl_i 		=> mem_read_w, 
+		MemRead_ctrl_i 		=> mem_read_w,
 		MemWrite_ctrl_i 	=> mem_write_w,
-				
+		MemOp_ctrl_i		=> mem_op_w,
+		byte_sel_i			=> byte_sel_w,
+
 		--Outputs
-		dtcm_data_rd_o 		=> dtcm_data_rd_w 
-	);	
+		dtcm_data_rd_o 		=> dtcm_data_rd_w
+	);
 	
 	--=======================================
 	-- MCLK counter register connection

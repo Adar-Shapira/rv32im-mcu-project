@@ -54,6 +54,13 @@ DTCM_raw.mem
 # does not belong in the submission ZIP.
 .claude/
 
+# ─── Python (tools/gen_isa_test.py) ───────────────────────────────────────────
+# Byte-cache only. The generator itself and everything it emits ARE committed:
+# the .hex images, isa_expected_pkg.vhd and listing.txt are inputs to the
+# simulation, so they must be in the tree even though they are generated.
+__pycache__/
+*.pyc
+
 # ─── OS and editor ────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

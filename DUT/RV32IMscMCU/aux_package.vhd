@@ -7,6 +7,7 @@
 library IEEE;
 use ieee.std_logic_1164.all;
 USE work.cond_compilation_package.all;
+USE work.const_package.all;		-- MEM_W, used as the dmemory MemOp_ctrl_i default
 
 
 package aux_package is
@@ -111,7 +112,8 @@ package aux_package is
 		Jal_ctrl_o 				: OUT 	STD_LOGIC;
 		Jalr_ctrl_o 			: OUT 	STD_LOGIC;
 		UpperIm_ctrl_o			: OUT 	STD_LOGIC_VECTOR(1 DOWNTO 0);
-		ALUOp_ctrl_o	 		: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0)
+		ALUOp_ctrl_o	 		: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0);
+		MemOp_ctrl_o			: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0)	-- Phase 3B (G-309)
 	);
 	end component;
 ---------------------------------------------------------	
@@ -129,7 +131,11 @@ package aux_package is
 			dtcm_data_wr_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			MemRead_ctrl_i  	: IN 	STD_LOGIC;
 			MemWrite_ctrl_i 	: IN 	STD_LOGIC;
-			
+			-- Phase 3B (G-309). Defaults keep an older instantiation valid as a
+			-- word-only memory; MEM_W comes from const_package.
+			MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
+			byte_sel_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";
+
 			--Outputs
 			dtcm_data_rd_o 		: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
 		);

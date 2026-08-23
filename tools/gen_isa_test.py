@@ -213,6 +213,7 @@ DEFECT = "DEFECT"
 SCRATCH_A = 200 * 4      # word 200
 SCRATCH_B = 201 * 4      # word 201
 SCRATCH_C = 210 * 4      # word 210
+SCRATCH_D = 211 * 4      # word 211 — the sub-word test target (G-309)
 
 
 def li32(reg, value):
@@ -325,11 +326,63 @@ def suite():
          f"{SCRATCH_A // 4}")
 
     # ── sub-word access — G-309, no byte enables at all ──────────────────────
-    case("sb_then_lbu",
-         [("addi", "t0", "zero", 0x7F), ("sb", "t0", SCRATCH_C, "zero")],
-         ("lbu", "t2", SCRATCH_C, "zero"), 0x7F,
-         f"{DEFECT} G-309: DMEMORY's altsyncram is instantiated without byteena_a and "
-         "CONTROL discards the access width, so sub-word access is unimplemented")
+    #
+    # REPLACED 2026-08-23. The single case that used to live here was
+    #     addi t0,zero,0x7F ; sb t0,SCRATCH_C(zero) ; lbu t2,SCRATCH_C(zero)
+    # expecting 0x7F — and it could not fail once the load offset was repaired.
+    # With no byte enables the sb writes the whole word as 0x0000007F, and with
+    # no extract mux the lbu returns that whole word, which IS 0x7F. It would
+    # have reported a pass while testing nothing, exactly like the mulh cases
+    # did before their operands were changed.
+    #
+    # Every case below is discriminating: it needs a *surviving* neighbour byte
+    # or a sign bit, neither of which a full-word access can fake. Each one
+    # re-establishes the base word itself rather than inheriting it from the
+    # previous case, so a failure localises to one instruction.
+    g309 = (f"{DEFECT} G-309: DMEMORY's altsyncram is instantiated without "
+            "byteena_a and CONTROL discards the access width, so sub-word "
+            "access is unimplemented")
+
+    # sb must leave the other three bytes of the word alone. Without byteena the
+    # whole word becomes 0x0000007F, so this reads 0x0000007F instead.
+    case("sb_keeps_neighbours",
+         li32("t0", 0xAABBCCDD) + [("sw", "t0", SCRATCH_D, "zero"),
+                                   ("addi", "t1", "zero", 0x7F),
+                                   ("sb", "t1", SCRATCH_D + 1, "zero")],
+         ("lw", "t2", SCRATCH_D, "zero"), 0xAABB7FDD,
+         g309 + " — byte 1 replaced, bytes 0/2/3 must survive")
+
+    # sh must leave the other half alone.
+    case("sh_keeps_neighbours",
+         li32("t0", 0x11223344) + [("sw", "t0", SCRATCH_D, "zero")] +
+         li32("t1", 0x5566) + [("sh", "t1", SCRATCH_D + 2, "zero")],
+         ("lw", "t2", SCRATCH_D, "zero"), 0x55663344,
+         g309 + " — upper half replaced, lower half must survive")
+
+    # lbu must select the addressed lane and zero-extend it.
+    case("lbu_selects_lane",
+         li32("t0", 0xAABBCCDD) + [("sw", "t0", SCRATCH_D, "zero")],
+         ("lbu", "t2", SCRATCH_D + 2, "zero"), 0x000000BB,
+         g309 + " — byte 2 of 0xAABBCCDD, zero-extended")
+
+    # lb must sign-extend. 0xF0 has bit 7 set, so a conformant core returns
+    # 0xFFFFFFF0; anything that returns the raw word returns 0x000000F0.
+    case("lb_sign_extends",
+         li32("t0", 0x000000F0) + [("sw", "t0", SCRATCH_D, "zero")],
+         ("lb", "t2", SCRATCH_D, "zero"), 0xFFFFFFF0,
+         g309 + " — byte 0 = 0xF0, bit 7 set, must sign-extend")
+
+    # lhu must select the addressed half and zero-extend it.
+    case("lhu_selects_half",
+         li32("t0", 0x89ABCDEF) + [("sw", "t0", SCRATCH_D, "zero")],
+         ("lhu", "t2", SCRATCH_D + 2, "zero"), 0x000089AB,
+         g309 + " — upper half of 0x89ABCDEF, zero-extended")
+
+    # lh must sign-extend. 0xABCD has bit 15 set.
+    case("lh_sign_extends",
+         li32("t0", 0x0000ABCD) + [("sw", "t0", SCRATCH_D, "zero")],
+         ("lh", "t2", SCRATCH_D, "zero"), 0xFFFFABCD,
+         g309 + " — lower half = 0xABCD, bit 15 set, must sign-extend")
 
     # ── M extension ─────────────────────────────────────────────────────────
     case("mul_small", [("addi", "t0", "zero", 3), ("addi", "t1", "zero", 4)],
@@ -438,25 +491,33 @@ def build():
 # ─────────────────────────────────────────────────────────────── emitters ────
 
 # ---------------------------------------------------------------------------
-# Which gaps Phase 3A actually repairs.
+# Which gaps the G_ISA_REPAIR switch actually closes.
 #
-# Phase 3A applies the seven decode repairs transcribed from the pipelined core
-# of the same LAB5 submission, all behind cond_compilation_package.G_ISA_REPAIR.
-# Five of the gaps the suite exercises are closed by it; the other four are not,
-# and each is blocked on something else:
-#   G-309  byte enables / sub-word load-store  -> Phase 3B, mandatory
-#   G-326  MUL16 is 16x16, so wide mul is wrong -> open question (mul width)
-#   G-308  mulh / mulhu / mulhsu not decoded    -> open question (MULDIV partial)
-#   G-307  div / divu / rem / remu not decoded  -> Phase 7 divider, Q6
+# One switch, cond_compilation_package.G_ISA_REPAIR, selects between the core
+# exactly as LAB5 submitted it and the core with all of our ISA conformance work
+# applied. That work is two phases but one switch, deliberately: two switches
+# would mean four configurations to explain and to run.
+#   Phase 3A  the seven decode repairs, each transcribed from the pipelined core
+#             of the same LAB5 submission     -> G-321, G-322, G-323, G-324, G-325
+#   Phase 3B  byte enables and sub-word load/store, our own design  -> G-309
+#
+# What the switch does NOT close, and why each is blocked on a question rather
+# than on effort:
+#   G-326  MUL16 is 16x16, so a wide mul is wrong  -> open question, mul width
+#   G-308  mulh / mulhu / mulhsu not decoded       -> open question, "MULDIV partial"
+#   G-307  div / divu / rem / remu not decoded     -> Phase 7 divider, Q6
+#
 # Keeping the split here, next to the case table, is what stops the expected
 # counts from drifting away from the program.
 GAP_IDS = ("G-307", "G-308", "G-309", "G-321", "G-322",
            "G-323", "G-324", "G-325", "G-326")
-REPAIRED_BY_PHASE3A = ("G-321", "G-322", "G-323", "G-324", "G-325")
+REPAIRED_BY_SWITCH = ("G-309",                                      # phase 3B
+                      "G-321", "G-322", "G-323", "G-324", "G-325")  # phase 3A
 
 
 def fixed_by_phase3a(note):
-    return any(g in note for g in REPAIRED_BY_PHASE3A)
+    """True if G_ISA_REPAIR = TRUE is expected to make this case pass."""
+    return any(g in note for g in REPAIRED_BY_SWITCH)
 
 
 def vhdl_pkg(seq):
@@ -647,8 +708,21 @@ def reference_run(words, max_steps=100000):
             ad = (a + immS) & M32
             n = {0: 1, 1: 2, 2: 4}[f3]
             mem[ad:ad + n] = (b & M32).to_bytes(4, "little")[:n]
-            if f3 == 2:
-                stores.append((ad >> 2, b & M32))
+            # BUG FIX 2026-08-23: this used to be "if f3 == 2", recording only
+            # word stores. Every store asserts MemWrite_ctrl_o on the bus, so
+            # the scoreboard counts sub-word stores too — and a missing entry
+            # shifts the whole remaining sequence by one, turning a single
+            # unmodelled sb into ~19 spurious mismatches. Verified against the
+            # generated image: 44 store instructions, 43 expected entries.
+            #
+            # What the bus carries for a sub-word store, and why:
+            #   dtcm_addr_o    is the WORD address (RV32IM_CORE.vhd:199 drops
+            #                  bits 1..0), so ad >> 2.
+            #   dtcm_data_wr_o is read_data2_w — the raw rs2 value, upstream of
+            #                  any byte-lane replication inside DMEMORY — so
+            #                  b & M32 regardless of the access width, and
+            #                  regardless of G_ISA_REPAIR.
+            stores.append((ad >> 2, b & M32))
         elif op == 0x63:                                  # branches
             take = {0: a == b, 1: a != b, 4: _s32(a) < _s32(b),
                     5: _s32(a) >= _s32(b), 6: (a & M32) < (b & M32),
@@ -714,6 +788,201 @@ def resolve(words, declared):
     return seq
 
 
+# ─────────────────────────────────────────────────── defect model ────────────
+# A SECOND, independent interpreter: this one models our RTL including its
+# defects, and predicts what the scoreboard will actually observe. reference_run
+# above models a conformant RV32IM and produces the expectations. Keeping the two
+# apart is the whole point -- a single parameterised model would agree with
+# itself by construction and prove nothing.
+#
+# It exists because the two expected-mismatch counts are promises made to whoever
+# runs the simulation. Deriving them by tagging cases with gap IDs is bookkeeping;
+# deriving them by executing the program is evidence.
+
+def defect_run(words, repair, max_steps=200000):
+    """Execute the program the way THIS core executes it.
+
+    repair = False : the core exactly as LAB5 submitted it
+    repair = True  : G_ISA_REPAIR = TRUE, i.e. phases 3A and 3B applied
+
+    Returns the ordered list of (word_addr, bus_data) the DTCM write port sees,
+    where bus_data is read_data2 -- the raw rs2 value, upstream of DMEMORY's
+    byte-lane replication -- because that is the signal the scoreboard snoops.
+    """
+    PCM = 0x1FFF                      # 13-bit PC / MA_WIDTH
+    x = [0] * 32
+    mem = bytearray(8 * 1024)
+    stores = []
+    pc = 0
+
+    def disp(imm):
+        """addr_gen_o = pc + displacement, EXECUTE.vhd:66.
+
+        IDECODE hands over imm[12:1] sign-extended, so the adder shifts left by
+        one. Repaired it keeps 13 bits; as submitted it keeps 12, dropping
+        imm[12] -- gap G-328.
+        """
+        half = (imm >> 1) & M32
+        if repair:
+            v = (half & 0xFFF) << 1                 # 13-bit operand
+            return v - 0x2000 if v & 0x1000 else v
+        v = (half & 0x7FF) << 1                     # 12-bit operand
+        return v - 0x1000 if v & 0x800 else v
+
+    for _ in range(max_steps):
+        if (pc & PCM) >> 2 >= len(words):
+            raise RuntimeError(f"defect model: PC 0x{pc:X} left the program")
+        w = words[(pc & PCM) >> 2]
+        op = w & 0x7F
+        rd, f3 = (w >> 7) & 0x1F, (w >> 12) & 7
+        rs1, rs2, f7 = (w >> 15) & 0x1F, (w >> 20) & 0x1F, (w >> 25) & 0x7F
+        a, b = x[rs1], x[rs2]
+        sa, sb = _s32(a), _s32(b)
+        immI = _s32((w >> 20) | (0xFFFFF000 if w & 0x80000000 else 0))
+        immS = _s32((((w >> 25) << 5) | ((w >> 7) & 0x1F))
+                    | (0xFFFFF000 if w & 0x80000000 else 0))
+        immB = _s32(((((w >> 31) & 1) << 12) | (((w >> 7) & 1) << 11)
+                     | (((w >> 25) & 0x3F) << 5) | (((w >> 8) & 0xF) << 1))
+                    | (0xFFFFE000 if w & 0x80000000 else 0))
+        immU = w & 0xFFFFF000
+        immJ = _s32(((((w >> 31) & 1) << 20) | (((w >> 12) & 0xFF) << 12)
+                     | (((w >> 20) & 1) << 11) | (((w >> 21) & 0x3FF) << 1))
+                    | (0xFFE00000 if w & 0x80000000 else 0))
+        nxt, val = pc + 4, None
+
+        if op == 0x13:                                    # OP-IMM
+            sh = rs2                                      # shamt is imm[4:0]
+            if f3 == 0:   val = a + immI
+            elif f3 == 1: val = a << sh
+            elif f3 == 2: val = 1 if sa < immI else 0
+            elif f3 == 3:                                 # sltiu -- G-325
+                val = (1 if (a & M32) < (immI & M32) else 0) if repair \
+                      else (1 if sa < immI else 0)
+            elif f3 == 4: val = a ^ (immI & M32)
+            elif f3 == 5:                                 # srli / srai -- G-324
+                arith = bool(f7 & 0x20)
+                val = ((sa >> sh) if (arith and repair) else ((a & M32) >> sh))
+            elif f3 == 6:                                 # ori -- G-321
+                val = (a | (immI & M32)) if repair else (a & (immI & M32))
+            elif f3 == 7:                                 # andi -- G-321
+                val = (a & (immI & M32)) if repair else 0
+        elif op == 0x33:                                  # OP
+            if f7 == 0x01:                                # M extension
+                # Only mul is decoded, and MUL16 sees the low half-words only
+                # (G-326). Everything else falls through to ALU_NONE -- the
+                # instruction still writes rd, it just writes zero (G-308/G-307).
+                val = ((a & 0xFFFF) * (b & 0xFFFF)) if f3 == 0 else 0
+            elif f3 == 0: val = (a - b) if (f7 & 0x20) else (a + b)
+            elif f3 == 1: val = a << (b & 0x1F)
+            elif f3 == 2: val = 1 if sa < sb else 0
+            elif f3 == 3:                                 # sltu -- G-325
+                val = (1 if (a & M32) < (b & M32) else 0) if repair \
+                      else (1 if sa < sb else 0)
+            elif f3 == 4: val = a ^ b
+            elif f3 == 5:                                 # srl / sra -- G-324
+                arith = bool(f7 & 0x20)
+                val = ((sa >> (b & 0x1F)) if (arith and repair)
+                       else ((a & M32) >> (b & 0x1F)))
+            elif f3 == 6: val = a | b
+            elif f3 == 7: val = a & b
+        elif op == 0x03:                                  # loads
+            # G-323: as submitted the immediate select has no LOAD arm, so the
+            # offset is zero. G-309: and no extract-and-extend, so whatever the
+            # RAM returns for the word is written to rd unchanged.
+            ad = (a + (immI if repair else 0)) & PCM
+            word = int.from_bytes(mem[ad & ~3:(ad & ~3) + 4], "little")
+            if not repair:
+                val = word
+            else:
+                off, hoff = ad & 3, ad & 2
+                byte = mem[(ad & ~3) + off]
+                half = int.from_bytes(mem[(ad & ~3) + hoff:(ad & ~3) + hoff + 2],
+                                      "little")
+                if f3 == 0:   val = byte - 0x100 if byte & 0x80 else byte
+                elif f3 == 4: val = byte
+                elif f3 == 1: val = half - 0x10000 if half & 0x8000 else half
+                elif f3 == 5: val = half
+                else:         val = word
+        elif op == 0x23:                                  # stores
+            ad = (a + immS) & PCM                         # the offset always worked
+            stores.append((ad >> 2, b & M32))             # what the bus carries
+            if not repair:
+                # No byteena: every lane is written, so a sub-word store
+                # clobbers the whole word with the raw register value (G-309).
+                base, n = ad & ~3, 4
+            elif f3 == 0: base, n = ad, 1
+            elif f3 == 1: base, n = ad & ~1, 2            # halves align down
+            else:         base, n = ad & ~3, 4
+            mem[base:base + n] = (b & M32).to_bytes(4, "little")[:n]
+        elif op == 0x63:                                  # branches
+            if f3 in (0, 1, 4, 5):
+                take = {0: a == b, 1: a != b, 4: sa < sb, 5: sa >= sb}[f3]
+            else:                                         # bltu / bgeu -- G-325
+                take = ({6: (a & M32) < (b & M32), 7: (a & M32) >= (b & M32)}[f3]
+                        if repair else {6: sa < sb, 7: sa >= sb}[f3])
+            if take:
+                if immB == 0:
+                    return stores                         # the sentinel
+                nxt = pc + disp(immB)
+        elif op == 0x37:                                  # lui -- G-322
+            val = immU if repair else 0
+        elif op == 0x17:                                  # auipc: always worked
+            val = pc + immU
+        elif op == 0x6F:                                  # jal
+            val, nxt = pc + 4, pc + disp(immJ)
+        elif op == 0x67:                                  # jalr -- G-329
+            tgt = (a + immI) & M32
+            val, nxt = pc + 4, (tgt & ~1) if repair else tgt
+        else:
+            raise RuntimeError(f"defect model: unhandled opcode 0x{op:02X}")
+
+        if val is not None and rd != 0:
+            x[rd] = val & M32
+        pc = nxt & M32
+    raise RuntimeError("defect model: step limit reached")
+
+
+def score(stores, seq):
+    """Replicate the VHDL scoreboard exactly.
+
+    tb_isa_directed.vhd:188-218 -- per store compare the word address first, then
+    the data; at most one failure per store; the index advances either way, so a
+    missing or extra store shifts everything after it.
+    """
+    out = []
+    for idx, (addr, data) in enumerate(stores):
+        if idx >= len(seq):
+            out.append((idx, "<beyond the sequence>", "extra store"))
+            continue
+        _, eaddr, edata, name, _ = seq[idx]
+        if addr != eaddr:
+            out.append((idx, name, f"address: expected word {eaddr}, got {addr}"))
+        elif data != edata:
+            out.append((idx, name, f"data: expected 0x{edata:08X}, got 0x{data:08X}"))
+    if len(stores) < len(seq):
+        out.append((len(stores), seq[len(stores)][3], "store never happened"))
+    return out
+
+
+def cross_check_counts(words, seq, n_def, n_def_repaired):
+    """Execute both configurations and confirm the promised counts."""
+    bad = 0
+    for repair, promised, label in ((False, n_def, "G_ISA_REPAIR=FALSE"),
+                                    (True, n_def_repaired, "G_ISA_REPAIR=TRUE ")):
+        fails = score(defect_run(words, repair), seq)
+        tag = "OK" if len(fails) == promised else "*** DISAGREES ***"
+        print(f"  defect model {label}: {len(fails):2d} mismatches, "
+              f"package promises {promised:2d}   {tag}")
+        if len(fails) != promised:
+            bad += 1
+            for idx, name, why in fails[:60]:
+                print(f"      #{idx:3d} {name:24s} {why}")
+    if bad:
+        sys.exit("defect model disagrees with the gap tagging — one of the two "
+                 "is wrong, and the promised counts cannot be trusted until "
+                 "they agree")
+
+
 def main():
     root = pathlib.Path(__file__).resolve().parent.parent
     print("generating directed ISA test")
@@ -733,9 +1002,12 @@ def main():
     (root / "TB" / "RV32IMscMCU" / "isa_expected_pkg.vhd").write_text(vhdl_pkg(seq))
 
     defects = sum(1 for _, _, _, _, n in seq if DEFECT in n)
+    repaired = sum(1 for _, _, _, _, n in seq
+                   if DEFECT in n and not fixed_by_phase3a(n))
     print(f"  program        : {len(words)} words ({len(words)*4} bytes)")
     print(f"  declared cases : {len(declared)}")
     print(f"  stores expected to FAIL on the unfixed core: {defects}")
+    cross_check_counts(words, seq, defects, repaired)
     print(f"  wrote {isa}/ITCM.hex, DTCM.hex, listing.txt")
     print(f"  wrote TB/RV32IMscMCU/isa_expected_pkg.vhd")
 

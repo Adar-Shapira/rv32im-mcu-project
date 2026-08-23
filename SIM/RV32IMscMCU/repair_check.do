@@ -1,4 +1,5 @@
-# repair_check.do - directed check of the seven Phase 3A ISA repairs
+# repair_check.do - directed check of the ISA conformance work: the seven
+# Phase 3A decode repairs and the Phase 3B sub-word access path. 43 checks.
 #
 # REFERENCE
 #   Auxiliary/Lab 5 - as submitted/SIM/RV32IM_pipeline/directed_isa.do
@@ -163,20 +164,139 @@ run 1 ns
 expect_hex $CORE/IFE/jalr_target_w 0002 JALR_lsb_clear
 noforce $CORE/IFE/alu_res_i
 
+# ===========================================================================
+# PHASE 3B - byte enables and sub-word load/store (gap G-309)
+# ===========================================================================
+# CONTROL must carry the access width, and DMEMORY must act on it. MemOp codes
+# are the RISC-V funct3 values (const_package.vhd): 0=byte 1=half 2=word
+# 4=byte-unsigned 5=half-unsigned.
+# ---------------------------------------------------------------------------
+# CONTROL: every load and store width must decode to its own MemOp code.
+# ---------------------------------------------------------------------------
+proc memop {instr expect label} {
+    global CORE
+    force -freeze $CORE/CTL/instruction_i $instr 0
+    run 1 ns
+    expect_hex $CORE/CTL/MemOp_ctrl_o $expect $label
+}
+memop 32'h00000003 0 MemOp_lb
+memop 32'h00001003 1 MemOp_lh
+memop 32'h00002003 2 MemOp_lw
+memop 32'h00004003 4 MemOp_lbu
+memop 32'h00005003 5 MemOp_lhu
+memop 32'h00000023 0 MemOp_sb
+memop 32'h00001023 1 MemOp_sh
+memop 32'h00002023 2 MemOp_sw
+# A non-memory instruction must resolve to word, never to an undefined width.
+memop 32'h00000013 2 MemOp_default_is_word
+noforce $CORE/CTL/instruction_i
+
+# ---------------------------------------------------------------------------
+# DMEMORY store path: byteena_a one-hot per byte, half-hot per half, all lanes
+# for a word. byteena_w is 4 bits, so it reads as a single hex digit.
+# ---------------------------------------------------------------------------
+proc byteena {op sel expect label} {
+    global CORE
+    force -freeze $CORE/MEM/MemOp_ctrl_i $op 0
+    force -freeze $CORE/MEM/byte_sel_i $sel 0
+    run 1 ns
+    expect_hex $CORE/MEM/byteena_w $expect $label
+}
+byteena 3'h0 2'h0 1 byteena_sb_offset0
+byteena 3'h0 2'h1 2 byteena_sb_offset1
+byteena 3'h0 2'h2 4 byteena_sb_offset2
+byteena 3'h0 2'h3 8 byteena_sb_offset3
+byteena 3'h1 2'h0 3 byteena_sh_low
+byteena 3'h1 2'h2 c byteena_sh_high
+byteena 3'h2 2'h0 f byteena_sw_all_lanes
+
+# Store data must be replicated across the lanes so byteena can pick one.
+force -freeze $CORE/MEM/dtcm_data_wr_i 32'h0000007F 0
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h0 0
+run 1 ns
+expect_hex $CORE/MEM/store_data_w 7f7f7f7f store_replicate_byte
+force -freeze $CORE/MEM/dtcm_data_wr_i 32'h00005566 0
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h1 0
+run 1 ns
+expect_hex $CORE/MEM/store_data_w 55665566 store_replicate_half
+force -freeze $CORE/MEM/dtcm_data_wr_i 32'hAABBCCDD 0
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h2 0
+run 1 ns
+expect_hex $CORE/MEM/store_data_w aabbccdd store_word_untouched
+noforce $CORE/MEM/dtcm_data_wr_i
+
+# ---------------------------------------------------------------------------
+# DMEMORY load path: select the addressed lane, then sign- or zero-extend.
+# q_w is the raw word the RAM returns; forcing it removes the RAM from the test
+# so a failure here is the extract/extend logic and nothing else.
+# ---------------------------------------------------------------------------
+force -freeze $CORE/MEM/q_w 32'hAABBCCDD 0
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h4 0
+force -freeze $CORE/MEM/byte_sel_i 2'h0 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 000000dd load_lbu_offset0
+force -freeze $CORE/MEM/byte_sel_i 2'h2 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 000000bb load_lbu_offset2
+force -freeze $CORE/MEM/byte_sel_i 2'h3 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 000000aa load_lbu_offset3
+# lb: byte 3 of 0xAABBCCDD is 0xAA, bit 7 set, so it must sign-extend.
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h0 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o ffffffaa load_lb_sign_extend
+# lb on a byte with bit 7 clear must NOT sign-extend.
+force -freeze $CORE/MEM/byte_sel_i 2'h1 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 000000cc load_lb_no_sign_extend
+# lhu / lh on both halves.
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h5 0
+force -freeze $CORE/MEM/byte_sel_i 2'h0 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 0000ccdd load_lhu_low
+force -freeze $CORE/MEM/byte_sel_i 2'h2 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o 0000aabb load_lhu_high
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h1 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o ffffaabb load_lh_sign_extend
+# lw must return the word untouched, whatever the byte offset says.
+force -freeze $CORE/MEM/MemOp_ctrl_i 3'h2 0
+run 1 ns
+expect_hex $CORE/MEM/dtcm_data_rd_o aabbccdd load_lw_untouched
+noforce $CORE/MEM/q_w
+noforce $CORE/MEM/MemOp_ctrl_i
+noforce $CORE/MEM/byte_sel_i
+
 # ---------------------------------------------------------------------------
 echo ""
-echo "=============== PHASE 3A REPAIR CHECK ==============="
-echo "  passed : $::passes"
+echo "========== PHASE 3A + 3B CONFORMANCE CHECK =========="
+echo "  passed : $::passes  of 43"
 echo "  failed : $::fails"
 if {$::fails == 0} {
-    echo "  VERDICT: all seven repairs behave as specified."
+    echo "  VERDICT: all 43 checks behave as specified."
     echo "====================================================="
     quit -f
+} elseif {$::fails == 25} {
+    echo "  VERDICT: exactly 25 failures - this is the signature of"
+    echo "  a build with G_ISA_REPAIR = FALSE. That is the baseline"
+    echo "  measurement, not a bug. 18 of the 43 checks are controls"
+    echo "  that must pass in BOTH configurations, and they did:"
+    echo "    LUI_upper_select, AUIPC_immediate_unchanged,"
+    echo "    AUIPC_upper_select, SLT_signed_unchanged, SRL_unchanged,"
+    echo "    BRANCH_plus_1024_nondiscriminating, the 9 MemOp_* checks,"
+    echo "    byteena_sw_all_lanes, store_word_untouched,"
+    echo "    load_lw_untouched."
+    echo "  Set G_ISA_REPAIR := TRUE, re-run compile.do, and run again."
+    echo "====================================================="
+    quit -code 1
 } else {
-    echo "  VERDICT: $::fails check(s) failed."
-    echo "  If ALL of them failed, the design was compiled with"
-    echo "  G_ISA_REPAIR = FALSE - that is the baseline run, not a bug."
-    echo "  A partial failure is a real finding: the repair is wrong."
+    echo "  VERDICT: $::fails check(s) failed - neither 0 nor 25."
+    echo "  This is a real finding. 0 means every repair works, 25 means"
+    echo "  none is compiled in; anything else means a specific repair is"
+    echo "  wrong, or a control check broke - and a broken control means a"
+    echo "  repair damaged behaviour that was already correct."
+    echo "  Paste the FAIL lines above into the plan file."
     echo "====================================================="
     quit -code 1
 }

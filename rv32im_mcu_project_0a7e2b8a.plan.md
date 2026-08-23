@@ -225,23 +225,25 @@ wrong — say so.
      `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the new
      wrapper. `mem save` does not report this as an error.
 3. **Phase 2 — the "before" measurement.** Run `run_isa.do` with the tree exactly as cloned
-   (`G_ISA_REPAIR = FALSE`). Expect **exactly 20 mismatches**, then a `SUMMARY` block.
-   - **20 is the pass condition.** These are the known defects; the suite exists to measure them.
+   (`G_ISA_REPAIR = FALSE`). Expect **exactly 25 mismatches**, then a `SUMMARY` block.
+   - **25 is the pass condition.** These are the known defects; the suite exists to measure them.
    - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
    - **Any other number is a finding.** A mismatch on a case the listing does not mark `DEFECT` is a
      new bug; a `DEFECT` case that passes means the bug is not where we think. Either way, paste the
      whole `ISA TEST FAIL` list back.
-   - Which 20, and the citation for each: `SIM\RV32IMscMCU\isa\listing.txt`.
+   - Which 25, and the citation for each: `SIM\RV32IMscMCU\isa\listing.txt`.
    - The `SUMMARY` block now prints which configuration it was compiled against and how many
      mismatches that configuration should give, so there is no number to remember.
-4. **Phase 3A — the "after" measurement.** One edit, then two runs.
+4. **Phase 3A + 3B — the "after" measurement.** One edit, then two runs.
    - In `DUT\RV32IMscMCU\cond_compilation_package.vhd`, set `G_ISA_REPAIR := TRUE`.
      **This is the one source edit the project asks for, and it is the switch's whole purpose.**
    - Re-run `compile.do` — a package change invalidates everything, so it is a full recompile.
-   - `do repair_check.do` → expect **all 15 checks PASS**. This is the submodule-level proof that each
-     repaired expression computes the right value.
-   - `do run_isa.do` → expect **exactly 10 mismatches**. Not 0. The 10 that remain are the cases
-     blocked on later work, and `run_isa.do` prints the breakdown.
+   - `do repair_check.do` → expect **43 of 43 PASS**. Submodule-level proof that each repaired
+     expression computes the right value. Against `FALSE` it reports exactly **25** failures and
+     names the 18 control checks that must pass either way — so the script itself tells you which
+     configuration you compiled.
+   - `do run_isa.do` → expect **exactly 9 mismatches**. Not 0. The 9 that remain are the cases
+     blocked on open questions, and `run_isa.do` prints the breakdown.
    - Then set it back to `FALSE` before committing, unless we have agreed to flip the default.
 5. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
    pipeline — new file list in `compile.do`, and `golden.do` is now the wave script to prefer.
@@ -277,7 +279,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 1 Clean structural base | Yehonatan ✔ | **Adar** | ready to run |
 | 2 Directed ISA test | Yehonatan ✔ | **Adar** | ready to run |
 | 3A Seven ISA repairs | Yehonatan ✔ | **Adar** | ready to run — flip `G_ISA_REPAIR` |
-| 3B Byte enables / sub-word | Yehonatan | Adar | next on the Mac; mandatory |
+| 3B Byte enables / sub-word | Yehonatan ✔ | **Adar** | ready to run — same switch as 3A |
 | 3C `mul` width, `mulh`, `div` | — | — | **blocked on Hanan** (Q6 + mul width) |
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4 Clock tree / CDC | Yehonatan | Adar | waits on Q2 |
@@ -621,7 +623,7 @@ Done on 2026-08-20. Written and self-validated here; the ModelSim run is on Wind
 | Done | What |
 | --- | --- |
 | ✔ | `tools/gen_isa_test.py` — generates the test program, the memory images, the expected-store package and a human listing, all from **one** table, so program and expectations cannot drift apart |
-| ✔ | `TB/RV32IMscMCU/tb_isa_directed.vhd` — self-checking scoreboard, **41 declared cases**, 43 stores |
+| ✔ | `TB/RV32IMscMCU/tb_isa_directed.vhd` — self-checking scoreboard, **46 declared cases**, 56 stores |
 | ✔ | `TB/RV32IMscMCU/isa_expected_pkg.vhd` + `SIM/RV32IMscMCU/isa/{ITCM,DTCM}.hex` + `listing.txt` — generated |
 | ✔ | `SIM/RV32IMscMCU/run_isa.do`, and the two new files added to `compile.do` |
 
@@ -647,7 +649,7 @@ is assembled a byte at a time (`li32`) because `lui` cannot be trusted.
 - **Encoder self-test, 9/9.** Every encoding checked against a known word — including
   `addi s0,s0,160 = 0x0A040413` taken straight from the supplied `test1` ITCM image, and the two
   sentinels `0x00000063` / `0x0000006F`.
-- **Reference RV32IM interpreter, 41/41.** A second, independent implementation written from the
+- **Reference RV32IM interpreter, 46/46.** A second, independent implementation written from the
   unprivileged ISA spec executes the generated program and produces the store sequence. Every
   declared expectation is cross-checked against it, so **a mismatch in ModelSim is a hardware
   finding, not a bad expectation.**
@@ -666,22 +668,51 @@ is assembled a byte at a time (`li32`) because `lui` cannot be trusted.
    three high-multiply cases would have passed while testing nothing. Operands changed to
    `0x12345678 × 0x10000000`, whose high word is `0x01234567`.
 
-**Exit criterion, not yet met:** run `run_isa.do`. The expected result is **exactly 20 mismatches** —
-the number is a generated constant (`EXPECTED_DEFECT_COUNT`), and the testbench compares its own
-tally against it, so it cannot drift. Zero mismatches would mean the images never reached `app_bin`.
-A count other than 20 is the interesting outcome: a mismatch on a case not marked `DEFECT` is a new
-finding, and a `DEFECT` case that passes means the defect is not where we think it is.
+### Two bugs found in this phase's own work on 2026-08-23 — read before running
 
-The 20: `andi`, `ori`, `sltiu`, `sltu`, `srai`, `sra`, `lui`, `lw_offset`, `sb_then_lbu`, `mul_wide`,
-`mul_hi_low`, `mulh`, `mulhu`, `mulhsu`, `div`, `divu`, `rem`, `remu`, `bltu_nottaken`,
-`bgeu_taken` — each with its citation in `SIM/RV32IMscMCU/isa/listing.txt`.
+**Bug 1: the suite would have miscounted by one, and cascaded.** The generator's reference
+interpreter recorded only word stores in the expected sequence (`if f3 == 2`). Every store asserts
+`MemWrite_ctrl_o`, so the scoreboard counts sub-word stores too — and the program contains one `sb`.
+Measured on the generated image: **44 store instructions on the bus against 43 expected entries.**
+The scoreboard advances its index on every store, so the missing entry shifted everything from store
+#25 onward and would have produced roughly 19 spurious mismatches on top of the real ones. The
+promised "20" was wrong. Fixed by recording every store, with the value the *bus* carries — which is
+`read_data2_w`, the raw rs2 value, upstream of DMEMORY's lane replication.
+
+**Bug 2: the one sub-word case could not fail.** `sb_then_lbu` stored `0x7F` and loaded it back
+expecting `0x7F`. With no byte enables the `sb` writes the whole word as `0x0000007F`, and with no
+extract mux the `lbu` returns that whole word — which *is* `0x7F`. Once the load offset was repaired
+it would have passed while testing nothing at all. Exactly the failure mode caught earlier in the
+`mulh` cases. Replaced with **six** cases that each need a surviving neighbour byte or a sign bit,
+neither of which a full-word access can fake, and each of which re-establishes its own base word so
+a failure localises to one instruction.
+
+**Both numbers are now derived twice, independently.** `tools/gen_isa_test.py` computes the expected
+mismatch count once by tagging each case with the gap it exercises, and once by executing the
+generated program through `defect_run()` — a second interpreter that models this core's actual
+defects rather than a conformant RV32IM. Generation **aborts** if the two disagree. Deriving the
+number by bookkeeping is not the same as deriving it by execution, and only the second is evidence.
+
+**The memory images changed, and that is the honest outcome.** Phase 2 called `isa/ITCM.hex` a frozen
+contract, and it was — right up until the contract turned out to encode a program whose expectations
+could not be met and one of whose cases could not fail. Freezing that would have been freezing a bug.
+The image is now 268 words instead of 206 (`ITCM.hex` md5 `893b7c48…`; `DTCM.hex` is unchanged at
+`e0c27360…`, still 1024 zero words). What the freeze was protecting — that the same suite measures
+before and after — is intact, because both configurations run this same image. It is frozen again
+from here.
+
+**Exit criterion, not yet met:** run `run_isa.do`. The expected result is **exactly 25 mismatches** —
+a generated constant (`EXPECTED_DEFECT_COUNT`) that the testbench compares its own tally against, so
+it cannot drift. Zero would mean the images never reached `app_bin`. A count other than 25 is the
+interesting outcome: a mismatch on a case not marked `DEFECT` is a new finding, and a `DEFECT` case
+that passes means the defect is not where we think it is.
 
 ### ▸ Adar's results — Phase 2  (Run 2 step 3)
 
 `SIM\RV32IMscMCU` → `run_isa.do`. Read the `SUMMARY` block it prints.
 
-- Stores observed: ____ of 43
-- **Mismatches: ____ ** (20 expected)
+- Stores observed: ____ of 56
+- **Mismatches: ____ ** (25 expected)
 - Cycles: ____
 
 Then tick each predicted case. A blank means it **passed**, which for these is itself a finding —
@@ -689,16 +720,19 @@ it would mean the defect is not where we think.
 
 | # | case | mismatched? | # | case | mismatched? |
 | --- | --- | --- | --- | --- | --- |
-| 7 | `andi` | | 25 | `mul_wide` | |
-| 8 | `ori` | | 26 | `mul_hi_low` | |
-| 12 | `sltiu` | | 27 | `mulh` | |
-| 14 | `sltu` | | 28 | `mulhu` | |
-| 18 | `srai` | | 29 | `mulhsu` | |
-| 19 | `sra` | | 30 | `div` | |
-| 20 | `lui` | | 31 | `divu` | |
-| 22 | `lw_offset` | | 32 | `rem` | |
-| 23 | `sb_then_lbu` | | 33 | `remu` | |
-| 38 | `bltu_nottaken` | | 39 | `bgeu_taken` | |
+| 7 | `andi` | | 38 | `lh_sign_extends` | |
+| 8 | `ori` | | 40 | `mul_wide` | |
+| 12 | `sltiu` | | 41 | `mul_hi_low` | |
+| 14 | `sltu` | | 42 | `mulh` | |
+| 18 | `srai` | | 43 | `mulhu` | |
+| 19 | `sra` | | 44 | `mulhsu` | |
+| 20 | `lui` | | 45 | `div` | |
+| 24 | `lw_offset` | | 46 | `divu` | |
+| 27 | `sb_keeps_neighbours` | | 47 | `rem` | |
+| 30 | `sh_keeps_neighbours` | | 48 | `remu` | |
+| 32 | `lbu_selects_lane` | | 53 | `bltu_nottaken` | |
+| 34 | `lb_sign_extends` | | 54 | `bgeu_taken` | |
+| 36 | `lhu_selects_half` | | | | |
 
 **Any case NOT in this table that mismatched — paste the full `ISA TEST FAIL` line here:**
 
@@ -738,7 +772,7 @@ our invention and each carries a file:line citation in the code itself.
 | ✔ | `G_ISA_REPAIR` switch added to `DUT/RV32IMscMCU/cond_compilation_package.vhd`, following the `G_MODELSIM` idiom that already lives in that file |
 | ✔ | Defects 1–7 repaired in `CONTROL.vhd`, `IDECODE.vhd`, `EXECUTE.vhd`, `IFETCH.vhd`, `const_package.vhd` — each gated by the switch, each commented with the defect, the mechanism, and the reference line |
 | ✔ | `LOAD_OPC`, `AUIPC_OPC`, `LUI_OPC` added to `const_package.vhd`, values taken verbatim from the pipeline's own package |
-| ✔ | `SIM/RV32IMscMCU/repair_check.do` — 15 directed checks, ported from the reference's `directed_isa.do` |
+| ✔ | `SIM/RV32IMscMCU/repair_check.do` — directed checks ported from the reference's `directed_isa.do`, later extended to 43 to cover Phase 3B as well |
 | ✔ | `tools/gen_isa_test.py` emits `EXPECTED_DEFECT_COUNT_REPAIRED`; `tb_isa_directed.vhd` picks the right count from `G_ISA_REPAIR`, so the suite predicts correctly in both configurations |
 
 **Why a switch instead of just editing the code.** `CLAUDE.md` requires the failure to be measured
@@ -747,41 +781,53 @@ branch to juggle and no chance of the "before" and "after" runs disagreeing abou
 repair. `G_ISA_REPAIR = FALSE` reproduces the submitted core bit-for-bit — that was checked
 expression by expression, not assumed.
 
-**Which cases the repairs close, and which they do not.** The 20 Phase-2 mismatches were never all
+**Which cases the switch closes, and which it does not.** The 25 Phase-2 mismatches were never all
 decode defects:
 
-| Gap | Cases | Closed by 3A? | Blocked on |
+| Gap | Cases | Closed by the switch? | Blocked on |
 | --- | --- | --- | --- |
-| G-321 `andi`/`ori` | 2 | ✔ | — |
-| G-325 signed compares | 4 | ✔ | — |
-| G-324 `sra` pad | 2 | ✔ | — |
-| G-322 `lui` | 1 | ✔ | — |
-| G-323 load offset | 1 | ✔ | — |
-| G-309 sub-word access | 1 | ✘ | Phase 3B |
+| G-321 `andi`/`ori` | 2 | ✔ 3A | — |
+| G-325 signed compares | 4 | ✔ 3A | — |
+| G-324 `sra` pad | 2 | ✔ 3A | — |
+| G-322 `lui` | 1 | ✔ 3A | — |
+| G-323 load offset | 1 | ✔ 3A | — |
+| G-309 sub-word access | 6 | ✔ 3B | — |
 | G-326 `MUL16` is 16×16 | 2 | ✘ | open question — mul width |
 | G-308 `mulh`/`mulhu`/`mulhsu` | 3 | ✘ | open question — "MULDIV partial" |
 | G-307 `div`/`divu`/`rem`/`remu` | 4 | ✘ | Phase 7, Q6 |
 
-**20 → 10.** Defects 6 and 7 are not in that table because the Phase-2 suite does not reach them —
-its branches are all short and it never executes an odd `jalr` target. That is what
-`repair_check.do` is for.
+**25 → 9.** Defects 6 and 7 are not in that table because the Phase-2 suite does not reach them: its
+only branch displacements are 0 and 8, and it executes no `jalr` at all — both verified by scanning
+the generated image. That is what `repair_check.do` is for.
 
-**What was validated here, with no simulator:** the memory images are byte-identical after
-regenerating the suite (`ITCM.hex` md5 `cb934246…`, `DTCM.hex` md5 `e0c27360…` — the frozen contract
-holds, only the header constants changed); parens and `if`/`end if` balance in every edited file,
-checked against the pristine reference copies as a control; `EXPECTED_DEFECT_COUNT_REPAIRED` computed
-to 10, matching the table above independently.
+**What was validated here, with no simulator:**
 
-**Exit:** `repair_check.do` 15/15, and `run_isa.do` exactly 10.
+- **Both mismatch counts derived twice, independently.** Once by tagging cases with gap IDs, once by
+  executing the program through `defect_run()` — a model of this core's own defects, separate from
+  the conformant reference model. They agree at 25 and at 9, and generation aborts if they ever
+  do not.
+- **The 9 survivors identified by name**, not just counted: `mul_wide`, `mul_hi_low`, `mulh`,
+  `mulhu`, `mulhsu`, `div`, `divu`, `rem`, `remu`. Every one is a case blocked on a question. No
+  regression hides in the count.
+- **Parens and `if`/`end if` balance** in every edited file, checked against the pristine reference
+  copies as a control — which is how the first balance metric was caught being wrong rather than the
+  code.
+- **Entity ≡ component ≡ instantiation** for `control` and `dmemory` after the port additions, and
+  17 ports / 12 generics matched on the pipeline wrapper.
+- **`G_ISA_REPAIR = FALSE` reproduces the submitted core** — checked expression by expression, not
+  assumed, and confirmed by the defect model reproducing the same 25.
+
+**Exit:** `repair_check.do` 43/43, and `run_isa.do` exactly 9.
 
 #### ▸ Adar's results — Phase 3A  (Run 2 step 4)
 
-- `repair_check.do` — passed: ____ of 15, failed: ____
-- `run_isa.do` — mismatches: ____ (10 expected)
+- `repair_check.do` — passed: ____ of 43, failed: ____
+- `run_isa.do` — mismatches: ____ (9 expected)
 
-If **every** `repair_check.do` line failed, the design was compiled with `G_ISA_REPAIR = FALSE`;
-recompile. A *partial* failure is a real finding — one of the repairs is wrong. Paste the failing
-lines:
+If `repair_check.do` reports exactly **25** failures, the design was compiled with
+`G_ISA_REPAIR = FALSE`; set it to `TRUE`, re-run `compile.do`, and run again. Any count that is
+neither 0 nor 25 is a real finding — a specific repair is wrong, or a control check broke, and a
+broken control means a repair damaged behaviour that was already correct. Paste the failing lines:
 
 ```
 ```
@@ -798,16 +844,48 @@ repairs touch instructions the benchmarks either use correctly already or never 
 | 3 | 2725 | | |
 | 4 | 2735 | | |
 
-### Phase 3B — byte enables and sub-word load/store  ·  Yehonatan writes next · **not started**
+### Phase 3B — byte enables and sub-word load/store  ·  **built, awaiting verification**
 
-The one genuinely missing feature, and it is mandatory: the benchmarks `sw` to byte-resolution MMIO
-addresses, and `DMEMORY.vhd`'s `altsyncram` is instantiated with **no `byteena_a`** while `CONTROL`
-detects `lb`/`lh`/`lbu`/`lhu`/`sb`/`sh` and then discards the width. Needs `byteena_a`, a
-funct3-driven extract-and-extend mux on the read path, and write-strobe generation.
+Done 2026-08-23. The one genuinely missing *feature* rather than defect, and mandatory: the
+benchmarks address byte-resolution MMIO registers, `DMEMORY.vhd`'s `altsyncram` had **no
+`byteena_a`**, and `CONTROL` detected `lb`/`lh`/`lbu`/`lhu`/`sb`/`sh` and then discarded the width.
 
-No reference exists — the reference pipeline does not implement it either
-(`PROJECT_EXPLANATION.md` §4.4 states it plainly). This is our design, and it will be documented as
-such. Closes G-309, and takes the ISA suite from 10 mismatches to 9.
+**No direct course reference found.** Verified by grep: the tree has 10 `altsyncram`
+instantiations and not one uses `byteena_a`, `byte_size` or `width_byteena_a`. The reference
+pipeline does not implement sub-word access either — `PROJECT_EXPLANATION.md` §4.4 says so outright.
+So this is our design. The three `altsyncram` identifiers come from Intel's megafunction interface,
+which is **general knowledge, not course material**, and that is the one thing here I could not
+verify locally.
+
+| Done | What |
+| --- | --- |
+| ✔ | `const_package.vhd` — `MEM_B`/`MEM_H`/`MEM_W`/`MEM_BU`/`MEM_HU`. Not an encoding of ours: these are the ISA's own load/store funct3 values, cited to the instruction-format PDF |
+| ✔ | `CONTROL.vhd` — new `MemOp_ctrl_o`, built from the mask detectors that already existed, so an undefined funct3 degrades to a full word rather than to an undefined width |
+| ✔ | `DMEMORY.vhd` — `byteena_a` + `byte_size` + `width_byteena_a`; store-data lane replication; a byte/half extract mux and sign/zero extension on the read path; a static assert that the bus is 32 bits; a simulation-only misalignment warning |
+| ✔ | `RV32IM_CORE.vhd` — routes `MemOp` and `alu_res_w(1 DOWNTO 0)`, the byte offset the word-address slice throws away |
+| ✔ | `aux_package.vhd` — both component declarations updated; entity ≡ component ≡ instantiation verified for `control` and `dmemory` |
+| ✔ | Folded under the same `G_ISA_REPAIR` switch. One switch, two configurations — two switches would mean four combinations to explain and to run |
+
+**Why `byteena_a` and not read-modify-write.** The RAM output is `UNREGISTERED`, so `q_a` already
+carries the addressed word and merging the new byte in looks tempting. It creates a combinational
+path `q_a → data_a → RAM` — a loop through the memory — and same-address read-during-write on an M9K
+is undefined in this configuration. `byteena_a` is the mechanism the hardware provides for exactly
+this.
+
+**Alignment is defined, not assumed.** RV32I traps on a misaligned access and this core has no trap
+mechanism, so a half-word access uses `byte_sel_i(1)` only and aligns down. A simulation-only
+`report … severity warning` fires if it ever happens, so a benchmark cannot depend on it silently.
+
+**Timing risk, flagged for Phase 14.** The critical path is already ITCM → decode → ALU → DTCM with
+the DTCM on the inverted clock: Fmax 26.81 MHz against a 25 MHz target, 1.81 MHz of margin. The
+extract-and-extend mux lengthens exactly that path. **Expect Fmax to drop.** If it goes below
+25 MHz the PLL ratio has to change, which is a Phase 4 decision — not a reason to undo this.
+
+**Second risk: the memory-bit count.** Adding byte enables may change how Quartus configures the M9K
+blocks. Embedded memory bits should still read **131,072**; if that number moves, say so before
+drawing any conclusion from it.
+
+Closes G-309. Takes the ISA suite from 25 mismatches to 9.
 
 ### Phase 3C — `mul` width, `mulh`, and `div`  ·  **deliberately not started**
 
@@ -1081,7 +1159,7 @@ Gaps: G-501…G-505.
 | **G-306** | GPIO buffer registers | §5, §6 |
 | **G-307** | `div`/`divu`/`rem`/`remu` decode — masks exist, hardware does not | §2 |
 | **G-308** | `mulh`/`mulhsu`/`mulhu` — scope undecided | §2 |
-| **G-309** | Byte enables and sub-word load/store. `altsyncram` has no `byteena_a`; `CONTROL` detects `lb`/`lh`/`sb`/`sh` then discards the width. **Mandatory.** | §2 |
+| **G-309** | Byte enables and sub-word load/store. `altsyncram` had no `byteena_a`; `CONTROL` detected `lb`/`lh`/`sb`/`sh` then discarded the width. **Built in Phase 3B**, awaiting verification. | §2 |
 | **G-310** | Two-flop CDC synchroniser | Figures 10a/10b |
 | **G-311** | Multi-output clock tree; all three ALTPLL copies expose only `c0` | Figure 1 |
 | **G-312** | Edge detector / one-shot for KEY1-3 | §6.i |
@@ -1113,7 +1191,7 @@ before/after line pairs.
 | ID | Gap |
 | --- | --- |
 | **G-401** | No self-checking testbench anywhere. The whole reference tree contains two assertions, both in `Auxilary/Lab3/TB/tb_top.vhd`, both used as a stop mechanism. |
-| **G-402** | Directed ISA testbench does not exist. Highest-value item after G-202. |
+| **G-402** | Directed ISA testbench — built in Phase 2, and two bugs in it found and fixed in Phase 3B (a one-off store-count shift, and a sub-word case that could not fail). Awaiting its first real run. |
 | **G-204** | `mem_dump.do` exports 1024 of 2048 DTCM words; the upper half is never checked. |
 | **G-403** | Per-component test plans not written. |
 | **G-404** | `Benchmark Apps/RV32IM/test1/output/RARS/DTCM.hex` is a stale golden — 16 words disagree with `DTCM.h`. Would fail a correct CPU. |
@@ -1155,8 +1233,8 @@ before/after line pairs.
    everything**; if the four counts do not reproduce, stop and report.
 3. **Run 2 — Phases 1, 2, 3A.** Four result tables to fill. Steps in §0.3; the only source edit in
    the whole sequence is flipping `G_ISA_REPAIR` between step 3 and step 4.
-   - step 3, repair OFF → **20** mismatches
-   - step 4, repair ON → **15/15** on `repair_check.do`, **10** mismatches on `run_isa.do`, and the
+   - step 3, repair OFF → **25** mismatches (and `repair_check.do` reports 25 failures)
+   - step 4, repair ON → **43/43** on `repair_check.do`, **9** mismatches on `run_isa.do`, and the
      four benchmark counts unchanged
 4. **Run 3 — Quartus.** Confirm **131,072** memory bits. The reference's own numbers to compare
    against are now in §0.c — note the pipeline figures all changed.
@@ -1171,9 +1249,9 @@ before/after line pairs.
 
 1. **Commit and push.** Still not done, and it is still the only thing standing between Adar and any
    of the above. Now covers Phase 1, 2, 3A and 3D plus the replaced reference folder.
-2. **Phase 3B — byte enables and sub-word load/store.** The next real design work, and the only
-   remaining *mandatory* item in Phase 3. No reference exists; the reference pipeline does not
-   implement it either.
+2. **Phase 4's clock tree**, as far as Q2 allows — the ALTPLL needs regenerating for `c0`/`c1`/`c2`
+   and all three existing copies expose only `c0`. This is now the next real design work: 3B is done
+   and 3C is blocked on Hanan.
 3. **Update the `DOC/` documents for the new reference.** `01_source_inventory.md` and
    `02_requirements_traceability.md` both describe the old Lab 5 tree — in particular the
    defect-provenance table is now five rows where it should be seven, and

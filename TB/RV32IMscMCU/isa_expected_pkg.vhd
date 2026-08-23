@@ -12,7 +12,7 @@
 -- at the instruction under test.
 --
 -- Entries marked "DEFECT" are expected to FAIL on the unfixed core. That is the
--- point of the suite: 20 of 43 stores should mismatch today. See
+-- point of the suite: 25 of 56 stores should mismatch today. See
 -- SIM/RV32IMscMCU/isa/listing.txt for the reason attached to each one.
 --
 -- Cross-checked against a reference RV32IM interpreter in the generator, so the
@@ -23,7 +23,7 @@ USE IEEE.STD_LOGIC_1164.ALL;
 
 package isa_expected_pkg is
 
-	constant NAME_LEN : natural := 13;
+	constant NAME_LEN : natural := 19;
 
 	type expected_t is record
 		addr	: natural;										-- DTCM word index
@@ -33,7 +33,7 @@ package isa_expected_pkg is
 
 	type expected_array_t is array (natural range <>) of expected_t;
 
-	constant STORE_COUNT : natural := 43;
+	constant STORE_COUNT : natural := 56;
 
 	-- How many of the stores above are expected to MISMATCH, in each of the two
 	-- configurations of cond_compilation_package.G_ISA_REPAIR. The testbench picks
@@ -41,55 +41,68 @@ package isa_expected_pkg is
 	-- drift out of step with the suite.
 	--
 	--   G_ISA_REPAIR = FALSE  the core exactly as LAB5 submitted it
-	constant EXPECTED_DEFECT_COUNT : natural := 20;
+	constant EXPECTED_DEFECT_COUNT : natural := 25;
 	--   G_ISA_REPAIR = TRUE   the seven Phase 3A repairs applied. The remainder are
-	--                         blocked on work outside Phase 3A: G-307, G-308, G-309, G-326
-	constant EXPECTED_DEFECT_COUNT_REPAIRED : natural := 10;
+	--                         blocked on work outside Phase 3A: G-307, G-308, G-326
+	constant EXPECTED_DEFECT_COUNT_REPAIRED : natural := 9;
 
 	constant EXPECTED : expected_array_t(0 to STORE_COUNT-1) := (
-		(   0, x"0000002A", "addi         "),	--   0       
-		(   1, x"FFFFFFFF", "addi_neg     "),	--   1       
-		(   2, x"00000008", "add          "),	--   2       
-		(   3, x"00000002", "sub          "),	--   3       
-		(   4, x"00000030", "and          "),	--   4       
-		(   5, x"000000FC", "or           "),	--   5       
-		(   6, x"000000CC", "xor          "),	--   6       
-		(   7, x"0000000F", "andi         "),	--   7 DEFECT
-		(   8, x"000000FF", "ori          "),	--   8 DEFECT
-		(   9, x"000000F0", "xori         "),	--   9       
-		(  10, x"00000001", "slti         "),	--  10       
-		(  11, x"00000001", "slti_neg     "),	--  11       
-		(  12, x"00000000", "sltiu        "),	--  12 DEFECT
-		(  13, x"00000001", "slt          "),	--  13       
-		(  14, x"00000000", "sltu         "),	--  14 DEFECT
-		(  15, x"00000010", "sll          "),	--  15       
-		(  16, x"00000010", "slli         "),	--  16       
-		(  17, x"08000000", "srli         "),	--  17       
-		(  18, x"F8000000", "srai         "),	--  18 DEFECT
-		(  19, x"F8000000", "sra          "),	--  19 DEFECT
-		(  20, x"12345000", "lui          "),	--  20 DEFECT
-		(  21, x"00000120", "auipc        "),	--  21       
-		( 200, x"000002AA", "scratch200   "),	--  22 setup 
-		( 201, x"00000155", "scratch201   "),	--  23 setup 
-		(  22, x"000002AA", "lw_offset    "),	--  24 DEFECT
-		(  23, x"0000007F", "sb_then_lbu  "),	--  25 DEFECT
-		(  24, x"0000000C", "mul_small    "),	--  26       
-		(  25, x"2468ACF0", "mul_wide     "),	--  27 DEFECT
-		(  26, x"80000000", "mul_hi_low   "),	--  28 DEFECT
-		(  27, x"01234567", "mulh         "),	--  29 DEFECT
-		(  28, x"01234567", "mulhu        "),	--  30 DEFECT
-		(  29, x"01234567", "mulhsu       "),	--  31 DEFECT
-		(  30, x"0000000E", "div          "),	--  32 DEFECT
-		(  31, x"0000000E", "divu         "),	--  33 DEFECT
-		(  32, x"00000002", "rem          "),	--  34 DEFECT
-		(  33, x"00000002", "remu         "),	--  35 DEFECT
-		(  34, x"0000000A", "beq_taken    "),	--  36       
-		(  35, x"0000000A", "bne_taken    "),	--  37       
-		(  36, x"0000000A", "blt_taken    "),	--  38       
-		(  37, x"0000000A", "bge_taken    "),	--  39       
-		(  38, x"0000000B", "bltu_nottaken"),	--  40 DEFECT
-		(  39, x"0000000A", "bgeu_taken   "),	--  41 DEFECT
-		(  40, x"0000032C", "jal_link     ")	--  42       
+		(   0, x"0000002A", "addi               "),	--   0       
+		(   1, x"FFFFFFFF", "addi_neg           "),	--   1       
+		(   2, x"00000008", "add                "),	--   2       
+		(   3, x"00000002", "sub                "),	--   3       
+		(   4, x"00000030", "and                "),	--   4       
+		(   5, x"000000FC", "or                 "),	--   5       
+		(   6, x"000000CC", "xor                "),	--   6       
+		(   7, x"0000000F", "andi               "),	--   7 DEFECT
+		(   8, x"000000FF", "ori                "),	--   8 DEFECT
+		(   9, x"000000F0", "xori               "),	--   9       
+		(  10, x"00000001", "slti               "),	--  10       
+		(  11, x"00000001", "slti_neg           "),	--  11       
+		(  12, x"00000000", "sltiu              "),	--  12 DEFECT
+		(  13, x"00000001", "slt                "),	--  13       
+		(  14, x"00000000", "sltu               "),	--  14 DEFECT
+		(  15, x"00000010", "sll                "),	--  15       
+		(  16, x"00000010", "slli               "),	--  16       
+		(  17, x"08000000", "srli               "),	--  17       
+		(  18, x"F8000000", "srai               "),	--  18 DEFECT
+		(  19, x"F8000000", "sra                "),	--  19 DEFECT
+		(  20, x"12345000", "lui                "),	--  20 DEFECT
+		(  21, x"00000120", "auipc              "),	--  21       
+		( 200, x"000002AA", "scratch200         "),	--  22 setup 
+		( 201, x"00000155", "scratch201         "),	--  23 setup 
+		(  22, x"000002AA", "lw_offset          "),	--  24 DEFECT
+		( 211, x"AABBCCDD", "scratch211         "),	--  25 setup 
+		( 211, x"0000007F", "scratch211         "),	--  26 setup 
+		(  23, x"AABB7FDD", "sb_keeps_neighbours"),	--  27 DEFECT
+		( 211, x"11223344", "scratch211         "),	--  28 setup 
+		( 211, x"00005566", "scratch211         "),	--  29 setup 
+		(  24, x"55663344", "sh_keeps_neighbours"),	--  30 DEFECT
+		( 211, x"AABBCCDD", "scratch211         "),	--  31 setup 
+		(  25, x"000000BB", "lbu_selects_lane   "),	--  32 DEFECT
+		( 211, x"000000F0", "scratch211         "),	--  33 setup 
+		(  26, x"FFFFFFF0", "lb_sign_extends    "),	--  34 DEFECT
+		( 211, x"89ABCDEF", "scratch211         "),	--  35 setup 
+		(  27, x"000089AB", "lhu_selects_half   "),	--  36 DEFECT
+		( 211, x"0000ABCD", "scratch211         "),	--  37 setup 
+		(  28, x"FFFFABCD", "lh_sign_extends    "),	--  38 DEFECT
+		(  29, x"0000000C", "mul_small          "),	--  39       
+		(  30, x"2468ACF0", "mul_wide           "),	--  40 DEFECT
+		(  31, x"80000000", "mul_hi_low         "),	--  41 DEFECT
+		(  32, x"01234567", "mulh               "),	--  42 DEFECT
+		(  33, x"01234567", "mulhu              "),	--  43 DEFECT
+		(  34, x"01234567", "mulhsu             "),	--  44 DEFECT
+		(  35, x"0000000E", "div                "),	--  45 DEFECT
+		(  36, x"0000000E", "divu               "),	--  46 DEFECT
+		(  37, x"00000002", "rem                "),	--  47 DEFECT
+		(  38, x"00000002", "remu               "),	--  48 DEFECT
+		(  39, x"0000000A", "beq_taken          "),	--  49       
+		(  40, x"0000000A", "bne_taken          "),	--  50       
+		(  41, x"0000000A", "blt_taken          "),	--  51       
+		(  42, x"0000000A", "bge_taken          "),	--  52       
+		(  43, x"0000000B", "bltu_nottaken      "),	--  53 DEFECT
+		(  44, x"0000000A", "bgeu_taken         "),	--  54 DEFECT
+		(  45, x"00000424", "jal_link           ")	--  55       
 	);
 
 end package isa_expected_pkg;

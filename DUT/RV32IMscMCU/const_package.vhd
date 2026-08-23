@@ -37,6 +37,22 @@ package const_package is
 	constant AUIPC_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111";	--auipc
 	constant LUI_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0110111";	--lui
 --------------------------------------------------------------------
+--	Memory access width and signedness (Phase 3B, gap G-309)
+--------------------------------------------------------------------
+-- These are the RISC-V funct3 encodings of the load and store instructions,
+-- not an encoding of ours: RV32I load funct3 is 000=lb 001=lh 010=lw 100=lbu
+-- 101=lhu, and store funct3 is 000=sb 001=sh 010=sw. Source:
+--   Auxiliary/Lab 5 - as submitted/Auxilary/RV32I - Instruction Formats.pdf
+--   Auxiliary/Lab 5 - as submitted/Auxilary/RISC-V Instruction Set Manual (Unprivileged ISA).pdf
+-- CONTROL builds the code from its own mask detectors rather than slicing
+-- instruction(14 DOWNTO 12), so an encoding RV32I does not define (011/110/111,
+-- and RV64's lwu) resolves to MEM_W instead of to an undefined width.
+	constant MEM_B		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "000";		--lb  / sb
+	constant MEM_H		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "001";		--lh  / sh
+	constant MEM_W		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "010";		--lw  / sw
+	constant MEM_BU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "100";		--lbu
+	constant MEM_HU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "101";		--lhu
+--------------------------------------------------------------------
 -- ALU Operations
 --------------------------------------------------------------------
 	constant ALU_NONE						:	STD_LOGIC_VECTOR(4 DOWNTO 0) :=	"00000";
