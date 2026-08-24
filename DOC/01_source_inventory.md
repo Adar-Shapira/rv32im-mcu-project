@@ -60,8 +60,8 @@ Verdicts: **use as is** = drop in unchanged; **adapt** = start from it, changes 
 
 | Component | Requirement | Supplied | Path | Provenance | Verdict |
 | --- | --- | --- | --- | --- | --- |
-| Single-cycle RV32IM core | §3 | yes | `Auxiliary/Lab 5/DUT/RV32IM_sc/` (11 files) | students, Lab 5 | **adapt** — five decode defects, no `div`/`rem`/`mulh*` |
-| RV32I baseline | — | yes | `Auxilary/DUT/` (10 files) | **Hanan** | **reference** — authority for one of the five defects only |
+| Single-cycle RV32IM core | §3 | yes | `Auxiliary/Lab 5/DUT/RV32IM_sc/` (11 files) | students, Lab 5 | **adapt** — **seven** ISA defects (§2.2), no `div`/`rem`/`mulh*`, no sub-word access |
+| RV32I baseline | — | yes | `Auxilary/RV32I/DUT/` (10 files; the folder was restructured on 2026-08-23) | **Hanan** | **reference** — the provenance authority: it carries six of the seven defects itself |
 | 5-stage pipeline core | bonus 10% | yes | `Auxiliary/Lab 5/DUT/RV32IM_pipeline/` (13 files) | students, Lab 5 | **adapt** — a rewrite, not a derivative |
 | Hazard / forward units | bonus 10% | yes | `RV32IM_pipeline/HAZARD_UNIT.vhd`, `FORWARD_UNIT.vhd` | students, Lab 5 | **adapt** — must gain divider and memory stalls |
 | 16×16 multiplier | §6.iii, LAB5 Fig 6 | yes | `RV32IM_sc/MUL16.vhd` (86 lines) | students, Lab 5 | **adapt** — see 2.6 |
@@ -72,7 +72,17 @@ Verdicts: **use as is** = drop in unchanged; **adapt** = start from it, changes 
 | `div`/`divu`/`rem`/`remu`, `mulh*` | §2 | **no** | — | — | **write new** |
 | Byte enables, sub-word load/store | §2 | **no** | — | — | **write new** — see 2.6 |
 
-### 2.2 The five decode defects — provenance re-derived
+### 2.2 The seven ISA defects — provenance re-derived
+
+> **REVISED 2026-08-23.** This section said *five* defects and said the other four would have to be
+> designed by us. Both claims are now out of date. The reference folder was replaced with the real
+> final Lab 5 submission, and **the pipelined core in it repairs all seven** — it was submitted and
+> hardware-validated that way. So every repair is a transcription from a sibling core in the same
+> submission, not a design of ours. Two further defects surfaced from reading the revised reference,
+> numbered 6 and 7 below.
+>
+> All seven are now repaired in `DUT/RV32IMscMCU/`, behind
+> `cond_compilation_package.G_ISA_REPAIR`. See the plan file §0.a and Phase 3A.
 
 Each file diffed against the baseline with comments and whitespace stripped.
 
@@ -84,14 +94,38 @@ Each file diffed against the baseline with comments and whitespace stripped.
 | 4 | `sra` ≡ `srl` | `EXECUTE.vhd:200` | **Lecturer's baseline.** `Auxilary/DUT/EXECUTE.VHD:179` is identical: `brl_shr_pad_r <= 32x"FFFF"`, which in VHDL-2008 is `0x0000FFFF`, so bit 31 is `'0'`. Only `brl_shr_pad_r(31 DOWNTO 16)` is ever read (line 214), so the sign never propagates. |
 | 5 | `sltu`/`sltiu`/`bltu`/`bgeu` compare signed | `EXECUTE.vhd:10` | **Lecturer's baseline.** `Auxilary/DUT/EXECUTE.VHD:9` is identical: `USE IEEE.STD_LOGIC_SIGNED.ALL`, which makes line 78's `ltu_res_w <= '1' WHEN ain_w < bin_w` a signed comparison. |
 
-**Four of the five are in code Hanan distributed** and were inherited unchanged by both student
-cores. The baseline is a repair source for exactly one. The other four we design ourselves, and the
-report presents them as supplied defects rather than as failures of our RTL. Raised as open
-question 13.
+| 6 | Branch/`jal` displacement truncated one bit | `EXECUTE.vhd:66` | **Lecturer's baseline.** `IDECODE` hands over `imm[12:1]` sign-extended, so the adder must shift left by one. The slice is `sign_extend_i(PC_WIDTH-3 DOWNTO 0)` = bits 10..0, which drops immediate bit 11 — byte-offset bit 12 — halving the reachable branch range to ±2 KiB inside a 13-bit, 8 KiB PC. The `-- << 2` comment on that line is also wrong; the code shifts by one. |
+| 7 | `jalr` does not clear the target's bit 0 | `IFETCH.vhd:93` | **Lecturer's baseline.** The next-PC mux takes `alu_res_i` unmasked. RV32I requires `pc <- (rs1+imm) & ~1`. Masked today by the word-granular ITCM dropping bits 1..0, but `pc_o`, `pc_plus4` and every link address carry the odd value. |
+
+**Six of the seven are in code Hanan distributed** and were inherited unchanged by both student
+cores; only `andi`/`ori` is a student regression. The report presents them as supplied defects rather
+than as failures of our RTL. Raised as open question 13.
+
+**Where each repair comes from.** Every one is transcribed from
+`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/`, which fixes all seven:
+
+| # | Repair reference | Notable |
+| --- | --- | --- |
+| 1 | `CONTROL.vhd:147` | `ALU_AND WHEN and_w or andi_w` |
+| 2 | `const_package.vhd:28-29`, `IDECODE.vhd:181-182` | `UTYPE_OPC` split into `AUIPC_OPC` / `LUI_OPC`, two select arms |
+| 3 | `IDECODE.vhd:178` | the missing `LOAD_OPC` arm |
+| 4 | `EXECUTE.vhd` | `brl_shr_pad_r <= (others => '1')` |
+| 5 | `EXECUTE.vhd:196-197` | `('0' & ain_w) < ('0' & bin_w)` — widening to 33 bits with a clear sign bit makes the signed-package compare give the unsigned answer, so no library change is needed and the genuinely signed `slt`/`blt`/`bge` paths cannot be disturbed |
+| 6 | `EXECUTE.vhd:181` | `sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0'` |
+| 7 | `RV32IM_PIPE_CORE.vhd:190` | `mem_alu_res_w(PC_WIDTH-1 DOWNTO 1) & '0'` |
+
+**Defects 6 and 7 have a second, independent confirmation.** `Auxilary/Ori/` — another student's
+pipeline, permitted as a reference — repairs exactly those two, with the *identical* expressions
+(`EXECUTE.VHD:81` and `RV32IM_CORE.vhd:225`), while still carrying defects 2, 3 and 4. Two
+implementations arriving independently at the same two fixes is real evidence, and it matters
+because 6 and 7 are the two that came out of reading the RTL rather than out of a failing test.
 
 Why they stayed hidden: Lab 5's own test1–test4 are add / mul / xor programs and contain zero
-`lui`, zero `andi`, zero `sra` and zero loads with a non-zero offset. Every one of the five is
-exercised by the final-project benchmarks.
+`lui`, zero `andi`, zero `sra` and zero loads with a non-zero offset. Defects 1–5 are all exercised
+by the final-project benchmarks. **Defects 6 and 7 are exercised by nothing we have** — no supplied
+benchmark branches ±2 KiB or jumps to an odd address, and the directed ISA suite's only branch
+displacements are 0 and 8 with no `jalr` at all. They are covered instead by
+`SIM/RV32IMscMCU/repair_check.do`.
 
 ### 2.3 Peripherals
 
@@ -166,8 +200,8 @@ in the material.
 | --- | --- | --- | --- | --- |
 | MCU testbenches | yes | `Auxiliary/Lab 5 - as submitted/TB/RV32IM_{sc,pipeline}/` | students, Lab 5 | **adapt** — waveform-oriented, not self-checking |
 | Compile order | yes | `Auxiliary/Lab 5 - as submitted/SIM/*/compile.do` | students, Lab 5 | **adapt** — the explicit VHDL compile order is valuable |
-| Run / dump / batch scripts | yes | same dir: `run_test.do`, `mem_dump.do`, `batch_verify.do`, `wave.do`, `modelsim.ini` | students, Lab 5 | **adapt**. `batch_verify.do` only echoes results — no non-zero exit on mismatch. |
-| Measured baseline dumps | yes | `SIM/*/DTCM_test1..4.mem` | students, Lab 5 | **use as is** — diff a reproduced run against these |
+| Run / dump / batch scripts | **no longer** | **Deleted in the 2026-08-23 replacement.** The reference now ships only `golden.do`, `wave.do`, `modelsim.ini` (and `compile.do` + `directed_isa.do` for the pipeline alone — there is no `compile.do` for the single-cycle core anywhere). | — | **written new**: `SIM/baseline_reference/{compile,run_test,mem_dump}.do` reach into `Auxiliary/` read-only so it stays as supplied |
+| Measured baseline dumps | yes | `SIM/*/DTCM_test1..4_MS.mem` — renamed, and now **2048 data words** (2051 lines with the 3-line mti header) instead of 1024 | students, Lab 5 | **use as is** — diff a reproduced run against these. The full-range capture is what closes gap G-204 on the single-cycle side |
 | Assertion-based TB pattern | yes, barely | `Auxilary/Lab3/TB/tb_top.vhd:86` (timeout, `severity failure`) and `:110` (`assert false report "Simulation Completed Successfully"`) | students, Lab 3 | **reference** — **the only assertion usage in the entire material**; the seed for the self-checking style the rules require |
 | Self-checking / scoreboard infrastructure | **no** | — | — | **write new** |
 | SDC | yes | `Auxilary/QUARTUS/SDC/RISCV_simple.sdc` — `create_clock -period 20 [get_ports {clk_i}]` plus `derive_pll_clocks -create_base_clocks` | **Hanan** | **adapt** |
@@ -198,13 +232,20 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
 
 ## 3. Hazards recorded while surveying
 
-1. **`Auxiliary/Lab 5/` is not the submitted Lab 5.** Two additions exist only in the project copy:
-   the `RSTPOL` generate in both core tops, and the DE2-115 pin assignments in both `.qsf` files.
-   Reproduce the baseline against `Auxiliary/Lab 5 - as submitted/`. With `RSTPOL` present and
-   `G_MODELSIM = 0`, the testbench's active-high reset is inverted and the core never leaves reset.
-2. **`G_MODELSIM` is a manual toggle**, documented in
-   `Auxiliary/Lab 5 - as submitted/DOC/readme.txt`: set it to `0` for Quartus and back to `1` for
-   ModelSim. The baseline ships at `0`.
+1. **Reset polarity is welded to the simulation switch in BOTH copies now.** This used to be a
+   difference between the two Lab 5 trees; it no longer is. `Auxiliary/Lab 5/` has the `RSTPOL`
+   generate, and the replaced `Auxiliary/Lab 5 - as submitted/DUT/RV32IM_sc/RV32IM_CORE.vhd` now
+   does the same thing a different way: `rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i`. Either
+   way, compiling at `MODELSIM = 0` inverts the testbench's active-high reset into a permanent
+   assertion — the core sits at PC 0, the transcript shows no errors, and nothing runs.
+   **Our own tree deliberately does not do this**: polarity lives in the wrapper's `RST_ACTIVE_LOW`
+   generic, so "active-low board reset" and "FPGA build" stay separate decisions. Our core does not
+   invert at all, so there is no double inversion — verified.
+2. **`G_MODELSIM` no longer needs a manual toggle — gap G-201 is closed.** Both testbenches declare
+   `MODELSIM` as a generic and forward it to the core, so `vsim -gMODELSIM=1` does the job and the
+   package keeps its shipped default of `0` for Quartus. This is true of the *reference* testbenches
+   too (`TB/RV32IM_sc/tb_RV32IM_sc.vhd:19,61`), which is what lets `Auxiliary/` stay untouched.
+   The `DOC/readme.txt` instruction to edit the constant by hand is superseded.
 3. **Absolute Windows paths are baked into the RTL** at four sites —
    `init_file => "C:\TestPrograms\Quartus21_1\app_bin\{ITCM,DTCM}.hex"` in `IFETCH.vhd:64` and
    `DMEMORY.vhd:50` — and the `.do` scripts stage benchmarks by copying from
@@ -225,8 +266,9 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
    different programs: the `.hex` images use `auipc imm = 0x00000` (text base 0), the `.h` images
    retain RARS's `0x3000` base. The `.h` files are the DTCM golden text only — which is exactly
    what §8.c.i asks for.
-8. **The project's own working folders are empty.** `DUT/`, `TB/`, `SIM/`, `Quartus/`,
-   `Screenshots/` and `209580208_211468582/` each contain only a `.gitkeep`.
+8. ~~The project's own working folders are empty.~~ **No longer true.** `DUT/RV32IMscMCU/`,
+   `DUT/RV32IMpipelinedMCU/`, `TB/`, `SIM/` and `Quartus/` are populated as of Phases 1–3.
+   `Screenshots/` and `209580208_211468582/` are still placeholders and fill up in Phases 13–16.
 
 ---
 
@@ -237,8 +279,17 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
 | **use as is** | 6 | `hex_decoder.vhd`; `BidirPin.vhd` (`width => 32`); the M-extension instruction masks; the 32×32 register file; the measured baseline dumps; the two lecturer procedure PDFs |
 | **adapt** | 14 | both CPU cores, hazard/forward units, `MUL16`, `pwm.vhd`, the ALTPLL, UART option 1, both testbenches, the `.do` scripts, the SDCs, the two-revision PPA structure, the `.stp`, the report structure, the architecture figures |
 | **reference only** | 8 | the RV32I baseline, `Shifter.vhd`, `AdderSub.vhd`/`FA.vhd`, `Lab3/RF.vhd`, `progMem`/`dataMem`, `fpga_hw_interface.vhd`, `Lab4/pll.vhd`, `Lab3/tb_top.vhd` assertions |
-| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, MMIO decoder, GPIO buffer registers, `div`/`rem`/`mulh*`, byte enables and sub-word load/store, edge detectors, CDC synchronizer, multi-output clock tree, the UART register layer |
+| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, MMIO decoder, GPIO buffer registers, `div`/`rem`/`mulh*`, ~~byte enables and sub-word load/store~~ **(built, Phase 3B)**, edge detectors, CDC synchronizer, multi-output clock tree, the UART register layer |
 
 The roadmap assumed the seven-segment decoder, the PWM unit and the bidirectional bus would all be
 written from scratch. They exist. Conversely it under-scoped sub-word load/store and the UART
 register layer, both of which are larger than a single step.
+
+**One entry in the "write new" column deserves a note, because it was searched hardest.** Byte
+enables and sub-word load/store had **no reference anywhere** — the tree contains 10 `altsyncram`
+instantiations and not one uses `byteena_a`, `byte_size` or `width_byteena_a`; the reference pipeline
+does not implement sub-word access either (`PROJECT_EXPLANATION.md` §4.4 says so outright); and
+`Auxilary/Ori/`, once permitted and checked, has nothing in `DEMEMORY.VHD` either. It was built in
+Phase 3B from Intel's megafunction interface, which is **general knowledge and not course
+material** — the one place in the project so far where that is true, and it is flagged as such in
+`DUT/RV32IMscMCU/DMEMORY.vhd` itself.

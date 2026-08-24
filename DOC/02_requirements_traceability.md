@@ -456,6 +456,20 @@ IPC = ( CLKCNT_o − ( STCNT_o + 4 + depth · FHCNT_o ) ) / CLKCNT_o
 when a stall occurs. `FHCNT_o` is an 8-bit flush counter, same conditions. `BPADDR_i` is an 8-bit
 breakpoint address of **word granularity**, cleared on reset, fed by SW7–SW0.
 
+> **The submitted design deliberately exceeds this width, and it had to.** The revised pipeline
+> declares `STCNT_WIDTH` and `FHCNT_WIDTH` as **16**
+> (`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd`), because test3 and
+> test4 produce roughly 298 and 304 flushes — an 8-bit counter wraps at 255 and the IPC equation
+> would then be computed from a wrapped value. `DOC/HANDOVER_Report_lab5.md` §4.3 records the change.
+>
+> This is a **design decision, not a requirement**, and the report must say so rather than presenting
+> 16 bits as what p8 asked for. Our wrapper follows the implementation at 16 bits.
+>
+> A related change in the same revision: `STCNT` now increments only when `stall = '1' AND
+> flush = '0'` (§4.4). A stall coinciding with a MEM redirect is moot — the flush already costs
+> `depth = 3` in the IPC equation — so counting it would double-charge. `Auxilary/Ori/` counts
+> unconditionally (`RV32IM_CORE.vhd:558`) and is the counter-example.
+
 **[REQ-L5 p7]** Conditional branches and unconditional jumps are resolved in **pipeline stage 4**.
 
 **[REQ p17, §8.c.iii and §8.e.iii]** Both reference "clause 6.iii.b". **That clause does not exist

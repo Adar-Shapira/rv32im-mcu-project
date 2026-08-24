@@ -167,7 +167,7 @@ then release. **[REC]** Likely a typo or an artefact of the figure; worth one li
 
 ## Documentation and naming
 
-### Q9 — The four decode defects in the supplied baseline
+### Q9 — The ISA defects in the supplied baseline (six of seven, not four)
 
 `lui` writes 0, every load addresses `rs1 + 0`, `sra` behaves as `srl`, and `sltu`/`sltiu`/`bltu`/
 `bgeu` compare signed. All four are present **identically in `Auxiliary/Lab 5/Auxilary/DUT/`**, the
@@ -183,12 +183,28 @@ RV32I baseline distributed with LAB5:
 A fifth defect (`andi` writes 0, `ori` computes AND) is a student regression — the baseline's
 `CONTROL.VHD:141` is correct.
 
+**REVISED 2026-08-23: there are two more, and they are also the baseline's.**
+
+| Defect | Baseline site |
+| --- | --- |
+| branch/`jal` displacement truncated one bit | `EXECUTE.VHD` — `sign_extend_i(PC_WIDTH-3 DOWNTO 0)` drops immediate bit 11, halving branch range to ±2 KiB inside an 8 KiB PC |
+| `jalr` does not clear the target's bit 0 | `IFETCH.vhd` — the next-PC mux takes `alu_res_i` unmasked |
+
+So the tally is **six of seven from the baseline**, one student regression. Both new ones are
+control-flow defects that no supplied benchmark exercises, which is presumably why they survived.
+
 **Question.** Is the RV32I baseline meant to be ISA-conformant, or are these deliberately left as
 exercises? Either answer is fine; we need to know how to present them.
 
-**Provisional decision.** Fix all five, document each with its baseline citation, and present the
-four as supplied defects rather than as failures of our RTL — the same treatment the rules require
-for benchmark defects.
+**Provisional decision — and it is now much better supported than when this was written.** Fix all
+seven and present the six as supplied defects rather than as failures of our RTL. What changed is
+that we are no longer *designing* the six repairs: the pipelined core in the same LAB5 submission
+already fixes all seven and was hardware-validated that way, so each repair is a transcription with a
+file:line citation. And defects 6 and 7 have an independent second confirmation in `Auxilary/Ori/`,
+another student's pipeline, which fixes exactly those two with identical expressions.
+
+The answer to this question now affects only the report's framing, not the work. **Downgraded from
+blocking to informational.**
 
 ---
 
@@ -245,6 +261,37 @@ prescaler is internal. The supplied UART's divider is a compile-time constant
 
 ---
 
+### Q14 — Is a full 32×32 `mul` required, and are `mulh*` / `div*` in scope?
+
+**This is the one open question that currently blocks work**, so it is worth sending first.
+
+`MUL16.vhd` multiplies `rs1(15:0) × rs2(15:0)` unsigned — `EXECUTE.vhd:93-94` feeds it only the
+lower half-words. So `mul` is correct only when both operands fit in 16 bits, and
+`mulh`/`mulhsu`/`mulhu`/`div`/`divu`/`rem`/`remu` are not decoded at all despite their masks existing
+in `const_package.vhd`.
+
+`Auxiliary/Lab 5 - as submitted/PROJECT_EXPLANATION.md` §1 describes the submitted design, in its own
+words, as "an RV32I-oriented teaching core extended with a tested 16-bit `mul` datapath", and it was
+accepted that way. LAB5 calls the scope "MULDIV **partial**".
+
+Three sub-questions:
+
+1. **Does the final project need a conformant 32×32 `mul`?** No 32×32 multiplier exists anywhere in
+   the material. Nine of the ten remaining ISA-suite mismatches sit behind this and the next item.
+2. **Are `mulh`/`mulhsu`/`mulhu` in scope**, or does "MULDIV partial" mean `mul` only?
+3. **Does `div` belong in the ALU at all?** §6.iii defines a **division accelerator** as a
+   *peripheral* — Figure 9's `DIVIDEND`/`DIVISOR`/`QUOTIENT`/`RESIDUE` with
+   `DIVCLK`/`DIVRST`/`DIVENA`/`DIVBUSY` — not as an instruction. If the accelerator is the intended
+   answer, adding `div` decode to `EXECUTE` builds the wrong thing. This overlaps **Q6**, which asks
+   whether those registers are memory-mapped or core-internal.
+
+**Provisional decision: implement none of it yet.** Each option is a different piece of hardware and
+picking one without an answer is exactly the invention the rules forbid. The directed ISA suite
+already measures the gap precisely — 9 mismatches, named — so the cost of waiting is a number in a
+report, not rework. Q6 and this question are the two that gate Phase 3C.
+
+---
+
 ### Q13 — Five or six submission directories, and the report filename
 
 p18 says the ZIP "will contain the next six subdirectories (only the exact next sub folders)" above
@@ -280,4 +327,6 @@ submission-rule violation is disqualifying, so worth one line of confirmation.
 | 13 | Five/six dirs, report name | submission | Five; `Final_report.pdf` |
 
 Q1–Q3 should be asked first. Q4–Q8 are needed before their respective peripherals are verified
-against real constants. Q9–Q13 affect wording and packaging, not behaviour.
+against real constants. Q9 and Q11–Q13 affect wording and packaging, not behaviour.
+
+**Send first: Q6 and Q14.** Those two are the only ones now blocking implementation — together they decide what, if anything, happens to `mul` width, `mulh*` and `div*`, which is nine of the ten remaining ISA-suite mismatches. Q1–Q3 remain the next most valuable.

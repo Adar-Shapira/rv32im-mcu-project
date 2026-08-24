@@ -116,14 +116,52 @@ Figure 8 port list). What it is has **not** been established from the material:
 - It uses `STD_LOGIC_ARITH` / `std_logic_unsigned` throughout, a different style from our tree, and
   one comment reads `-- Inverted reset for DE-10 hardware` — **DE-10**, while our tree is DE2-115.
 
-**Assumption, flagged as such:** this is a third party's implementation (another student's or a TA's)
-obtained as a reference. Under the source hierarchy in `CLAUDE.md` it therefore ranks *below* Hanan's
-supplied code and below our own Lab 5, and using it raises a question that is not ours to answer
-quietly. **Nothing in Phase 3 uses it.** Every repair cites our own submitted pipeline instead.
+**ANSWERED 2026-08-23 (Yehonatan): it is another student's pipeline, and it may be used as a
+reference.** So G-331 is closed, with three consequences that follow from *reference* being the
+permission granted:
 
-> **Yehonatan / Adar: decide explicitly whether `Auxilary/Ori/` may be used at all, and say where it
-> came from.** If it is another student's work, it should be deleted from the tree rather than left
-> sitting in a folder named `Auxilary` where a reader will assume the lecturer supplied it.
+1. **Read it, cite it, do not ship it.** Under `CLAUDE.md` it ranks below Hanan's supplied code and
+   below our own Lab 5, and `Auxiliary/` is reference-only by rule anyway. No line of it goes into
+   `DUT/`, and nothing of ours is justified by "Ori does it this way" alone.
+2. **It stays where it is, but labelled.** It sits inside a folder called `Auxilary`, which every
+   reader will assume the lecturer supplied. This section is that label.
+3. **Its real value is as a second opinion**, and it earned that immediately — below.
+
+### What Ori is actually worth to us
+
+**It independently repairs defects 6 and 7, with the identical expressions.** That was checked, not
+assumed:
+
+| Defect | Ori | Our pipeline reference |
+| --- | --- | --- |
+| 6 branch/`jal` displacement | `addr_gen_o <= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');` — `EXECUTE.VHD:81` | identical, `EXECUTE.vhd:181` |
+| 7 `jalr` bit 0 | `ex_mem_alu_res_r(PC_WIDTH-1 DOWNTO 1) & '0'` — `RV32IM_CORE.vhd:225` | identical, `RV32IM_PIPE_CORE.vhd:190` |
+
+This matters more than it looks. Defects 6 and 7 are the two that came out of *reading* the RTL
+rather than out of a failing test — no supplied benchmark exercises either, and the Phase-2 suite
+does not reach them. Two independent implementations arriving at the same two fixes, and at the same
+expressions, is real evidence that they are genuine defects and that the repairs are right.
+
+It also tells us *why* those two: both are control-flow defects, and a pipeline exercises control
+flow far harder than a single-cycle core does. Whoever wrote Ori almost certainly hit them.
+
+**It still carries defects 2, 3 and 4** — `UTYPE_OPC := "0010111" and "0110111"`, no `LOAD_OPC` arm,
+`brl_shr_pad_r <= 32x"FFFF"` — so it inherits the same baseline and confirms the provenance finding:
+those are Hanan's, not ours.
+
+**It does NOT implement sub-word access.** No `byteena`, no `MemOp`, nothing in `DEMEMORY.VHD`. With
+Ori now permitted and checked, the Phase 3B claim stands with all three trees searched: **no
+reference for byte enables exists in any material we have.**
+
+**One place it is worse, worth keeping for the report.** Ori counts stalls unconditionally
+(`IF stall_IF_w = '1' THEN st_cnt_r <= st_cnt_r + '1'`, `RV32IM_CORE.vhd:558`), where the revised
+LAB5 pipeline counts only `stall AND NOT flush`. A stall coinciding with a MEM redirect is moot — the
+flush already costs `depth = 3` in the IPC equation — so counting it double-charges. Ours is right;
+this is a concrete example for the IPC discussion.
+
+**Structurally it agrees with us on the things that matter:** branches resolve from the EX/MEM
+register, i.e. in MEM, so flush depth is 3 — same equation, same penalty. Our structure is not
+idiosyncratic.
 
 ## 0.e What else changed that affects the runbook
 
@@ -187,23 +225,48 @@ that does not match** and report the numbers — do not carry on.
 
 ### Run 1 — Baseline (Phase 0). Proves the tools, not our code.
 
-Working directory: `Auxiliary\Lab 5 - as submitted\SIM\RV32IM_sc`
+Working directory: **`SIM\baseline_reference`** — in our tree, not in `Auxiliary`.
 
-1. Edit `DUT\RV32IM_sc\cond_compilation_package.vhd:51` → `G_MODELSIM := 1`. *(Only this tree needs
-   the manual edit; ours does not — see Run 2.)*
-2. Execute `compile.do`. Expect **0 errors**, and three "Non-locally static OTHERS choice" warnings on
-   `EXECUTE.vhd` — those are known and harmless.
-3. For `N` = 1, 2, 3, 4: set `set N <n>` in `run_test.do`, execute it.
+The reference folder no longer has scripts to run (§0.e): the replacement deleted `run_test.do`,
+`mem_dump.do` and `batch_verify.do`, and there is no `compile.do` for the single-cycle core anywhere
+in it — only the pipeline kept one. So `SIM/baseline_reference/` holds replacements that reach into
+`Auxiliary/` **read-only**, which keeps the reference byte-for-byte as supplied and puts the `work`
+library in our tree.
 
-| Test | `mclk_cnt_o` | stops at | `pc_o` | `DTCM.mem` vs `testN\RARS\DTCM.h` |
+1. `do compile.do`. Expect **0 errors**, and three "Non-locally static OTHERS choice" warnings on
+   `EXECUTE.vhd` — known and harmless.
+2. For `N` = 1, 2, 3, 4: set `set N <n>` at the top of `run_test.do`, `do run_test.do`, then
+   `do mem_dump.do`.
+
+**No source edit anywhere, including in `Auxiliary`.** The old instruction to set `G_MODELSIM := 1`
+by hand is superseded: `tb_RV32IM_sc` declares `MODELSIM` as a generic and forwards it to the core
+(`TB/RV32IM_sc/tb_RV32IM_sc.vhd:19,61`), so `run_test.do` passes `-gMODELSIM=1`. That closes G-201 on
+the reference side too. It is also now **mandatory**, not merely tidy — the revised reference core
+inverts reset when `MODELSIM = 0`, so at the package default the testbench's active-high pulse holds
+the core in reset forever, silently.
+
+| Test | `mclk_cnt_o` | stops at | `pc_o` | dump vs `DTCM_testN_MS.mem` |
 | --- | --- | --- | --- | --- |
-| test1 | **134** | 13.4 µs | `0070` | identical, 1024 words |
+| test1 | **134** | 13.4 µs | `0070` | identical, **2048** words |
 | test2 | **1514** | 151.4 µs | `0070` | identical |
 | test3 | **2725** | 272.5 µs | `00CC` | identical |
 | test4 | **2735** | 273.5 µs | `004C` | identical |
 
-Then repeat in `SIM\RV32IM_pipeline` and **write down `CLKCNT_o`, `STCNT_o`, `FHCNT_o` per test** —
-those three numbers exist nowhere and Phase 11's IPC check needs them.
+The comparison target changed: diff against the reference's **own captures**,
+`Auxiliary\Lab 5 - as submitted\SIM\RV32IM_sc\DTCM_testN_MS.mem`, which are now full 2048-word
+dumps (2051 lines with the 3-line mti header) instead of the old 1024. `mem_dump.do` prints the exact
+PowerShell command. That full range is what closes **G-204** on the single-cycle side. The RARS
+`DTCM.h` goldens stay the architectural truth for Phase 10.
+
+Both `mclk_cnt_o` figures are independently confirmed in writing by two documents inside the new
+reference — `PROJECT_EXPLANATION.md` §7 and `DOC/HANDOVER_Report_lab5.md` §5.3 — which is better
+evidence than the scripts that were deleted.
+
+Then repeat in `SIM\RV32IM_pipeline` (which does still have its own `compile.do`) and **write down
+`CLKCNT_o`, `STCNT_o`, `FHCNT_o` per test** — those three numbers exist nowhere and Phase 11's IPC
+check needs them. Expect roughly 170 / 1,918 / 3,623 / 3,651 cycles with stalls 8 / 100 / 0 / 0 and
+flushes 8 / 100 / 298 / 304 (`PROJECT_EXPLANATION.md` §8.6 — these include the testbench drain, so
+treat them as a range, not a target).
 
 *If the counts do not match:* the environment differs from the one that produced them. Do not start
 Run 2. Report the ModelSim version and the transcript.
@@ -479,14 +542,21 @@ argued.
 
 Prove the environment before changing anything.
 
-- Run `DOC/04_baseline_runbook.md` against `Auxiliary/Lab 5 - as submitted/`.
-- **Exit:** `mclk_cnt_o` = 134 / 1514 / 2725 / 2735 for test1–4, and `DTCM.mem` identical to each
-  `RARS/DTCM.h` in all 1024 words.
+- Run `DOC/04_baseline_runbook.md`, from `SIM/baseline_reference/`, against the unmodified
+  `Auxiliary/Lab 5 - as submitted/`.
+- **Exit:** `mclk_cnt_o` = 134 / 1514 / 2725 / 2735 for test1–4, and each dump identical to the
+  reference's own capture `DTCM_testN_MS.mem` in all **2048** words.
 - If the numbers do not reproduce, stop. Do not start Phase 1.
 
-> **Changed by the 2026-08-23 reference replacement (§0.e).** The reference folder no longer contains
+> **RESOLVED 2026-08-24.** The reference folder no longer contains `run_test.do`, `mem_dump.do` or
+> `batch_verify.do`, and never had a single-cycle `compile.do` at all — the deleted scripts are
+> replaced by **`SIM/baseline_reference/{compile,run_test,mem_dump}.do`**, which reach into
+> `Auxiliary/` read-only so it stays byte-for-byte as supplied. The two workarounds described below
+> are superseded; they are kept only because they explain *why* the scripts had to be written.
+>
+> Original note: the reference folder no longer contains
 > `run_test.do`, `mem_dump.do` or `batch_verify.do` — they were deleted from the submission, which
-> now ships only `compile.do`, `golden.do`, `wave.do` and the pipeline's `directed_isa.do`. So the
+> now ships only `golden.do`, `wave.do` and the pipeline's `compile.do` and `directed_isa.do`. So the
 > runbook's "run `run_test.do` in the reference folder" step cannot be followed literally any more.
 >
 > Two ways to still get the baseline, and either is fine as long as you say which you used:
@@ -1144,7 +1214,8 @@ Gaps: G-501…G-505.
 | **G-206** | Quartus never compiled from this repo. |
 | **G-207** | `finalProj` Quartus project exists on the Windows machine and in no local copy. Contents unknown. |
 | **G-208** | "Use smart compilation" and "Advanced Physical Optimization = Off" circled in staff photos; both change PPA numbers. Instruction or observation? |
-| **G-332** | **NEW.** The reference folder no longer ships `run_test.do`, `mem_dump.do` or `batch_verify.do` (§0.e), so `DOC/04_baseline_runbook.md` describes a procedure that cannot be followed literally. Two workarounds are in Phase 0; the runbook itself still needs rewriting. |
+| **G-332** | The reference folder no longer ships `run_test.do`, `mem_dump.do` or `batch_verify.do`, and never had a single-cycle `compile.do` (§0.e). **CLOSED 2026-08-24:** replacements written at `SIM/baseline_reference/`, reaching into `Auxiliary/` read-only; `DOC/04_baseline_runbook.md` rewritten around them. |
+| **G-204** | `mem_dump.do` exported 1024 of 2048 DTCM words, leaving the upper half unchecked. **CLOSED on the single-cycle side 2026-08-24:** the reference's own captures are now full 2048-word dumps and `SIM/baseline_reference/mem_dump.do` exports the same range. `SIM/RV32IMscMCU/mem_dump.do` widened to 2047 in the same pass. Set it back to 1023 only to diff against a 1024-word RARS golden. |
 | **G-333** | **NEW.** The reference single-cycle testbench lost its `std.env.stop` auto-stop process, so a plain GUI *Run -All* never terminates there. Our `tb_RV32IMscMCU.vhd` and `tb_isa_directed.vhd` are unaffected — the ISA testbench stops itself at the sentinel and has a watchdog. |
 
 ## Design — no supplied code exists
@@ -1184,7 +1255,7 @@ before/after line pairs.
 | **G-328** | **NEW.** Branch/`jal` displacement truncated one bit: `EXECUTE.vhd:66` slices `(PC_WIDTH-3 DOWNTO 0)`, dropping immediate bit 11, so branch range is ±2 KiB instead of the full 8 KiB PC. No benchmark reaches that far, so it is latent and the golden DTCMs still match. | **lecturer's baseline**, `EXECUTE.VHD` | repaired (3A) |
 | **G-329** | **NEW.** `jalr` does not clear the target's bit 0 (`IFETCH.vhd:93`). Masked today by the word-granular ITCM dropping bits 1..0, but `pc_o`, `pc_plus4` and every link address carry the odd value. | **lecturer's baseline**, `IFETCH.vhd` | repaired (3A) |
 | **G-330** | **NEW.** Our `DUT/RV32IMpipelinedMCU/` was an entire revision behind the reference and its wrapper referenced retired ports (`BPTRIGGER_o`, `stall_o`, `flush_o`, 8-bit counters) — it could not have compiled. | our tree, from the 2026-08-23 reference update | re-imported (3D) |
-| **G-331** | **NEW.** `Auxilary/Ori/` is an unattributed second pipeline implementation sitting inside a folder a reader will assume the lecturer supplied. Provenance undetermined; nothing in our tree uses it. | unknown — see §0.d | **needs a decision from us** |
+| **G-331** | `Auxilary/Ori/` — another student's pipeline. **CLOSED 2026-08-23:** permitted as a reference, never as code. It independently confirms the defect 6 and defect 7 repairs with identical expressions, and confirms no byte-enable reference exists anywhere. See §0.d. | another student, via Yehonatan | closed |
 
 ## Verification
 
@@ -1216,7 +1287,8 @@ before/after line pairs.
 | `DOC/01_source_inventory.md` | Every component: supplied or not, exact path, provenance, reuse verdict |
 | `DOC/02_requirements_traceability.md` | Every address, bit field, mode and clock with its source; four verification cross-checks; ten assumptions |
 | `DOC/03_open_questions.md` | Q1–Q13, each with a provisional decision so nothing blocks |
-| `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers |
+| `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers. **Rewritten 2026-08-24** for the replaced reference: sections 2, 4, 5.2, 6 and 8 all changed, and section 8.1b covers the Phase 3A/3B measurement |
+| `SIM/baseline_reference/` | `compile.do`, `run_test.do`, `mem_dump.do` — replacements for the scripts the reference lost, reaching into `Auxiliary/` read-only |
 | `Auxiliary/Lab 5 - as submitted/README-import.md` | What was imported and why the two Lab 5 copies differ |
 
 ---
@@ -1238,12 +1310,15 @@ before/after line pairs.
      four benchmark counts unchanged
 4. **Run 3 — Quartus.** Confirm **131,072** memory bits. The reference's own numbers to compare
    against are now in §0.c — note the pipeline figures all changed.
-5. **Send the questions** (§0.6): Q1, Q2, Q3, plus Q6 and the new one on `mul` width. Q6 and `mul`
-   width are what block Phase 3C, so they are worth sending first.
+5. **Send the questions** (§0.6). **Q6 and Q14 first** — those two are the only ones now blocking
+   implementation, and together they decide nine of the ten remaining ISA-suite mismatches. Q14 is
+   new: it asks whether a conformant 32×32 `mul` is required, whether `mulh*` is in scope, and
+   whether `div` belongs in the ALU at all given that §6.iii defines a division *accelerator*. Then
+   Q1, Q2, Q3.
 6. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
    were instructions.
-7. **Answer G-331: where did `Auxilary/Ori/` come from?** See §0.d. If it is another student's
-   pipeline it should come out of the tree.
+7. ~~Answer G-331~~ — done: `Auxilary/Ori/` is another student's pipeline, usable as a reference
+   only. §0.d records what it is worth.
 
 ## Yehonatan — MacBook
 
