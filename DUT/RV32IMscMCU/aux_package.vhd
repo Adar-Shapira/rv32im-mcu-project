@@ -117,6 +117,29 @@ package aux_package is
 	);
 	end component;
 ---------------------------------------------------------	
+	-- Clock-domain-crossing synchronizer, Figures 10a/10b (gap G-310). Not yet
+	-- instantiated by the core: it is a leaf for the divider (Phase 7), the KEY1-3
+	-- edge detectors (Phase 6) and the UART status flags (Phase 12). Declared here
+	-- so all three use one verified implementation instead of three inline copies.
+	component sync is
+		generic(
+			DATA_WIDTH	: integer := 32;
+			STAGES		: integer := 2;
+			GEN_SRC_REG	: boolean := TRUE
+		);
+		PORT(
+			--Inputs
+			src_clk_i	: IN	STD_LOGIC;
+			dst_clk_i	: IN	STD_LOGIC;
+			rst_i		: IN	STD_LOGIC;
+			d_i			: IN	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+
+			--Outputs
+			q_o			: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
+
 	component dmemory is
 		generic(
 			DATA_BUS_WIDTH 		: integer := 32;

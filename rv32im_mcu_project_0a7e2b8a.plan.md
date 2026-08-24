@@ -345,7 +345,9 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 3B Byte enables / sub-word | Yehonatan ✔ | **Adar** | ready to run — same switch as 3A |
 | 3C `mul` width, `mulh`, `div` | — | — | **blocked on Hanan** (Q6 + mul width) |
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
-| 4 Clock tree / CDC | Yehonatan | Adar | waits on Q2 |
+| 4A CDC synchronizer | Yehonatan ✔ | **Adar** | ready to run — frequency-independent |
+| 4B Multi-output clock tree | — | **Adar needs Quartus** | blocked on Q2 *and* on the MegaWizard |
+| 4C Reset-on-lock + SDC | Yehonatan | Adar | waits on 4B |
 | 5 Bus interface + DTCM | Yehonatan | Adar | |
 | 6 GPIO | Yehonatan | Adar | waits on Q5 |
 | 7 Divider | Yehonatan | Adar | waits on Q6 |
@@ -992,18 +994,110 @@ and the wrapper was wired to a port list that no longer exists — it could not 
 
 Gaps: G-321…G-327 (3A), G-309 (3B), G-307, G-308, G-326 (3C), G-330 (3D).
 
-## Phase 4 — Clock tree, reset, CDC  ·  Yehonatan writes · Adar verifies
+## Phase 4 — Clock tree, reset, CDC
 
-- Regenerate the ALTPLL with `c0`/`c1`/`c2` → `mclk`, `smclk`, `accelclk`. All three existing copies
-  expose only `c0`. Worked non-trivial-ratio example: `Auxilary/Lab4/DUT/pll.vhd`, 50 → 2 MHz.
-- Synchronise PLL lock into reset release, in the top wrapper.
-- Build the two-flop synchroniser of Figures 10a/10b as a reusable entity. **Do not** mistake
-  `IFETCH.vhd:73-82` for one — it is a single flop with an async preset.
-- Constrain all three clocks and every crossing in the SDC. Start from
-  `Auxilary/QUARTUS/SDC/RISCV_simple.sdc`.
+Split, because only one part of it is unblocked. **4A is built; 4B and 4C wait on Q2.**
+
+### Phase 4A — the CDC synchronizer  ·  **built, awaiting verification**
+
+Done 2026-08-24. Closes **G-310**. Deliberately taken first: it is the only part of Phase 4 that is
+**frequency-independent**, so Q2 cannot invalidate it.
+
+| Done | What |
+| --- | --- |
+| ✔ | `DUT/RV32IMscMCU/SYNC.vhd` — Figures 10a/10b, generic width, generic stage count, and the mandatory domain-A launch register behind `GEN_SRC_REG` |
+| ✔ | `TB/RV32IMscMCU/tb_sync.vhd` — self-checking, four properties, prints its own verdict and stops itself |
+| ✔ | `SIM/RV32IMscMCU/run_sync.do`, and both files added to `compile.do` |
+| ✔ | `aux_package.vhd` — component declared, so the divider, the KEY edge detectors and the UART all use one verified implementation instead of three inline copies |
+
+**The figure was read, not assumed.** The plan said "two-flop synchroniser" and the traceability
+document recorded the *rule* but never the structure. Reading page 10 of the PDF: **it is three
+flip-flops, not two.**
+
+| Domain | Contents | Clock |
+| --- | --- | --- |
+| A (slow) | `Comb logic` → one `D Q` | `MCLK` |
+| B (fast) | `Din` → `D Q` → `Ds` → `D Q` → `Dout` "stable" | `DIVCLK`, both |
+
+The page 10 prose makes the domain-A register mandatory: *"It's fundamental to have a flip-flop to
+synchronize every signal that is driven by combinational logic (combo) in domain A before sending it
+to domain B."* So it lives inside the entity, enabled by default — a launch register that is "the
+caller's responsibility" is a launch register that gets forgotten.
+
+Figure 10b draws the block as the divider uses it: a `Sync` box on `divclk` holding **two**
+independent two-DFF chains, `Read data1 → Ain` and `Read data2 → Bin`. This entity is one chain;
+Figure 10b's box is two instances. Splitting it that way is what makes it reusable for the
+single-bit crossings later instead of being welded to two 32-bit operands.
+
+**The one assumption, stated as such.** A two-stage synchronizer on a multi-bit **bus** is only sound
+if the bus is stable across the crossing — individual bits can resolve on different destination
+cycles, so a changing bus can present a value that never existed at the source. Figure 10b does it
+to two 32-bit operands anyway, and for the divider that is fine: the CPU writes the operands, and
+only *then* does the enable cross. Recorded in the RTL header and in
+`DOC/02_requirements_traceability.md` §5. Any later crossing that cannot guarantee stability needs a
+handshake, not this block.
+
+**A side finding that strengthens Q6.** Figure 10b labels its inputs `Read data1` and `Read data2` —
+this project's own register-file port names. So the divider's operands come from the register file,
+not the data bus. That is now **two figures** pointing at "core-internal" for the divider registers
+(Figure 3 wires `Ain`/`Bin` to the ALU operands) and none pointing the other way.
+
+**What the test can and cannot prove.** It checks the latency from *both* sides — that the value is
+**not** out after `STAGES-1` edges, and **is** out after `STAGES`. The first half is the one that
+matters: it is what fails if the chain is ever shortened to a single register, which is how a
+synchronizer quietly dies in a refactor. The clock ratio is 70 ns : 30 ns, coprime, so the source
+edge lands at every phase relative to the destination edge. **It does not reproduce metastability —
+no RTL simulator can.** That is a timing-analysis property and it belongs in the SDC (4C).
+
+#### ▸ Adar's results — Phase 4A
+
+`SIM\RV32IMscMCU` → `compile.do`, then `do run_sync.do`. No images, no `app_bin` staging.
+
+- stimulus: passed ____ , failed ____
+- monitor:  passed ____ , failed ____
+- latency:  passed ____ , failed ____
+- **VERDICT line:** ____________________
+
+Expect PASS with zero failures everywhere. This one does **not** depend on `G_ISA_REPAIR`.
+
+### Phase 4B — the multi-output clock tree  ·  **blocked, and not for the reason the plan said**
+
+- **Blocked on Q2** for the ratios: the document states no numeric frequency anywhere except
+  `baseclk50MHz` inside the Figure 1 image. `SMCLK = 20 MHz` is derived only from `FREQ_5K`
+  arithmetic; `MCLK` and `ACCELCLK` are unstated.
+- **And blocked on a tooling limit that was mis-scoped.** The plan said "regenerate the ALTPLL with
+  `c1`/`c2`". Reading `PLL.vhd`: the wizard emitted `port_clk1`…`port_clk5` as strings, but the
+  `altpll` **component declaration contains only `clk0_divide_by` / `clk0_multiply_by` /
+  `clk0_duty_cycle` / `clk0_phase_shift`** — there are no `clk1_*` or `clk2_*` generics in the file.
+  Adding them means asserting generics that are not written down anywhere we have, which is the same
+  unverifiable-megafunction-parameter risk already outstanding from Phase 3B's `byteena_a`. One of
+  those is acceptable; stacking two in a tree nobody has compiled is not.
+- **Two ways forward, for Adar to decide with Quartus in front of him:**
+  1. Run the MegaWizard on `PLL.vhd` and let it emit a real three-output instance. Correct, and
+     trivial with the tool open. **Preferred.**
+  2. Instantiate the existing, already-synthesised single-output `PLL` wrapper three times, one per
+     clock. Costs 3 of the device's 4 PLLs (Lab 5 uses 1) and gives three independently-locking
+     clocks with no defined phase relationship — acceptable here only *because* every crossing goes
+     through 4A's synchronizer, but strictly worse than one PLL with three phase-related outputs.
+
+  Either way the interface should be a `CLOCK_TREE` entity with `mclk_o`/`smclk_o`/`accelclk_o`, so
+  the choice stays an implementation detail behind a stable boundary.
+
+### Phase 4C — reset release on PLL lock, and the SDC  ·  **waits on 4B**
+
+- Synchronise PLL `locked` into reset release in the top wrapper. Precedent:
+  `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked`. Note
+  `PROJECT_EXPLANATION.md` §9.3 says the reference leaves `locked` **unused** and that a production
+  design would hold reset until lock — so this is an improvement over the reference, and the report
+  should say so.
+- Constrain all three clocks and every crossing in the SDC, starting from
+  `Auxilary/RV32I/QUARTUS/SDC/RISCV_simple.sdc`. Needs the frequencies, so it needs Q2.
+- **Do not** mistake `IFETCH.vhd:73-82` for a synchroniser — verified again: it is
+  `IF rst_i='1' THEN rst_q<='1' ELSIF rising_edge THEN rst_q<=rst_i`, a single flop with an async
+  preset.
 - **Exit:** measured 20 MHz `smclk`, deterministic reset, no unconstrained cross-domain path.
 
-Gaps: G-310, G-311. Blocked on **Q2**.
+Gaps: **G-310 closed by 4A**; G-311 open. 4B/4C blocked on **Q2**.
 
 ## Phase 5 — Bus interface and DTCM  ·  Yehonatan writes · Adar verifies
 
@@ -1231,7 +1325,7 @@ Gaps: G-501…G-505.
 | **G-307** | `div`/`divu`/`rem`/`remu` decode — masks exist, hardware does not | §2 |
 | **G-308** | `mulh`/`mulhsu`/`mulhu` — scope undecided | §2 |
 | **G-309** | Byte enables and sub-word load/store. `altsyncram` had no `byteena_a`; `CONTROL` detected `lb`/`lh`/`sb`/`sh` then discarded the width. **Built in Phase 3B**, awaiting verification. | §2 |
-| **G-310** | Two-flop CDC synchroniser | Figures 10a/10b |
+| **G-310** | CDC synchroniser. **CLOSED 2026-08-24** (Phase 4A) — `DUT/RV32IMscMCU/SYNC.vhd` plus a self-checking testbench. The figure specifies **three** flip-flops, not two: one launch register in the slow domain, two settling stages in the fast one. | Figures 10a/10b |
 | **G-311** | Multi-output clock tree; all three ALTPLL copies expose only `c0` | Figure 1 |
 | **G-312** | Edge detector / one-shot for KEY1-3 | §6.i |
 | **G-313** | UART register layer | §6.iv, p12 |
@@ -1324,9 +1418,11 @@ before/after line pairs.
 
 1. **Commit and push.** Still not done, and it is still the only thing standing between Adar and any
    of the above. Now covers Phase 1, 2, 3A and 3D plus the replaced reference folder.
-2. **Phase 4's clock tree**, as far as Q2 allows — the ALTPLL needs regenerating for `c0`/`c1`/`c2`
-   and all three existing copies expose only `c0`. This is now the next real design work: 3B is done
-   and 3C is blocked on Hanan.
+2. **Phase 5 — the MMIO address decoder.** Now the next real design work: 3B and 4A are done, 3C is
+   blocked on Hanan, and 4B turned out to need Quartus (see Phase 4B). Phase 5 is fully specified by
+   Figure 5, needs no frequency, and fixes a live bug: `RV32IM_CORE.vhd` narrows `alu_res_w` to the
+   DTCM word address with a bare bit-slice and no decode, so `0x2000` aliases onto DTCM word 0 —
+   which is where the interrupt vector table lives.
 3. **Update the `DOC/` documents for the new reference.** `01_source_inventory.md` and
    `02_requirements_traceability.md` both describe the old Lab 5 tree — in particular the
    defect-provenance table is now five rows where it should be seven, and

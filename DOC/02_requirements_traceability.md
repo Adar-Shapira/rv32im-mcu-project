@@ -392,9 +392,51 @@ memory-mapped. They are given register diagrams on p9 but appear in neither MMIO
 Figure 3 wires them to the ALU operands rather than to the data bus. **Falsified by** course staff
 assigning them SFR addresses. Raised as open question 6.
 
-**[REQ p10, Figures 10a/10b]** The CDC rule: a signal crossing from a slow domain A to a fast
-domain B must be registered in domain A before entering the synchroniser, and registered again on
-entry to domain B to avoid metastability.
+**Third piece of evidence for the same reading, added 2026-08-24.** Figure 10b labels the two
+synchroniser inputs `Read data1` and `Read data2` — which are this project's own register-file read
+port names (`read_data1_o` / `read_data2_o` in `IDECODE.vhd`). So the operands enter the divider
+domain straight from the register file, not from the data bus. Together with Figure 3 wiring
+`Ain`/`Bin` to the ALU operands, that is two figures pointing the same way and none pointing the
+other. Q6 still wants a confirmation, but the provisional answer is now well supported.
+
+**[REQ p10, Figures 10a/10b]** The CDC rule and its exact structure, read off the figures rather
+than inferred from the prose. **Three flip-flops, not two.**
+
+Figure 10a draws the complete crossing:
+
+| Domain | Contents | Clock |
+| --- | --- | --- |
+| A (slow) | `Comb logic` → one `D Q` | `MCLK` |
+| B (fast) | `Din` → `D Q` → `Ds` → `D Q` → `Dout` "stable" | `DIVCLK`, both stages |
+
+The accompanying waveform names the interval between `Din` and `Ds` the **"Metastable phase"** and
+the point after `Dout` settles **"Stable Output"**.
+
+The page 10 prose makes the domain-A register mandatory, not optional: *"It's fundamental to have a
+flip-flop to synchronize every signal that is driven by combinational logic (combo) in domain A
+before sending it to domain B through the synchronizer. In domain B, we must register the input to
+avoid metastability caused by violating the fast clock-domain B regime."*
+
+Figure 10b then draws the block as the divider instantiates it — a `Sync` box clocked by `divclk`,
+containing **two independent two-DFF chains**:
+
+```
+Read data1 -> [DFF] -Ds-> [DFF] -> Ain
+Read data2 -> [DFF] -Ds-> [DFF] -> Bin
+```
+
+**Assumption, and it is a real one.** A two-stage synchroniser on a *multi-bit bus* is only sound
+when the bus is stable across the crossing: individual bits can resolve on different destination
+cycles, so a bus that changes mid-sample can present a value that never existed on the source side.
+Figure 10b applies it to two 32-bit operands regardless. For the divider that is sound, because the
+CPU writes `DIVIDEND` and `DIVISOR` and only then does the enable cross — the operands are
+quasi-static by the time they matter. **Falsified by** any later use where the data can change while
+being sampled; such a crossing needs a handshake or a gray code, not this block.
+**Implemented and tested:** `DUT/RV32IMscMCU/SYNC.vhd`, `TB/RV32IMscMCU/tb_sync.vhd`. Gap G-310.
+
+Neither figure draws a reset. One is added anyway — a synchroniser chain starting at `'U'` propagates
+unknowns into the divider for two cycles — and it is sampled in the **destination** domain, since a
+reset released in the source domain would itself be an unsynchronised crossing.
 
 ---
 
