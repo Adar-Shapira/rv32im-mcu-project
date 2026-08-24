@@ -32,6 +32,10 @@ vcom -2008 ../../DUT/RV32IMscMCU/EXECUTE.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/DMEMORY.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/PLL.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/SYNC.vhd
+# Phase 7A. Figure 9's division accelerator. Like SYNC, not instantiated by
+# anything yet - Phase 7B wires it into the core once Phase 4B provides DIVCLK -
+# but compiled so its own testbench can run.
+vcom -2008 ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
 # byte-identical to Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd, md5
@@ -51,6 +55,10 @@ vcom -2008 ../../DUT/RV32IMscMCU/RV32IMscMCU.vhd
 # testbenches
 vcom -2008 ../../TB/RV32IMscMCU/tb_RV32IMscMCU.vhd
 vcom -2008 ../../TB/RV32IMscMCU/tb_sync.vhd
+
+# Phase 7A: zero setup, no memory images. Runs all 65536 operand pairs at N=8
+# plus the N=32 corners. See run_div.do for the runtime.
+vcom -2008 ../../TB/RV32IMscMCU/tb_div_accel.vhd
 
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.

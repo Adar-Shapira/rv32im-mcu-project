@@ -516,6 +516,101 @@ Neither figure draws a reset. One is added anyway — a synchroniser chain start
 unknowns into the divider for two cycles — and it is sampled in the **destination** domain, since a
 reset released in the source domain would itself be an unsynchronised crossing.
 
+### 5.1 What Phase 7A built, and the one interpretation it rests on
+
+**[CODE, ours]** `DUT/RV32IMscMCU/DIV_ACCEL.vhd`, verified by
+`TB/RV32IMscMCU/tb_div_accel.vhd` and pre-verified in Python by
+`tools/model_div_accel.py`. The **unsigned engine only**. The signed `div`/`rem` wrapper, both
+clock-domain crossings, the `DIVstart`/`PCHold` stall and the write-back mux are Phase 7B, which
+needs the `DIVCLK` that Phase 4B produces.
+
+**Assumption A18 — the interconnection of Figure 9's blocks.** Figure 9 is a raster image, and at
+its resolution the individual wires between the shift register, the subtractor's two inputs and the
+residue output **cannot be traced**. The block set and every signal name *are* legible and are
+implemented exactly as drawn. The interconnection is implemented as classical restoring division:
+the upper half of the 2N-bit register is the running remainder, the lower half holds the dividend
+bits not yet consumed, each cycle shifts the pair left by one with `'0'` entering at the LSB, `Y` is
+the upper half *after* that shift, `X` is the divisor register, and the non-negative flag both
+selects `Y-X` over `Y` and becomes the next quotient bit. **The argument for it is that it is the
+only assignment of Figure 9's blocks that produces a correct quotient and residue — not that it was
+read off the page.** **Falsified by** course staff describing a different interconnection. Verified
+exhaustively at N=8: all 65536 operand pairs, divide-by-zero column included.
+
+**Reconciling "writing `DIVISOR` starts it" with `DIVENA`.** §5 above, read straight off page 9,
+says the operation begins when a value is loaded into the second operand `DIVISOR`. This
+implementation is triggered by `DIVENA`. Those are the same event seen from the two sides of the
+boundary, and it is worth writing down because side by side they look like a contradiction:
+`DIVIDEND` and `DIVISOR` are **core-internal** registers (F2, confirmed), so there is no MMIO store
+that could "write `DIVISOR`" — the core loads them while executing `div`/`rem`, and Figure 3 shows
+the Control Unit raising `DIVstart` from that same decode. `DIVstart`, crossed into the `DIVCLK`
+domain, *is* `DIVENA`. Page 9 describes the core's view; Figure 9's port list describes the
+accelerator's. Neither says the accelerator watches a bus write, and it does not.
+
+**[REQ p9] The 32-cycle sentence, met literally.** "The divider results are ready after N DIVCLK
+cycles after loading a value to the second operand DIVISOR." Implemented as one Load edge followed
+by N iteration edges, with `DIVBUSY` raised on the Load edge and dropped on the Nth iteration —
+so `DIVBUSY` is high across exactly N `DIVCLK` periods and the results are valid N cycles after the
+load. The testbench measures this on every one of its 66 000+ operations rather than as a spot
+check.
+
+**[REQ p9 + BENCH-independent] Divide by zero needs no hardware at all.** With `X = 0` the test
+`Y >= X` holds on every cycle, so every quotient bit is `'1'` and every subtraction removes nothing,
+which leaves the remainder accumulating the dividend's bits as they shift through. After N cycles:
+`QUOTIENT` = all ones, `RESIDUE` = the dividend. That is exactly Hanan's forum answer (*"in
+practice the division result will be all ones"*, `DOC/03` F4) **and** exactly what the RISC-V
+unprivileged spec requires of `divu`/`remu` — three independent sources agreeing on one behaviour,
+reached with zero exception logic. Stated here because its absence from the RTL looks like an
+omission and is not.
+
+**[DEC] An N-bit `Y` is wide enough — nothing overflows.** The natural worry is that `2A + b` needs
+N+1 bits, since `A` can be as large as `X-1`. It cannot happen: after k steps `A` is exactly (the
+value of the top k bits of the dividend) minus (partial quotient)×`X`, and the partial quotient is
+non-negative, so `A ≤` the value of the top k bits `< 2^k ≤ 2^N`. The bit shifted out of the top of
+the upper half is therefore always `'0'`. This is why Figure 9's 2N-bit register with an N-bit
+subtractor is correct for **every** divisor, including divisors at or above `2^31` — the case a
+naive width argument gets wrong. It is also the only claim in this section that an N=8 sweep cannot
+test, so the N=32 directed list aims straight at it.
+
+**[REQ p4, Figure 3] The start is armed once per `DIVENA` assertion, and that is load-bearing.**
+Figure 3 makes `DIVstart` an output of the Control Unit, and the Control Unit is combinational
+decode of the current instruction. While the core is stalled on a `div`, the `div` *is* the current
+instruction — so `DIVstart`, and therefore `DIVENA`, stays asserted for the whole operation and
+beyond. A start condition of "`DIVENA` is high" alone would relaunch the divide on the cycle after
+it finished, forever, and the core would never see a result. The engine therefore refuses to reload
+until it has seen `DIVENA` low. Confirmed to be a real trap rather than a theoretical one:
+`tools/model_div_accel.py` was mutated to start on a level, and **property P7 was the sole failure**
+— it passes every other check in the suite.
+
+**[REQ p4, Figure 3 — PHASE 7B, recorded now so it is not rediscovered the hard way] The core
+cannot stall on "`DIVBUSY` is high".** `DIVstart` has to cross into `DIVCLK` (two stages), the
+engine then raises `DIVBUSY`, and `DIVBUSY` has to cross back into `MCLK` (two stages). For several
+`MCLK` cycles after the `div` issues, `DIVBUSY` still reads low — so a naive "stall while busy"
+stalls for nothing and the core runs straight past its own divide. The stall must begin on the
+core's own `DIVstart` and end on a seen-high-then-low `DIVBUSY`. Note that Figure 10 draws only the
+operand crossing, MCLK→DIVCLK; the `DIVBUSY` crossing in the other direction is drawn nowhere and is
+ours to get right.
+
+**[CODE] `DIVRST` is a functional initialise, not only a power-on reset**, per Hanan's wording (F2).
+It is asynchronous and active high, matching every other clocked element in this design, and it
+clears the whole engine rather than only the quotient register — which cannot change any result,
+since everything it clears is reloaded by the next Load, and which does mean a read before the first
+divide returns zero instead of `'U'`. **It must arrive already synchronised to `DIVCLK`**: it
+originates in the `MCLK` domain, and an asynchronous reset released in one domain against registers
+clocked in another is a recovery/removal violation. That is not a gap — it is what Figure 3's `Sync`
+block in front of the accelerator is for, and the block already exists (`SYNC.vhd`, Phase 4A).
+
+**[CODE] The subtractor uses the `-` operator, on Hanan's explicit permission** (F5: *"You may use
+the subtraction operator"*, with the advice to check what Quartus synthesises). Taken because this
+unit sits on the **fast** clock, so its 32-bit carry path is the accelerator's critical path, and an
+inferred subtractor maps onto the Cyclone IV carry chain while a hand-built ripple of discrete gates
+may not. The structural alternative is real and already in the material —
+`Auxiliary/Lab 5/Auxilary/Lab4/DUT/AdderSub.vhd`, generic n-bit, built from `Lab4/DUT/FA.vhd` — and
+its mapping is exact: `x => divisor`, `y => the shifted upper half`, `sub_cont => "001"`,
+`s => Y-X`, **`cout` => the Non-negative Result flag** (for `sub_cont = "001"` it forms
+`y + not(x) + 1`, whose carry-out is precisely `y >= x`). Written down so the PPA comparison is a
+component swap rather than a re-derivation. Deliberately not done in Phase 7A: it is a PPA
+experiment, and 7A is the correctness step.
+
 ---
 
 ## 6. Clocks
@@ -666,8 +761,10 @@ Everything in this document that is not cited to a source.
 | A16 | `PORT_PB` reads `'1'` for a **pressed** key — i.e. the active-low pushbuttons are inverted at the board boundary | The bit **order** is Hanan's forum answer and is not assumed; the **polarity** is stated nowhere, and no supplied program reads `PORT_PB` at all. Grounds: `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly this for all four keys, and this design already does it for KEY0 via `RST_ACTIVE_LOW` | Course staff saying `PORT_PB` presents the raw pin. One word: `KEY_ACTIVE_LOW => FALSE` |
 | A15 | The seven GPO ports are readable (Figure 5's `MemRead` tri-state), despite clause 5's Direction column saying `GPO` | Figure 5 draws the buffer inside every output-port block; a read-back register is the ordinary MMIO arrangement, and "GPO" plausibly describes the device | Course staff saying an output port must not respond to a read |
 | ~~A14~~ | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 — **CONFIRMED 2026-08-24.** Hanan, asked whether HEX0 and HEX1 are needed together to show one value: *"each HEX stands on its own"* | — | — |
+| A17 | All five Basic Timer interface registers are readable as well as writable, `BTCTL2` included | One of the two forum lines that could not be transcribed with full confidence appeared to make `BTCTL2` read-only, but `BTCTL2` is the capture-control register and the applications do write to it. Asked rather than assumed — `DOC/05` §2 | Course staff confirming `BTCTL2` is read-only |
+| A18 | Figure 9's blocks are interconnected as classical restoring division | The figure is a raster image and its bit-level wiring is not legible; this is the only interconnection of those blocks that yields a correct quotient and residue. Verified exhaustively at N=8, all 65536 pairs | Course staff describing a different interconnection |
 
-Sixteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Eighteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

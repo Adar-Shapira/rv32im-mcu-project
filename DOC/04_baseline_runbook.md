@@ -347,21 +347,44 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
-### 8.1a Two tests that need nothing — run them first
+### 8.1a Three tests that need nothing — run them first
 
 No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
-straight after `compile.do`; if either fails, nothing after it is meaningful.
+straight after `compile.do`; if any fails, nothing after it is meaningful.
 
 | Script | Phase | Expect |
 | --- | --- | --- |
 | `do run_sync.do` | 4A — CDC synchronizer | `VERDICT: PASS`, zero failures in all three checkers |
 | `do run_decode.do` | 5A — address decoder | `VERDICT: PASS`, failures 0, totals **8192 / 29 / 8163** |
+| `do run_div.do` | 7A — division accelerator | `VERDICT: PASS`, failures 0, **N=8 65536 ops**, **N=32 517 ops** |
 
 `run_decode.do` is exhaustive over all 16,384 addresses of the 14-bit data address space, so it is a
 proof rather than a sample. It also runs `CHECK 0` first, which holds `const_package.vhd`'s map
 against an address list transcribed separately from `io_map.s` — **if CHECK 0 fails, the
 specification is wrong and the RTL may be a faithful implementation of it: fix `const_package.vhd`,
 not the RTL.**
+
+`run_div.do` is the longest of the three — about 13 ms of simulated time, tens of seconds of wall
+clock — because it sweeps **all 65536 operand pairs** through an N=8 copy of the divider, and on
+every single operation it also measures how long `DIVBUSY` stays high. It prints a progress line
+every 16 dividends, sixteen lines in all, so a long run visibly advances instead of looking hung.
+While editing the RTL you can use `vsim -t ns -gEXHAUSTIVE=0 work.tb_div_accel` to skip the sweep —
+it then reports `VERDICT: INCOMPLETE` rather than `PASS`, on purpose, because a run without the
+sweep has not verified the divider.
+
+**This one should pass first time, and if it does not, say which half broke.** The toolchain is on
+your machine, not ours, so the RTL was written where it could not be compiled. Instead
+`tools/model_div_accel.py` transcribes it line for line into Python and runs the same 66,053 cases
+against Python's own `//` and `%`: 0 failures, and eight deliberate mutations of it (inverted
+non-negative flag, off-by-one counter, wrong `Y` slice, no restore, no quotient shift, level-
+triggered start, right shift instead of left, divisor register never loaded) were **all** caught. So
+a failure here points at the VHDL translation or the simulator setup rather than at the arithmetic —
+and `run_div.do`'s footer lists which property failing means which. That distinction is the whole
+reason both exist.
+
+Note what this does **not** cover: it is the unsigned engine alone. Signed `div`/`rem`, the two clock
+crossings, the stall and the write-back mux are Phase 7B, and 7B needs the `DIVCLK` that Phase 4B
+produces.
 
 ### 8.1b Phases 3A and 3B — the "after" measurement
 
@@ -565,6 +588,11 @@ waiting:
 - compile error and warning counts;
 - the memory-bit figure **and Fmax** from both perf revisions;
 - `run_sync.do` and `run_decode.do` verdicts (Phases 4A and 5A) — and `run_decode.do`'s three totals;
+- `run_div.do`'s verdict and **both operation counts** (Phase 7A) — **65536** at N=8 and **517** at
+  N=32. If the verdict says `INCOMPLETE`, the exhaustive sweep was skipped and the run does not
+  count. **Nothing is needed from Quartus for Phase 7A** — `div_accel` is not instantiated yet, so
+  synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
+  of the plan asked for those two numbers and was wrong to;
 - `run_mmio.do`'s **`DTCM WRITES ACCEPTED`** figure and `run_gpio.do`'s seven write counts
   (Phases 5B and 6A);
 - `run_gpio_read.do`'s three phase counts (Phase 6B) — phase 3 must be **0**;

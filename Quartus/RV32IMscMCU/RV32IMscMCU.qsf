@@ -56,6 +56,27 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
 # compiled and available; synthesis prunes an uninstantiated entity, so it costs
 # nothing in the resource tables.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
+# Phase 7A. Figure 9's division accelerator, in the same not-yet-instantiated
+# state as SYNC above and listed for exactly the same reason: so it is analysed,
+# and so the two file lists stay in step.
+#
+# CORRECTION TO AN EARLIER VERSION OF THIS COMMENT. It claimed that listing the
+# file here would make Quartus report div_accel's area and DIVCLK Fmax, and the
+# plan turned that into a deliverable. That was FALSE, and it contradicted the
+# SYNC comment nine lines above in this same file, which states the true
+# behaviour: synthesis prunes an uninstantiated entity. TOP_LEVEL_ENTITY is
+# RV32IMscMCU, nothing instantiates div_accel yet, and nothing drives divclk_i --
+# so the block is elaborated and dropped, contributes no row to the resource
+# table, and presents no clock for the Timing Analyzer to report an Fmax on.
+# Getting those two numbers needs either Phase 7B's instantiation or a dedicated
+# revision with TOP_LEVEL_ENTITY div_accel plus a create_clock on divclk_i; that
+# is a Phase 14 item, not something this line buys.
+#
+# LESSON, BECAUSE IT COST A BLOCKER ONCE:
+# this project has TWO file lists - SIM/RV32IMscMCU/compile.do for ModelSim and
+# this .qsf for Quartus - and there is no SEARCH_PATH, so a file added to only
+# one of them binds in one tool and fails in the other.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd

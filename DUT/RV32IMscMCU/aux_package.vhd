@@ -176,6 +176,31 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- The unsigned multicycle division accelerator of Figure 9 (gap G-301),
+	-- labelled "Divider Accelerator 32-bit" in Figure 3. Phase 7A built and
+	-- verified it standalone; Phase 7B instantiates it, feeds Ain/Bin through two
+	-- `sync` instances per Figure 10b, and brings DIVBUSY back the other way.
+	-- Generic in N only so its testbench can sweep a narrow copy exhaustively --
+	-- the design instantiates it at the N = 32 of page 9.
+	component div_accel is
+		generic(
+			N	: integer := 32
+		);
+		PORT(
+			--Inputs
+			divclk_i	: IN	STD_LOGIC;
+			divrst_i	: IN	STD_LOGIC;
+			divena_i	: IN	STD_LOGIC;
+			dividend_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			divisor_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+
+			--Outputs
+			divbusy_o	: OUT	STD_LOGIC;
+			quotient_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			residue_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
 	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase

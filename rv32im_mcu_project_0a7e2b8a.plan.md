@@ -210,7 +210,7 @@ git pull                     # before every session
 | --- | --- | --- |
 | 1 | **Quartus Prime 21.1.0 Lite** | Device support for Cyclone IV E. The projects target `EP4CE115F29C7`. |
 | 2 | **ModelSim – Intel FPGA Starter Edition 20.1** | Expected at `C:\intelFPGA\20.1\modelsim_ase`. The version matters: `mem_dump.do` reaches into the precompiled `altsyncram` model's internals (`m_mem_data_a`), which is version-locked. A different ModelSim fails at the dump step, not at compile. |
-| 3 | **Python 3** | Only needed to regenerate the ISA test (`tools/gen_isa_test.py`). The generated files are committed, so this is optional at first. |
+| 3 | **Python 3** | Only needed to regenerate the ISA and GPIO tests (`tools/gen_isa_test.py`, `tools/gen_gpio_test.py`). The generated files are committed, so this is optional at first. `tools/model_div_accel.py` is also Python but is a check we already ran, not something you need to run. |
 | 4 | **Stage the benchmark images** | Run the PowerShell block in `DOC/04_baseline_runbook.md` §3 from the repo root. It builds `C:\TestPrograms\Quartus21_1\{app_bin, test1..4\bin, test1..4\RARS}` from files already in the repo. Nothing has to be downloaded. |
 
 Why `C:\TestPrograms\Quartus21_1\` and not a path inside the repo: the RTL hardcodes
@@ -282,12 +282,17 @@ wrong — say so.
 
 1. Execute `compile.do`. Expect 0 errors and the same three warnings.
 
-   **Then two tests that need nothing at all** — no images, no `app_bin`, and they do not care what
-   `G_ISA_REPAIR` is set to. Run them first, because if either fails, nothing after it is meaningful:
+   **Then three tests that need nothing at all** — no images, no `app_bin`, and they do not care what
+   `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
    - `do run_decode.do` → **Phase 5A**, the address decoder, exhaustive over all 16,384 addresses.
      Expect `VERDICT: PASS`, failures 0, and the three totals **8192 / 29 / 8163**.
+   - `do run_div.do` → **Phase 7A**, the division accelerator. Expect `VERDICT: PASS`, failures 0,
+     **65536** operations at N=8 and **517** at N=32. This is the long one — tens of seconds, because
+     it sweeps every one of the 65536 operand pairs; it prints a progress line every 16 dividends so
+     you can see it advancing. If you are in a hurry, `vsim -t ns -gEXHAUSTIVE=0 work.tb_div_accel`
+     skips the sweep and then honestly says `INCOMPLETE` instead of `PASS`.
 
 2. **Phase 1:** run `run_test.do` for `N` = 1..4. Expect the **same four counts as Run 1**
    (134 / 1514 / 2725 / 2735). The only change is that `RV32IMscMCU` now sits between the testbench
@@ -410,16 +415,17 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 2 Directed ISA test | Yehonatan ✔ | **Adar** | ready to run |
 | 3A Seven ISA repairs | Yehonatan ✔ | **Adar** | ready to run — flip `G_ISA_REPAIR` |
 | 3B Byte enables / sub-word | Yehonatan ✔ | **Adar** | ready to run — same switch as 3A |
-| 3C `mul` width, `mulh`, `div` | — | — | **blocked on Hanan** (Q6 + mul width) |
+| 3C `mul` width, `mulh`, `div` | — | — | **ANSWERED 2026-08-24** — `mul` only, 16-bit, as in Lab 5. Mostly nothing to do |
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4A CDC synchronizer | Yehonatan ✔ | **Adar** | ready to run — frequency-independent |
-| 4B Multi-output clock tree | — | **Adar needs Quartus** | blocked on Q2 *and* on the MegaWizard |
+| 4B Multi-output clock tree | — | **Adar needs Quartus** | **unblocked 2026-08-24** — three separate PLL instances, `MCLK = SMCLK = 20 MHz`. Only `ACCELCLK` is open (**B3**) |
 | 4C Reset-on-lock + SDC | Yehonatan | Adar | waits on 4B |
-| 5 Bus interface + DTCM | Yehonatan | Adar | |
-| 6 GPIO | Yehonatan | Adar | waits on Q5 |
-| 7 Divider | Yehonatan | Adar | waits on Q6 |
-| 8 Basic Timer | Yehonatan | Adar | waits on Q3, Q4, Q8 |
-| 9 Interrupt controller | Yehonatan | Adar | waits on Q7 |
+| 5A/5B Bus interface + DTCM | Yehonatan ✔ | **Adar** | ready to run |
+| 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
+| **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
+| 7B Divider into the core | Yehonatan | Adar | waits on 4B for `DIVCLK` |
+| 8 Basic Timer | Yehonatan | Adar | waits on **B2**, **B4** (was Q3, Q8) |
+| 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
@@ -430,9 +436,11 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 
 ## 0.6 What Adar can also help with, off the critical path
 
-- **Send Q1, Q2, Q3 to Hanan or the TA** (`DOC/03_open_questions.md`): which board, the three clock
-  frequencies, and the 8× `SEC_PERIOD` discrepancy. Each already has a provisional decision so
-  nothing is blocked, but answers take time — send early.
+- **Send section 1 of `DOC/05_questions_for_hanan.md`** — B1 the board, B2 the 8× `SEC_PERIOD`
+  discrepancy, B3 `ACCELCLK`, B4 `BTINT`. *(This item used to say "send Q1, Q2, Q3 from `DOC/03`";
+  Q2 was largely answered by the forum on 2026-08-24 and `DOC/03` has since become the long working
+  record rather than the sendable list. `DOC/05` is the sendable one.)* Each item already has a
+  provisional decision so nothing is blocked, but answers take time — send early.
 - **Answer G-207:** what is already inside the `finalProj` Quartus project on your machine? It exists
   in no local copy and its contents are unknown.
 - **Answer G-208:** the two circled Quartus settings in the photos from 19 Aug — "Use smart
@@ -1912,17 +1920,96 @@ Gaps: **G-306 CLOSED** by 6A (outputs), 6B (read path) and 6C (`PORT_PB`).
 
 ## Phase 7 — Division accelerator  ·  Yehonatan writes · Adar verifies
 
-- Figure 9 specifies it completely: dividend left-shift register, divisor register, subtractor
-  `Result = Y − X` with non-negative feedback driving the quotient bit, quotient left-shift register;
-  `DIVCLK`/`DIVRST`/`DIVENA` in, `DIVBUSY` out. **Writing `DIVISOR` starts it**; results ready after
-  32 `DIVCLK` cycles.
-- Subtractor candidate: `Auxilary/Lab4/DUT/AdderSub.vhd`, generic n-bit.
-- Wrap signed `div`/`rem` around the unsigned engine. Stall via `PCHold` on `DIVbusy`, per Figure 3.
-- Block interrupt entry until the divide retires, so the architectural boundary stays precise.
-- **Exit:** exactly 32 accelerator cycles per operation; unit tests for latency, back-to-back,
-  reset-while-busy, divide-by-zero, signed limits, quotient/remainder select.
+Split for the same reason 4A came before 4B and 5A before 5B: the arithmetic is provable on its own,
+exhaustively, with no dependence on the core and **no open question attached** — the forum answered
+every one that touched it. Wiring it into the core is a separate, riskier step that also needs a
+clock we do not have yet.
 
-Gaps: G-301. Blocked on **Q6**.
+### Phase 7A — the unsigned engine  ·  **built, awaiting verification**
+
+**Files:** `DUT/RV32IMscMCU/DIV_ACCEL.vhd` (new), `TB/RV32IMscMCU/tb_div_accel.vhd` (new),
+`SIM/RV32IMscMCU/run_div.do` (new), `tools/model_div_accel.py` (new); `aux_package.vhd`,
+`compile.do` and the `.qsf` updated.
+
+- Figure 9's block set and every signal name implemented exactly: 2N-bit dividend left-shift
+  register with `'0'` entering at the LSB, divisor register, `Result = Y − X` subtractor whose
+  non-negative flag both drives the restore and becomes the quotient bit, quotient left-shift
+  register, `Residue` and `Quotient` out, `DIVCLK`/`DIVRST`/`DIVENA` in and `DIVBUSY` out.
+- **Page 9's timing met literally.** One Load edge, then N iteration edges; `DIVBUSY` rises on the
+  Load edge and falls on the Nth, so it is high across exactly N `DIVCLK` periods and the results are
+  valid N cycles after the load. Measured on every one of 66,000+ operations, not spot-checked.
+- **Verification:** all **65536** operand pairs at N=8 (the divide-by-zero column included) against
+  `IEEE.NUMERIC_STD`'s own `/` and `rem`, plus 16 directed corners and 500 pseudo-random pairs at
+  N=32, plus reset-while-busy and `DIVENA`-held-high. Eight properties, P0–P8.
+
+**Three things worth carrying forward, each of which changes something:**
+
+1. **Divide by zero needs no hardware.** Run the algorithm with `X = 0` and `Y ≥ X` holds every
+   cycle, so every quotient bit is `'1'` and the remainder ends up holding the dividend. Result: all
+   ones and the dividend — which is simultaneously Hanan's forum answer (F4) and the RISC-V
+   requirement for `divu`/`remu`. **No exception logic is needed and none was written.**
+2. **An N-bit `Y` never overflows**, so Figure 9's 2N-bit register is correct even for divisors above
+   `2^31`. Proof in `DOC/02` §5.1. It is also the one claim an N=8 sweep cannot test, which is why
+   the N=32 list aims at it directly.
+3. **The start must be armed once per `DIVENA` assertion, not level-triggered.** Figure 3 makes
+   `DIVstart` a combinational Control Unit output, so it stays high for the whole stall; a
+   level-triggered engine relaunches forever and the core never sees a result. Verified to be a real
+   trap: the Python model was mutated to start on a level and **P7 was the only failing property.**
+
+**Why the first ModelSim run should pass.** The toolchain is Windows-only, so this RTL could not be
+compiled where it was written. `tools/model_div_accel.py` transcribes it line for line into Python
+and runs the same 66,053 cases against Python's `//` and `%` — 0 failures — and eight deliberate
+mutations of that model were all caught. A failure in ModelSim therefore points at the VHDL
+translation or the simulator setup rather than the arithmetic, and `run_div.do`'s footer says which
+property failing means which.
+
+**Adar's results — Phase 7A**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_div.do` | `VERDICT: PASS`, failures 0 | |
+| N=8 operations | 65536 | |
+| N=32 operations | 517 | |
+| Runtime | tens of seconds, ~13 ms simulated | |
+
+**Nothing to do in Quartus for this phase, and a retracted claim about why.** An earlier version of
+this block asked Adar for `div_accel`'s area and `DIVCLK` Fmax and said that was the number question
+B3 needs. **That was wrong.** `TOP_LEVEL_ENTITY` is `RV32IMscMCU`, nothing instantiates `div_accel`
+yet, and nothing drives `divclk_i` — so Analysis & Synthesis elaborates the block and drops it: no
+row in the resource table, and no `DIVCLK` for the Timing Analyzer to report an Fmax on. Adar would
+have gone looking for two numbers that cannot exist, and might have recorded 0 LEs as the area. The
+`.qsf` comment asserting otherwise contradicted the `SYNC.vhd` comment nine lines above it in the
+same file, which had it right; both are now corrected. Getting those numbers needs Phase 7B's
+instantiation, or a dedicated revision with `TOP_LEVEL_ENTITY div_accel` and a `create_clock` on
+`divclk_i` — a **Phase 14** item.
+
+Gaps: G-301 closed for the engine. New assumption **A18** (Figure 9's bit-level wiring is not legible
+in the raster figure; restoring division is the only interconnection of its blocks that works).
+
+### Phase 7B — wire it into the core  ·  **blocked on Phase 4B**
+
+- Signed `div`/`rem` wrapper around the unsigned engine. **The benchmarks use the signed opcodes** —
+  `div`/`rem` in `RV32IM/test1` and in `Intrrupt-based IO` test1 and test4 — although every operand
+  in every supplied benchmark is a small positive integer, so the signed path is needed for
+  conformance rather than by any supplied program. RISC-V rules to honour: quotient truncates toward
+  zero, the remainder takes the dividend's sign, and `-2^31 / -1` gives `-2^31` remainder 0.
+- Two `sync` instances on the operands per Figure 10b — the first real use of Phase 4A's block.
+- **`DIVBUSY` crossing back, which no figure draws.** Figure 10 shows only MCLK→DIVCLK. The return
+  path is ours.
+- **And the stall cannot be "while `DIVBUSY`".** `DIVstart` takes two stages to reach the engine and
+  `DIVBUSY` two more to come back, so for several `MCLK` cycles after the `div` issues `DIVBUSY`
+  still reads low and a naive stall stalls for nothing. Begin the stall on the core's own `DIVstart`;
+  end it on a seen-high-then-low `DIVBUSY`.
+- Write-back mux widened, selected by `WBSrc1`/`WBSrc0` per Figure 3; `div`/`rem` decode in
+  `CONTROL.vhd`.
+- Block interrupt entry until the divide retires, so the architectural boundary stays precise —
+  Hanan confirmed this reading (F13): for `DIV`/`REM` the instruction completes only when `BUSY`
+  falls.
+- **Exit:** the RV32IM benchmark's `div`/`rem` arrays produce the right values through the core, and
+  a `div` that is interrupted still retires first.
+
+Blocked on **4B** (needs `DIVCLK`) and touches `CONTROL`/`EXECUTE`/`IDECODE`/`RV32IM_CORE`, which is
+why it is not in 7A.
 
 ## Phase 8 — Basic Timer  ·  Yehonatan writes · Adar verifies
 
@@ -2199,10 +2286,11 @@ before/after line pairs.
    that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8 validation loop. If the
    instance is gone, **report it and change nothing** — sub-word access and ISMCE are both
    mandatory, so a conflict between them is a question for Hanan. Details in `DMEMORY.vhd`.
-5. **Two leaf tests, no setup needed.** `do run_sync.do` (Phase 4A) and `do run_decode.do`
-   (Phase 5A). Neither needs a memory image or `app_bin` staging, and neither depends on
-   `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected verdicts are in the
-   Phase 4A and Phase 5A results blocks.
+5. **Three leaf tests, no setup needed.** `do run_sync.do` (Phase 4A), `do run_decode.do`
+   (Phase 5A) and `do run_div.do` (Phase 7A). None needs a memory image or `app_bin` staging, and
+   none depends on `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected
+   verdicts are in the Phase 4A, 5A and 7A results blocks. `run_div.do` is the slow one: it sweeps
+   all 65536 operand pairs at N=8, so budget tens of seconds and watch for its progress lines.
 6. **`do run_mmio.do`** (Phase 5B). This one **does** need staging and **needs `G_ISA_REPAIR = TRUE`**
    — read the Phase 5B block above for why, it is not arbitrary. Then re-run Run 2 in full: the four
    benchmark counts must be unchanged.
@@ -2227,16 +2315,21 @@ before/after line pairs.
 1. ~~Commit and push~~ — done. ~~Update the `DOC/` documents for the new reference~~ — done in
    `82a1a11`. ~~Phase 5A~~ — done, see above.
 2. ~~Phase 5B — wire the decoder in~~ — done. ~~Phase 6A — the seven GPO ports~~ — done.
-3. **Phase 6B — the read path.** Next, and unblocked: `PORT_SW` plus the tri-state read return using
-   `BidirPin.vhd` with `width => 32`, replacing the Phase 5B placeholder `dbus_rdata_w` and deleting
-   the `SFRSTUB` notice with it. This is what makes **GPIO test1 and test2 runnable** — both branch on
-   `PORT_SW` — so it roughly doubles the benchmark coverage Adar has.
-4. **Then Phase 7 (divider) or Phase 8 (Basic Timer)**, whichever question comes back first. 6C, 7 and
-   8 are all blocked on Hanan: `PORT_PB`'s bit layout, Q6/Q14 for the divider, Q3/Q4/Q8 for the timer.
-5. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for
-   `c0`/`c1`/`c2` and all three existing copies expose only `c0`. Note Phase 6A added a
-   `mclk_o` port to the core that exists **only** until 4B moves the clock tree up — removing it is
-   part of 4B, not a separate cleanup.
+3. ~~Phase 6B — the read path~~ — **done**, and 6C (`PORT_PB`) and 6D (the directed GPIO test) with
+   it. The `SFRSTUB` placeholder is gone, the bus is one shared bidirectional bus with ten drivers,
+   and GPIO test1 is runnable.
+4. ~~Phase 7A — the divider engine~~ — **done**, `run_div.do`. The four forum answers F2–F5 unblocked
+   it entirely (`Ain`=Dividend, registers core-internal, divide-by-zero all-ones, `-` operator
+   allowed), so it was not blocked on anything.
+5. **Next: Phase 4B — the clock tree.** *(This item used to say "the ALTPLL needs regenerating for
+   `c0`/`c1`/`c2`". The forum answer F6 removed that work — Hanan: the three clocks come from
+   **three separate PLL instances**, each fed by the 50 MHz base, not one multi-output PLL. The plan's
+   own G-311 row already says "nothing has to be regenerated"; this item was the last place still
+   saying the opposite.)* `MCLK = SMCLK = 20 MHz` is permitted (F7); only `ACCELCLK` is open, and that
+   is **B3**. 4B also removes the transitional `mclk_o` port Phase 6A added to the core — that removal
+   is part of 4B, not a separate cleanup.
+6. **Then Phase 7B** (the divider into the core — needs 4B's `DIVCLK`) **or Phase 8** (Basic Timer,
+   which still waits on **B2** and **B4**).
 
 ## The gate between us
 
@@ -2246,9 +2339,13 @@ blocked on waiting.
 
 What still gates:
 
-- **Phase 3C is blocked on Hanan**, not on us. Nine of the ten remaining ISA mismatches are there,
-  and every one of them needs a question answered before it can be written without inventing
-  requirements.
+- ~~**Phase 3C is blocked on Hanan**~~ — **no longer true, answered 2026-08-24.** Hanan: base on Lab 5
+  part 1 and extend to RV32IM *"including support for a 16-bit multiplier only"*, and *"`mul` only (as
+  in Lab 5)"*. So `mulh`/`mulhsu`/`mulhu` are **out of scope**, the 16-bit `mul` **is** the
+  requirement, and `div`/`rem` are served by the Phase 7 accelerator rather than by an ALU operation.
+  Nine of the ten remaining ISA-suite mismatches therefore stop being defects to fix and become
+  conformance gaps beyond the project's scope — which is item R3 of `DOC/05`, a reporting question,
+  not a build one.
 - **Phase 4 onward is gated on Run 1.** If the Phase 0 baseline does not reproduce, nothing built on
   top of it means anything, and that is still true no matter how much is written on the Mac.
 - **A partial `repair_check.do` failure stops everything.** All 15 failing means the wrong
