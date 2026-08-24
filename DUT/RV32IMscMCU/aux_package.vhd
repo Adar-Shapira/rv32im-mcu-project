@@ -391,9 +391,69 @@ package aux_package is
 			areset				: IN STD_LOGIC  := '0';
 			inclk0				: IN STD_LOGIC  := '0';
 			c0     				: OUT STD_LOGIC ;
-			locked				: OUT STD_LOGIC 
+			locked				: OUT STD_LOGIC
 		);
   END COMPONENT;
----------------------------------------------------------	
+---------------------------------------------------------
+	-- Phase 4B. PLL.vhd with four wizard constants promoted to generics, so that
+	-- three instances can run at three ratios -- PLL.vhd's entity takes no
+	-- generics at all, which is the real reason a plain three-instance clock tree
+	-- was not possible before. PLL.vhd itself is left byte-identical (md5
+	-- a12064f2...) and the core still instantiates it; see PLL_GEN.vhd's header
+	-- for why the boilerplate is duplicated rather than the original edited.
+	component pll_gen is
+		generic(
+			DIVIDE_BY		: NATURAL := G_PLL_DIV;
+			MULTIPLY_BY		: NATURAL := G_PLL_MUL;
+			IN_PERIOD_PS	: NATURAL := 20000;
+			DEVICE_FAMILY	: STRING  := "Cyclone II";
+			LPM_HINT_STR	: STRING  := "CBX_MODULE_PREFIX=PLL_GEN"
+		);
+		PORT(
+			areset			: IN	STD_LOGIC := '0';
+			inclk0			: IN	STD_LOGIC := '0';
+			c0				: OUT	STD_LOGIC;
+			locked			: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
+	-- The "Clock Tree" of Figure 1 (gap G-311): baseclk50MHz in, mclk / smclk /
+	-- accelclk out, built from three pll_gen instances per Hanan's forum answer
+	-- F6. Phase 4B built and verified it standalone; Phase 4C instantiates it in
+	-- RV32IMscMCU, releases reset on lock, and constrains all three in the SDC.
+	-- Read CLOCK_TREE.vhd's header before wiring it in: the lock delay and the
+	-- free-running simulation clocks both have consequences for existing tests.
+	component clock_tree is
+		generic(
+			MODELSIM			: integer := G_MODELSIM;
+			IN_FREQ_KHZ			: natural := 50000;
+			IN_PERIOD_PS		: natural := 20000;
+			MCLK_KHZ			: natural := 20000;
+			MCLK_MUL			: natural := 2;
+			MCLK_DIV			: natural := 5;
+			SMCLK_KHZ			: natural := 20000;
+			SMCLK_MUL			: natural := 2;
+			SMCLK_DIV			: natural := 5;
+			ACCELCLK_KHZ		: natural := 50000;
+			ACCEL_MUL			: natural := 1;
+			ACCEL_DIV			: natural := 1;
+			SMCLK_SHARES_MCLK	: boolean := TRUE;
+			SIM_ACCEL_HALF_NS	: natural := 15;
+			SIM_SMCLK_HALF_NS	: natural := 35;
+			SIM_LOCK_DELAY_NS	: natural := 200
+		);
+		PORT(
+			--Inputs
+			clk_i		: IN	STD_LOGIC;
+			rst_i		: IN	STD_LOGIC;
+
+			--Outputs
+			mclk_o		: OUT	STD_LOGIC;
+			smclk_o		: OUT	STD_LOGIC;
+			accelclk_o	: OUT	STD_LOGIC;
+			locked_o	: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
 
 end aux_package;

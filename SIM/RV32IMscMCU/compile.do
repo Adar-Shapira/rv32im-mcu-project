@@ -31,6 +31,12 @@ vcom -2008 ../../DUT/RV32IMscMCU/IDECODE.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/EXECUTE.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/DMEMORY.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/PLL.vhd
+# Phase 4B. PLL_GEN is PLL with the ratio as generics; CLOCK_TREE is Figure 1's
+# block built from three of them. Both compile without altera_mf because at
+# MODELSIM = 1 neither instantiates altpll - the same bypass the core already
+# uses. PLL_GEN must come before CLOCK_TREE, which instantiates it.
+vcom -2008 ../../DUT/RV32IMscMCU/PLL_GEN.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/CLOCK_TREE.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/SYNC.vhd
 # Phase 7A. Figure 9's division accelerator. Like SYNC, not instantiated by
 # anything yet - Phase 7B wires it into the core once Phase 4B provides DIVCLK -
@@ -59,6 +65,10 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_sync.vhd
 # Phase 7A: zero setup, no memory images. Runs all 65536 operand pairs at N=8
 # plus the N=32 corners. See run_div.do for the runtime.
 vcom -2008 ../../TB/RV32IMscMCU/tb_div_accel.vhd
+
+# Phase 4B: also zero setup. Note it does NOT verify the PLLs - altpll is not
+# instantiated at MODELSIM = 1. See run_clock.do.
+vcom -2008 ../../TB/RV32IMscMCU/tb_clock_tree.vhd
 
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.

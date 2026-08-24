@@ -282,12 +282,15 @@ wrong — say so.
 
 1. Execute `compile.do`. Expect 0 errors and the same three warnings.
 
-   **Then three tests that need nothing at all** — no images, no `app_bin`, and they do not care what
+   **Then four tests that need nothing at all** — no images, no `app_bin`, and they do not care what
    `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
    - `do run_decode.do` → **Phase 5A**, the address decoder, exhaustive over all 16,384 addresses.
      Expect `VERDICT: PASS`, failures 0, and the three totals **8192 / 29 / 8163**.
+   - `do run_clock.do` → **Phase 4B**, the clock tree. Expect `VERDICT: PASS`, failures 0, about
+     110 accelclk edges and 10 distinct phases. Quick. It does **not** verify the PLLs — `altpll` is
+     not instantiated at `MODELSIM = 1` — and its header lists three Quartus-only items for you.
    - `do run_div.do` → **Phase 7A**, the division accelerator. Expect `VERDICT: PASS`, failures 0,
      **65536** operations at N=8 and **517** at N=32. This is the long one — tens of seconds, because
      it sweeps every one of the 65536 operand pairs; it prints a progress line every 16 dividends so
@@ -418,7 +421,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 3C `mul` width, `mulh`, `div` | — | — | **ANSWERED 2026-08-24** — `mul` only, 16-bit, as in Lab 5. Mostly nothing to do |
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4A CDC synchronizer | Yehonatan ✔ | **Adar** | ready to run — frequency-independent |
-| 4B Multi-output clock tree | — | **Adar needs Quartus** | **unblocked 2026-08-24** — three separate PLL instances, `MCLK = SMCLK = 20 MHz`. Only `ACCELCLK` is open (**B3**) |
+| **4B Clock tree** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_clock.do`.** Three Quartus items too; only `ACCELCLK`'s value is open (**B3**) |
 | 4C Reset-on-lock + SDC | Yehonatan | Adar | waits on 4B |
 | 5A/5B Bus interface + DTCM | Yehonatan ✔ | **Adar** | ready to run |
 | 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
@@ -907,7 +910,7 @@ Establish the tree from commit 1's shape, not HEAD's.
 - **Exit:** both wrappers compile in ModelSim and Quartus; the baseline numbers from Phase 0 still
   reproduce through the new wrapper; the perf revision reports 131,072 memory bits, not 483,328.
 
-Gaps: G-311 (clock tree), D-1, D-2, D-3.
+Gaps: ~~G-311 (clock tree)~~ **closed by Phase 4B**; D-1, D-2, D-3.
 
 ## Phase 2 — Directed ISA verification  ·  **built, awaiting verification**
 
@@ -1291,28 +1294,59 @@ no RTL simulator can.** That is a timing-analysis property and it belongs in the
 
 Expect PASS with zero failures everywhere. This one does **not** depend on `G_ISA_REPAIR`.
 
-### Phase 4B — the multi-output clock tree  ·  **blocked, and not for the reason the plan said**
+### Phase 4B — the clock tree  ·  **built, awaiting verification**
 
-- **Blocked on Q2** for the ratios: the document states no numeric frequency anywhere except
-  `baseclk50MHz` inside the Figure 1 image. `SMCLK = 20 MHz` is derived only from `FREQ_5K`
-  arithmetic; `MCLK` and `ACCELCLK` are unstated.
-- **And blocked on a tooling limit that was mis-scoped.** The plan said "regenerate the ALTPLL with
-  `c1`/`c2`". Reading `PLL.vhd`: the wizard emitted `port_clk1`…`port_clk5` as strings, but the
-  `altpll` **component declaration contains only `clk0_divide_by` / `clk0_multiply_by` /
-  `clk0_duty_cycle` / `clk0_phase_shift`** — there are no `clk1_*` or `clk2_*` generics in the file.
-  Adding them means asserting generics that are not written down anywhere we have, which is the same
-  unverifiable-megafunction-parameter risk already outstanding from Phase 3B's `byteena_a`. One of
-  those is acceptable; stacking two in a tree nobody has compiled is not.
-- **Two ways forward, for Adar to decide with Quartus in front of him:**
-  1. Run the MegaWizard on `PLL.vhd` and let it emit a real three-output instance. Correct, and
-     trivial with the tool open. **Preferred.**
-  2. Instantiate the existing, already-synthesised single-output `PLL` wrapper three times, one per
-     clock. Costs 3 of the device's 4 PLLs (Lab 5 uses 1) and gives three independently-locking
-     clocks with no defined phase relationship — acceptable here only *because* every crossing goes
-     through 4A's synchronizer, but strictly worse than one PLL with three phase-related outputs.
+**Files:** `DUT/RV32IMscMCU/CLOCK_TREE.vhd` (new), `DUT/RV32IMscMCU/PLL_GEN.vhd` (new),
+`TB/RV32IMscMCU/tb_clock_tree.vhd` (new), `SIM/RV32IMscMCU/run_clock.do` (new); `aux_package.vhd`,
+`compile.do` and the `.qsf` updated. The leaf only — wiring it in is 4C.
 
-  Either way the interface should be a `CLOCK_TREE` entity with `mclk_o`/`smclk_o`/`accelclk_o`, so
-  the choice stays an implementation detail behind a stable boundary.
+**The blocker this phase was recorded as having was the wrong blocker.** The plan said the ALTPLL had
+to be regenerated for `c1`/`c2`. Forum answer **F6** removed that outright: the three clocks come
+from **three separate PLL instances**, not one multi-output PLL. What actually stood in the way was
+smaller and had not been noticed: **`PLL.vhd`'s entity takes no generics at all.** Its ratio comes
+from `G_PLL_DIV`/`G_PLL_MUL` in `cond_compilation_package.vhd`, so three instances of it would have
+produced three copies of *one* frequency (25 MHz).
+
+- `PLL_GEN.vhd` is `PLL.vhd` with four constants promoted to generics — divide, multiply, input
+  period, device family, plus the `lpm_hint` string. **Every one already appears in `PLL.vhd`'s own
+  `altpll` component declaration and is already passed by it**, so nothing new is asserted about the
+  megafunction. That is the distinction that matters: `clk1_*`/`clk2_*` generics appear in no file we
+  have, and adding *those* would have been the unverifiable-parameter risk this plan warned about.
+- `PLL.vhd` is left **byte-identical** (md5 `a12064f2…`, the same in all four places it exists) and
+  the core still instantiates it. The price is ~60 duplicated lines of `altpll` boilerplate, taken
+  knowingly rather than risk the Phase 0/1 baseline for a feature the baseline does not use.
+- Ratios: `MCLK = SMCLK = 20 MHz` (F7 permits equal, F8 states 20 MHz **in writing**),
+  `ACCELCLK = 50 MHz` (assumption A3, question B3). Checked **at elaboration**, cross-multiplied in
+  integer kHz so nothing rounds — a wrong ratio is otherwise a silent frequency error that surfaces
+  as a Basic Timer whose "5 kHz" is not 5 kHz.
+
+**The one real conflict, resolved as a decision and not as a reading — assumption A19.**
+F6 says three separate PLL instances; F7 says `MCLK` and `SMCLK` may be equal. Do both literally and
+you get **two independent PLLs each producing 20 MHz** — and the core drives address, write data and
+`MemWrite` on `MCLK` while every peripheral register captures that bus on `SMCLK` (F11, and
+`gpo_port` does exactly this). Two PLLs on one reference are frequency-identical but their phase
+relationship is specified by nothing, so that capture cannot be timing-analysed, and Figure 5 draws
+no synchroniser anywhere on the GPIO write path. It would probably work on the bench and could not be
+shown to work. **`SMCLK_SHARES_MCLK` defaults `TRUE`: equal frequency means one net.** Sent as a
+question; `FALSE` gives the literal structure and that branch is written and tested.
+
+**What the testbench does not do, stated plainly: it does not verify the PLLs.** `altpll` needs
+`altera_mf` and the course's own idiom — Hanan's, in `RV32IM_CORE.vhd` — is not to instantiate it in
+simulation. What is verified: the ratio arithmetic for **two** different configurations, that MCLK in
+simulation **is** `clk_i`, that ACCELCLK is independent of MCLK and walks 10 distinct phases of it,
+that `locked` starts low and rises, and that **both** branches of every generate compile.
+
+**Adar's results — Phase 4B**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_clock.do` | `VERDICT: PASS`, failures 0 | |
+| accelclk edges / distinct phases | ~110 / 10 | |
+| Quartus: does a `pll_gen` instance compile and fit? | yes | |
+| Quartus: is `intended_device_family => "Cyclone II"` accepted on the Cyclone IV E part? | inherited from `PLL.vhd`, and Lab 5 ran with it — if rejected, pass `"Cyclone IV E"` | |
+| Quartus: may three instances share one `CBX_MODULE_PREFIX`? | if not, give each its own `LPM_HINT_STR` | |
+
+Gaps: **G-311 closed.** New assumption **A19**. `ACCELCLK`'s value is still **B3**.
 
 ### Phase 4C — reset release on PLL lock, and the SDC  ·  **waits on 4B**
 
@@ -1328,7 +1362,8 @@ Expect PASS with zero failures everywhere. This one does **not** depend on `G_IS
   preset.
 - **Exit:** measured 20 MHz `smclk`, deterministic reset, no unconstrained cross-domain path.
 
-Gaps: **G-310 closed by 4A**; G-311 open. 4B/4C blocked on **Q2**.
+Gaps: **G-310 closed by 4A, G-311 closed by 4B.** 4C is the remaining piece: it needs the
+frequencies for the SDC, and `ACCELCLK`'s value is question **B3**.
 
 ## Phase 5 — Bus interface and DTCM  ·  Yehonatan writes · Adar verifies
 
@@ -2286,11 +2321,13 @@ before/after line pairs.
    that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8 validation loop. If the
    instance is gone, **report it and change nothing** — sub-word access and ISMCE are both
    mandatory, so a conflict between them is a question for Hanan. Details in `DMEMORY.vhd`.
-5. **Three leaf tests, no setup needed.** `do run_sync.do` (Phase 4A), `do run_decode.do`
-   (Phase 5A) and `do run_div.do` (Phase 7A). None needs a memory image or `app_bin` staging, and
-   none depends on `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected
-   verdicts are in the Phase 4A, 5A and 7A results blocks. `run_div.do` is the slow one: it sweeps
-   all 65536 operand pairs at N=8, so budget tens of seconds and watch for its progress lines.
+5. **Four leaf tests, no setup needed.** `do run_sync.do` (4A), `do run_decode.do` (5A),
+   `do run_clock.do` (4B) and `do run_div.do` (7A). None needs a memory image or `app_bin` staging,
+   and none depends on `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected
+   verdicts are in the 4A, 5A, 4B and 7A results blocks. `run_div.do` is the slow one: it sweeps all
+   65536 operand pairs at N=8, so budget tens of seconds and watch for its progress lines.
+   `run_clock.do` also carries **three Quartus-only questions** in its header — whether `pll_gen`
+   fits, the inherited `"Cyclone II"` family string, and the shared `CBX_MODULE_PREFIX`.
 6. **`do run_mmio.do`** (Phase 5B). This one **does** need staging and **needs `G_ISA_REPAIR = TRUE`**
    — read the Phase 5B block above for why, it is not arbitrary. Then re-run Run 2 in full: the four
    benchmark counts must be unchanged.
@@ -2321,14 +2358,18 @@ before/after line pairs.
 4. ~~Phase 7A — the divider engine~~ — **done**, `run_div.do`. The four forum answers F2–F5 unblocked
    it entirely (`Ain`=Dividend, registers core-internal, divide-by-zero all-ones, `-` operator
    allowed), so it was not blocked on anything.
-5. **Next: Phase 4B — the clock tree.** *(This item used to say "the ALTPLL needs regenerating for
+5. ~~Phase 4B — the clock tree~~ — **done**, `run_clock.do`. *(This item used to say "the ALTPLL needs regenerating for
    `c0`/`c1`/`c2`". The forum answer F6 removed that work — Hanan: the three clocks come from
    **three separate PLL instances**, each fed by the 50 MHz base, not one multi-output PLL. The plan's
    own G-311 row already says "nothing has to be regenerated"; this item was the last place still
    saying the opposite.)* `MCLK = SMCLK = 20 MHz` is permitted (F7); only `ACCELCLK` is open, and that
    is **B3**. 4B also removes the transitional `mclk_o` port Phase 6A added to the core — that removal
    is part of 4B, not a separate cleanup.
-6. **Then Phase 7B** (the divider into the core — needs 4B's `DIVCLK`) **or Phase 8** (Basic Timer,
+6. **Next: Phase 4C** — wire the tree into `RV32IMscMCU`, release reset on lock, write the SDC, and
+   remove the transitional `mclk_o` port. Read `CLOCK_TREE.vhd`'s header first: MCLK in simulation is
+   `clk_i` precisely so the four benchmark counts do not move, but `locked` is low for 200 ns and the
+   simulation clock processes are free-running — both have consequences for the existing testbenches.
+7. **Then Phase 7B** (the divider into the core — needs 4B's `DIVCLK`) **or Phase 8** (Basic Timer,
    which still waits on **B2** and **B4**).
 
 ## The gate between us

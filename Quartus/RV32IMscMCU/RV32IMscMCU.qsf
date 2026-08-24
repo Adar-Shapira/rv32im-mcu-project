@@ -86,6 +86,25 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/HEX_DECODER.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BIDIRPIN.vhd
 
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
+# Phase 4B. PLL_GEN.vhd is PLL.vhd with the ratio, the input period, the device
+# family and the CBX hint promoted to generics -- PLL.vhd's entity has no
+# generics at all, so three instances of it would give three copies of ONE
+# frequency. PLL.vhd is left byte-identical and the core still instantiates it.
+# CLOCK_TREE.vhd is Figure 1's block: three pll_gen instances, per forum answer
+# F6. Neither is instantiated by the top level yet -- that is Phase 4C -- so like
+# SYNC and DIV_ACCEL they are listed to be analysed and to keep the two file
+# lists in step, and synthesis prunes them.
+#
+# TWO THINGS ONLY THIS TOOL CAN ANSWER, both in PLL_GEN.vhd's header:
+#   1. the family string says "Cyclone II" while FAMILY above is "Cyclone IV E".
+#      Inherited from PLL.vhd, and Lab 5 compiled and ran on the board with it.
+#      Left at the known-working value; pass DEVICE_FAMILY => "Cyclone IV E" if
+#      Quartus rejects a PLL parameter.
+#   2. three instances with different parameters share one CBX_MODULE_PREFIX.
+#      Normally correct. If Quartus reports colliding megafunction parameters,
+#      give each instance its own LPM_HINT_STR.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL_GEN.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/CLOCK_TREE.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/MUL16.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/IFETCH.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/IDECODE.vhd

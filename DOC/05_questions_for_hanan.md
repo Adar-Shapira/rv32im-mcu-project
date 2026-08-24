@@ -13,7 +13,7 @@ below**; it is already answered.
 | Section | Items | Nature |
 | --- | --- | --- |
 | 1. Blocking | 4 | a phase cannot be finished without the answer |
-| 2. Proceeding under an assumption | 6 | built, but on an interpretation we chose |
+| 2. Proceeding under an assumption | 7 | built, but on an interpretation we chose |
 | 3. Peripherals not yet built | 4 | needed before Phases 8, 9 and 12 |
 | 4. Report and submission | 3 | needed before the ZIP |
 | 5. Material we do not have | 1 | a request, not a question |
@@ -142,6 +142,26 @@ observes it today.
 
 **This is one of two forum rows we could not transcribe with full confidence**, which is why it is
 here rather than in section 6. Phase 8 is not started, so nothing is built on either reading.
+
+### A19 — When `MCLK` and `SMCLK` are the same frequency, one PLL or two?
+
+> **Ask:** You told us the three clocks come from three separate PLL instances, and separately that
+> our values may be identical, i.e. `MCLK = SMCLK`. Taken together that gives two independent PLLs
+> both producing 20 MHz — and the CPU drives address, write data and `MemWrite` on `MCLK` while the
+> peripheral registers capture that bus on `SMCLK`. Two PLLs locked to the same reference are
+> frequency-identical but their phase relationship is not specified, so that capture cannot be
+> timing-analysed and no figure draws a synchroniser on the GPIO write path. Should `MCLK` and
+> `SMCLK` be one shared net when they are the same frequency, or must they stay two separate PLL
+> outputs?
+
+**Built as:** one shared net, with the third PLL kept for `ACCELCLK` — generic
+`SMCLK_SHARES_MCLK => TRUE` in `CLOCK_TREE.vhd`. The reading behind it: the three-instances answer
+tells us *how to make three clocks* (don't try to get three outputs from one PLL) rather than
+requiring two equal-frequency clocks to be distinct nets.
+
+**If the answer is "two separate nets":** one word, `SMCLK_SHARES_MCLK => FALSE`, and the branch is
+already written and tested. But then the MMIO write path needs synchronisation that Figure 5 does not
+draw, so that answer also needs to say what should sit there.
 
 ---
 

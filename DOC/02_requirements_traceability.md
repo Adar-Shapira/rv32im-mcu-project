@@ -638,8 +638,10 @@ inside the Figure 1 image. Verified by searching the whole document.
 **[BENCH]** `SEC_PERIOD` and `FREQ_5K` are both annotated `# in case of SMCLK=20MHz`, and `FREQ_5K`
 resolves exactly at 20 MHz ÷ 8 (see §3.2).
 
-**[CODE]** All three ALTPLL copies in the material expose only `c0`. A three-output clock tree
-requires regenerating the megafunction.
+**[CODE]** All three ALTPLL copies in the material expose only `c0`. ~~A three-output clock tree
+requires regenerating the megafunction.~~ **Superseded 2026-08-24 by forum answer F6:** three
+separate PLL instances, so nothing is regenerated. What was actually missing was a per-instance
+ratio — `PLL.vhd`'s entity has no generics at all. See §6.1.
 
 **[DEC]** Target `SMCLK = 20 MHz`. **Assumption:** `MCLK = SMCLK = 20 MHz` unless course staff say
 otherwise. **[REC]** 20 MHz also buys timing headroom the design needs: the single-cycle core closes
@@ -649,6 +651,74 @@ at only 26.81 MHz *before* any peripheral is added, and the MMIO decoder lands i
 **Assumption:** `ACCELCLK = 50 MHz`, the undivided board clock, since §6.iii calls `DIVCLK` the fast
 clock and 50 MHz is the only faster clock available. **Falsified by** timing closure failing at
 50 MHz for the divider, or by a stated value.
+
+### 6.1 What Phase 4B built, and the conflict it had to resolve
+
+**[CODE, ours]** `DUT/RV32IMscMCU/CLOCK_TREE.vhd` and `DUT/RV32IMscMCU/PLL_GEN.vhd`, verified by
+`TB/RV32IMscMCU/tb_clock_tree.vhd`. The leaf only — wiring it in, releasing reset on lock and
+constraining the three clocks in the SDC are Phase 4C.
+
+**[CODE] The roadmap's stated blocker was the wrong one, and the real one is smaller.** The plan said
+Phase 4B needed the ALTPLL regenerated for `c1`/`c2`. Forum answer F6 removed that — three separate
+instances, not one multi-output PLL. But three instances of `PLL.vhd` would produce **three copies of
+one frequency**, because `PLL.vhd`'s entity takes **no generics at all**: its ratio comes from
+`G_PLL_DIV`/`G_PLL_MUL` in `cond_compilation_package.vhd`. That is the actual obstacle, and the fix is
+a per-instance ratio, not a regenerated megafunction.
+
+`PLL_GEN.vhd` promotes four constants to generics — `clk0_divide_by`, `clk0_multiply_by`,
+`inclk0_input_frequency`, `intended_device_family`, plus the `lpm_hint` string. **Every one already
+appears in `PLL.vhd`'s own `altpll` component declaration and is already passed by it**, so nothing
+new is asserted about the megafunction. That distinction matters: adding `clk1_*`/`clk2_*` generics,
+which appear in no file we have, *would* have been the unverifiable-parameter risk the roadmap warned
+about, and this deliberately is not that.
+
+**[DEC] `PLL.vhd` is left byte-identical rather than edited.** Its md5 is
+`a12064f21cedbb715db75713499dc998` in all four places it exists — our `DUT` copy, `Lab 5/DUT/RV32IM_sc`,
+`.../RV32IM_pipeline` and Hanan's `Auxilary/DUT` — making it the one file whose provenance needs no
+argument. The price is ~60 lines of duplicated `altpll` component declaration, accepted knowingly.
+
+**Assumption A19 — when `MCLK` and `SMCLK` are the same frequency they share one PLL and one net.**
+This is the one genuine conflict in the phase, and it is a design decision, not a reading.
+
+- **F6** says the three clocks come from three separate PLL instances.
+- **F7** says `MCLK` and `SMCLK` may be the same value.
+- Do both literally and you get **two independent PLLs each producing 20 MHz.**
+
+That combination has a defect. The core drives address, write data and `MemWrite` on `MCLK`; every
+peripheral register captures that bus on `SMCLK` — `gpo_port` does exactly this, and F11 says the
+peripheral registers should be DFFs on `SMCLK`. Two PLLs locked to the same 50 MHz reference are
+frequency-identical, but **nothing specifies their output phase relationship**, so the setup/hold
+margin on that capture is whatever the fitter happens to produce, Quartus has no basis on which to
+analyse it, and Figure 5 draws no synchroniser anywhere on the GPIO write path. It would probably
+work on the bench and it cannot be shown to work — which is the failure mode that appears during a
+demonstration.
+
+The reading A19 rests on: F6 answers *how to produce three clocks* — do not try to make one PLL emit
+three — rather than mandating that two clocks of equal frequency be electrically distinct nets. F7
+permitting `MCLK = SMCLK` as *values* supports that, since two independent PLLs at one frequency buy
+nothing and cost analysability. **Falsified by** course staff saying `MCLK` and `SMCLK` must be
+separate nets even at equal frequency, in which case the MMIO bus needs synchronisation that nothing
+in the assignment draws. One generic: `SMCLK_SHARES_MCLK => FALSE`. Raised in `DOC/05`.
+
+**[CODE] The ratios are checked at elaboration, not trusted.** `50000 kHz × 2 = 20000 kHz × 5` for
+`MCLK` and `SMCLK`, `× 1 = × 1` for `ACCELCLK`, cross-multiplied in integer kHz so nothing rounds.
+A further check refuses `SMCLK_SHARES_MCLK = TRUE` together with `SMCLK_KHZ /= MCLK_KHZ`, since one
+net cannot carry two frequencies and the symptom would be every Basic Timer interval silently wrong.
+
+**[CODE] In simulation `MCLK` *is* `clk_i`**, exactly as `RV32IM_CORE.vhd` already does at
+`MODELSIM = 1`. This is deliberate and it is the property Phase 4C depends on: the four benchmark
+counts 134 / 1514 / 2725 / 2735 must survive 4C unchanged. `ACCELCLK` is generated at a period
+deliberately **coprime** with the testbenches' 100 ns clock (reducing to 10:3), so the fast edge walks
+through every phase of the slow one — the same argument as `tb_sync.vhd`'s 70/30, and the property
+Phase 7B's crossing needs in order to be exercised at all. It does **not** reproduce the real 5:2
+ratio and is not trying to.
+
+**What none of this verifies: the PLLs themselves.** `altpll` is a black box needing `altera_mf`, and
+the course's own idiom is not to instantiate it in simulation. Whether three `pll_gen` instances lock
+at the right frequencies on a Cyclone IV E is a Quartus question, on Adar's list. Two specific
+unknowns are recorded there: the inherited `intended_device_family => "Cyclone II"` against the
+board's Cyclone IV E (left at the known-working value), and whether three instances with different
+parameters may share one `CBX_MODULE_PREFIX`.
 
 ---
 
@@ -763,8 +833,9 @@ Everything in this document that is not cited to a source.
 | ~~A14~~ | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 — **CONFIRMED 2026-08-24.** Hanan, asked whether HEX0 and HEX1 are needed together to show one value: *"each HEX stands on its own"* | — | — |
 | A17 | All five Basic Timer interface registers are readable as well as writable, `BTCTL2` included | One of the two forum lines that could not be transcribed with full confidence appeared to make `BTCTL2` read-only, but `BTCTL2` is the capture-control register and the applications do write to it. Asked rather than assumed — `DOC/05` §2 | Course staff confirming `BTCTL2` is read-only |
 | A18 | Figure 9's blocks are interconnected as classical restoring division | The figure is a raster image and its bit-level wiring is not legible; this is the only interconnection of those blocks that yields a correct quotient and residue. Verified exhaustively at N=8, all 65536 pairs | Course staff describing a different interconnection |
+| A19 | When `MCLK` and `SMCLK` are configured to the same frequency they share **one PLL and one net** | F6 (three instances) and F7 (equal values permitted) taken literally together give two independent PLLs at 20 MHz, across which the core drives a synchronous parallel bus into peripheral registers (F11) with no synchroniser drawn anywhere. Two PLLs on one reference are frequency-identical but phase-unspecified, so that capture cannot be timing-analysed. See §6.1 | Course staff saying the two must be separate nets even at equal frequency. One generic: `SMCLK_SHARES_MCLK => FALSE` |
 
-Eighteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Nineteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A and A19 out of Phase 4B. **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

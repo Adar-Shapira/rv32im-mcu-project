@@ -150,7 +150,7 @@ displacements are 0 and 8 with no `jalr` at all. They are covered instead by
 | Component | Requirement | Supplied | Path | Provenance | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | ALTPLL wrapper | Fig 1 | yes, three copies | `RV32IM_sc/PLL.vhd`, `Auxilary/DUT/PLL.vhd` (md5-identical, `a12064f2…` — the only file nobody has touched), `Auxilary/Lab4/DUT/pll.vhd` | third-party generated | **adapt** |
-| Multi-output clock tree (`mclk`, `accelclk`, `smclk`) | Fig 1 | **no** | — | — | **write new.** All three ALTPLL copies expose only `c0`. The megafunction must be regenerated with `c1`/`c2`. |
+| Multi-output clock tree (`mclk`, `accelclk`, `smclk`) | Fig 1 | **no** | `DUT/RV32IMscMCU/PLL.vhd` | Hanan | **written — Phase 4B**, `CLOCK_TREE.vhd` + `PLL_GEN.vhd`. Not "multi-output" after all: forum answer F6 says **three separate PLL instances**, so nothing is regenerated. The real gap was that `PLL.vhd`'s entity has no generics, so three instances would share one ratio. |
 | Worked non-trivial PLL ratio | — | yes | `Auxilary/Lab4/DUT/pll.vhd` — 50 MHz → 2 MHz | students, Lab 4 | **reference** |
 
 ### 2.5 UART (bonus 20%)

@@ -347,7 +347,7 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
-### 8.1a Three tests that need nothing — run them first
+### 8.1a Four tests that need nothing — run them first
 
 No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
 straight after `compile.do`; if any fails, nothing after it is meaningful.
@@ -356,7 +356,19 @@ straight after `compile.do`; if any fails, nothing after it is meaningful.
 | --- | --- | --- |
 | `do run_sync.do` | 4A — CDC synchronizer | `VERDICT: PASS`, zero failures in all three checkers |
 | `do run_decode.do` | 5A — address decoder | `VERDICT: PASS`, failures 0, totals **8192 / 29 / 8163** |
+| `do run_clock.do` | 4B — clock tree | `VERDICT: PASS`, failures 0, ~**110** accelclk edges, **10** distinct phases |
 | `do run_div.do` | 7A — division accelerator | `VERDICT: PASS`, failures 0, **N=8 65536 ops**, **N=32 517 ops** |
+
+`run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
+not verify the PLLs, and it cannot.** `altpll` is an Altera black box needing `altera_mf`, and the
+course's own idiom — Hanan's, in `RV32IM_CORE.vhd` — is not to instantiate it in simulation at all.
+What it does prove is the ratio arithmetic (at elaboration, exactly, for two different
+configurations), that MCLK in simulation *is* `clk_i` (the property that lets Phase 4C wire the tree
+in without moving a benchmark count), that ACCELCLK is genuinely independent of MCLK, and that both
+branches of every generate compile. **Three items for you in Quartus** are listed in that script's
+header — whether `pll_gen` fits at all, the inherited `"Cyclone II"` family string against the
+board's Cyclone IV E, and whether three instances may share one `CBX_MODULE_PREFIX`. None of them
+blocks the simulation; report whatever happens.
 
 `run_decode.do` is exhaustive over all 16,384 addresses of the 14-bit data address space, so it is a
 proof rather than a sample. It also runs `CHECK 0` first, which holds `const_package.vhd`'s map
@@ -593,6 +605,13 @@ waiting:
   count. **Nothing is needed from Quartus for Phase 7A** — `div_accel` is not instantiated yet, so
   synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
   of the plan asked for those two numbers and was wrong to;
+- `run_clock.do`'s verdict and its edge counts (Phase 4B) — and, separately, **three Quartus answers
+  nobody else can give**: does a `pll_gen` instance compile and fit at all; does Quartus accept the
+  inherited `intended_device_family => "Cyclone II"` on a Cyclone IV E part, or must it become
+  `"Cyclone IV E"`; and does it accept three instances with different parameters sharing one
+  `CBX_MODULE_PREFIX`, or does each need its own `LPM_HINT_STR`. Each has a one-word fix already
+  written into `PLL_GEN.vhd`'s generics — the point is to find out which, before Phase 4C wires the
+  tree into the top level;
 - `run_mmio.do`'s **`DTCM WRITES ACCEPTED`** figure and `run_gpio.do`'s seven write counts
   (Phases 5B and 6A);
 - `run_gpio_read.do`'s three phase counts (Phase 6B) — phase 3 must be **0**;
