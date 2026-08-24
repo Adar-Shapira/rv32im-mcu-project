@@ -139,6 +139,27 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
+	-- data address space of §3 into DTCM and SFR, and produces one chip select
+	-- per mapped SFR word. Phase 5A: a leaf with its own exhaustive testbench,
+	-- not yet instantiated -- Phase 5B wires it in at the MCU level, where the
+	-- peripherals of Phases 6-9 and 12 attach to sfr_cs_o.
+	component addr_decoder is
+		generic(
+			ADDR_WIDTH		: integer := DATA_ADDR_WIDTH;
+			DTCM_WORDS_NUM	: integer := G_DATA_WORDSNUM
+		);
+		PORT(
+			--Inputs
+			addr_i			: IN	STD_LOGIC_VECTOR(ADDR_WIDTH-1 DOWNTO 0);
+
+			--Outputs
+			dtcm_cs_o		: OUT	STD_LOGIC;
+			sfr_cs_o		: OUT	STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
+			unmapped_o		: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
 
 	component dmemory is
 		generic(

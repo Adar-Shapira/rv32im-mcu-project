@@ -1156,18 +1156,115 @@ Gaps: **G-310 closed by 4A**; G-311 open. 4B/4C blocked on **Q2**.
 
 ## Phase 5 — Bus interface and DTCM  ·  Yehonatan writes · Adar verifies
 
-- Implement Figure 5's decoder: `A13..A4, A3, A2` → `CS_1..CS_n`, `A0` separating the HEX pairs.
-- Split `0x0000–0x1FFF` → DTCM, `0x2000–0x3FFF` → MMIO, **before** narrowing to the RAM address.
-  Today `RV32IM_CORE.vhd:215-220` does a bare bit-slice with no decode, so `0x2000` aliases onto
-  DTCM word 0 — where the interrupt vector table lives.
-- Use `Auxilary/Lab3/DUT/BidirPin.vhd` with `width => 32` for the read path. Figure 1 links to it
-  explicitly as the bidirectional-bus reminder.
-- Unmapped reads return a documented value; unmapped writes assert a simulation warning.
-- **Watch the timing.** The single-cycle critical path is already ITCM address →
-  `ID|Mux19` chain → DTCM address, with a **20 ns** relationship (the DTCM latches on the inverted
-  clock) and 1.351 ns slack at 26.81 MHz. This decoder lands inside it.
-- **Exit:** self-checking tests for DTCM boundaries, every access size, each adjacent MMIO address,
-  and DTCM/MMIO non-aliasing.
+Split in two, for the same reason 4A was taken before 4B: the decode function is provable on its
+own, exhaustively, with no dependence on the core, on the peripherals, or on any open question.
+Wiring it in is a separate, riskier step that changes the core's ports.
+
+### Phase 5A — the address decoder  ·  **built, awaiting verification**
+
+Done 2026-08-24. Closes the decode half of **G-305**.
+
+| Done | What |
+| --- | --- |
+| ✔ | `DUT/RV32IMscMCU/ADDR_DECODER.vhd` — Figure 5's "Optimized Address Decoder": region split, SFR page qualifier, one-hot chip select per mapped SFR word, lane-accurate `unmapped_o` |
+| ✔ | `const_package.vhd` — the MMIO map as data: `DATA_ADDR_WIDTH`, `SFR_CS_NUM`, twelve `CS_*` indices, and `SFR_LANE_MASK`, the lane-by-lane specification |
+| ✔ | `TB/RV32IMscMCU/tb_addr_decoder.vhd` — **exhaustive over all 16384 addresses**, five properties, prints its own verdict and stops itself |
+| ✔ | `SIM/RV32IMscMCU/run_decode.do`, and both files added to `compile.do` |
+| ✔ | `aux_package.vhd` — component declared, so the Phase 6–9 and 12 peripherals all attach to one decoder |
+
+**The structure came out of the addresses, not out of a guess.** The twenty registers of §5 and §6
+occupy exactly **twelve consecutive 32-bit words**, and no register straddles a word boundary. So the
+chip-select index *is* the word offset, `addr(5 DOWNTO 2)` — no lookup table. That is precisely what
+Figure 5 draws: one CS per word, `A0` separating the two registers that share it.
+
+**Two things the benchmark sources settle, and they change Phase 6.**
+`Auxiliary/Benchmark Apps/GPIO/test0/asm-code/test0.s:21-28` is
+
+```asm
+li  t4,PORT_HEX1     # 0x2005
+sw  t0,0(t4)         # write to PORT_HEX1
+```
+
+Every MMIO write in every supplied benchmark is a **word store to a byte address**, odd addresses
+included — confirmed again at `Intrrupt-based IO/test1/asm-code/01_func.s:17-20`, where an `srli`
+places the value in bits 7..0 before the `sw`.
+
+1. On the I/O side `A1..A0` are the **register selector**, not an offset into the data. Figure 5
+   wires the latch inputs `D0..D7` to `Data<7..0>` unconditionally.
+2. So the MMIO write path must **not** reuse the lane replication and `byteena_a` added in Phase 3B.
+   Those are right for the DTCM and wrong here. This is now in the RTL header so Phase 6 cannot
+   forget it.
+
+**The bug this closes, stated exactly.** `MA_WIDTH = 13`, so the core's DTCM address is
+`alu_res_w(12 DOWNTO 2)` and bit 13 — the one bit that means "SFR, not DTCM" — is never read. The
+twenty registers alias onto DTCM words 0..11, and words 0..7 are the whole vector table:
+
+| MMIO register | aliases to | which holds |
+| --- | --- | --- |
+| `PORT_LEDR` `0x2000` | word 0 | the RESET vector |
+| `PORT_HEX0/1` `0x2004` | word 1 | TYPE `04h`, UART error |
+| `PORT_HEX2/3` `0x2008` | word 2 | TYPE `08h`, UART RX |
+| `PORT_HEX4/5` `0x200C` | word 3 | TYPE `0Ch`, UART TX |
+| `PORT_SW` `0x2010` | word 4 | TYPE `10h`, Basic Timer |
+| `PORT_PB` `0x2014` | word 5 | TYPE `14h`, KEY1 |
+| `UTCL`/`RXBUF`/`TXBUF` `0x2018` | word 6 | TYPE `18h`, KEY2 |
+| `BTCTL1/2` `0x201C` | word 7 | TYPE `1Ch`, KEY3 |
+
+Every one of the eight vectors is aliased by a register the benchmarks actually write, and the
+interrupt suites write the HEX displays from inside their own handlers. Vector words verified
+against all four benchmark DTCM images — `DOC/02_requirements_traceability.md` §4.1.
+
+**Full decode, not partial.** `A12..A6 = 0` is checked too, so `0x2040` does not alias onto `0x2000`.
+Figure 2 calls the SFR page "distributed among many I/O devices, **not all used**", so unused
+addresses exist by design and must not land on used ones — and `unmapped_o` only means anything under
+a full decode. Cost: a 7-input zero-compare. If Phase 14 finds this on the critical path, dropping
+`A12..A6` is the cheapest thing to give up; **never drop `A13`**, that is the split itself.
+
+**The map is derived twice, on purpose.** `CHECK 0` in the testbench holds `SFR_LANE_MASK` against an
+address list transcribed independently from `io_map.s`, lane by lane over the whole page. So the run
+proves *const_package agrees with the assembler* and *the RTL agrees with const_package*. A single
+derivation only ever proves the RTL matches itself — the same discipline that caught two real bugs in
+Phase 2's own work. Both derivations were also replayed outside VHDL before committing: they agree on
+all 16384 addresses, and the totals are 8192 / 29 / 8163.
+
+**Two things 5A deliberately does not do.** It is not instantiated — the Phase 1 exit criterion still
+holds and the four cycle counts must be unchanged. And it takes no `MemRead`/`MemWrite`, because
+Figure 5 qualifies with those *at the peripheral*, not at the decoder. Keeping it a pure function of
+the address is what makes an exhaustive test meaningful.
+
+**Naming deviation, stated openly.** Figure 5 labels its chip selects `CS1`, `CS6`, `CS7` for
+`PORT_LEDR`, the HEX0/1 pair and `PORT_SW`. No arithmetic relation to the addresses reproduces those
+three numbers, so the figure's numbering is treated as illustrative and the constants are named after
+the registers. The figure's *structure* is unchanged.
+
+#### ▸ Adar's results — Phase 5A
+
+`SIM\RV32IMscMCU` → `compile.do`, then `do run_decode.do`. No images, no `app_bin` staging.
+
+- addresses swept: ____ (expect 16384)
+- DTCM bytes: ____ (expect **8192**) · mapped SFR bytes: ____ (expect **29**) · unmapped: ____ (expect **8163**)
+- failures: ____
+- **VERDICT line:** ____________________
+
+Independent of `G_ISA_REPAIR`. If `CHECK 0` fails, the **specification** is wrong and the RTL may be
+a faithful implementation of it — fix `const_package.vhd`, not the RTL.
+
+### Phase 5B — wire it in  ·  **not started**
+
+- Gate the DTCM: `dmemory` takes a chip select, so `MemWrite` no longer reaches the RAM on an SFR
+  address. This is what actually stops the vector-table corruption above.
+- Give `RV32IM_CORE` its data-bus port group and instantiate `ADDR_DECODER` at the **MCU** level,
+  where Figure 1 puts the `BUS Interface Logic` box — between the core and the peripherals. The DTCM
+  stays inside the core, because that is where Figures 1 and 3 both draw it.
+- Read path via `Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd` with `width => 32`. Figure 1 links
+  to it explicitly as the bidirectional-bus reminder, and Figure 5 draws the tri-state on
+  `CS7 · MemRead` for `PORT_SW`.
+- Unmapped reads return a documented value; unmapped writes report in simulation, using `unmapped_o`.
+- **Watch the timing.** The critical path is already ITCM address → `ID|Mux19` → DTCM address, with a
+  **20 ns** relationship (the DTCM latches on the inverted clock) and 1.351 ns slack at 26.81 MHz.
+  This lands inside it, on top of Phase 3B's extract-and-extend mux.
+- **Exit:** the four Lab 5 cycle counts unchanged, plus self-checking tests for DTCM boundaries, every
+  access size, adjacent MMIO addresses, and DTCM/MMIO non-aliasing **through the core**.
 
 Gaps: G-305, G-309.
 
@@ -1375,7 +1472,7 @@ Gaps: G-501…G-505.
 | **G-302** | Basic Timer core | Figure 7, p7 |
 | **G-303** | Interrupt controller | p13–p14 |
 | **G-304** | CPU interrupt entry FSM | p15 |
-| **G-305** | MMIO address decoder | Figure 5, p5 |
+| **G-305** | MMIO address decoder. **Decode half built 2026-08-24** (Phase 5A) — `DUT/RV32IMscMCU/ADDR_DECODER.vhd`, the map as data in `const_package.vhd`, and a testbench exhaustive over all 16384 addresses. Still open: wiring it in (5B). The twenty registers turned out to occupy exactly twelve consecutive words, so the chip-select index *is* `addr(5 DOWNTO 2)`. | Figure 5, p5 |
 | **G-306** | GPIO buffer registers | §5, §6 |
 | **G-307** | `div`/`divu`/`rem`/`remu` decode — masks exist, hardware does not | §2 |
 | **G-308** | `mulh`/`mulhsu`/`mulhu` — scope undecided | §2 |
@@ -1435,7 +1532,7 @@ before/after line pairs.
 | --- | --- |
 | `DOC/01_source_inventory.md` | Every component: supplied or not, exact path, provenance, reuse verdict |
 | `DOC/02_requirements_traceability.md` | Every address, bit field, mode and clock with its source; four verification cross-checks; ten assumptions |
-| `DOC/03_open_questions.md` | Q1–Q13, each with a provisional decision so nothing blocks |
+| `DOC/03_open_questions.md` | Q1–Q14, each with a provisional decision so nothing blocks |
 | `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers. **Rewritten 2026-08-24** for the replaced reference: sections 2, 4, 5.2, 6 and 8 all changed, and section 8.1b covers the Phase 3A/3B measurement |
 | `SIM/baseline_reference/` | `compile.do`, `run_test.do`, `mem_dump.do` — replacements for the scripts the reference lost, reaching into `Auxiliary/` read-only |
 | `Auxiliary/Lab 5 - as submitted/README-import.md` | What was imported and why the two Lab 5 copies differ |
@@ -1444,7 +1541,7 @@ before/after line pairs.
 
 # 7. Next actions
 
-*Updated 2026-08-23, after the reference replacement (§0) and Phase 3A/3D.*
+*Updated 2026-08-24, after Phase 4A and Phase 5A.*
 
 ## Adar — Lenovo
 
@@ -1459,30 +1556,37 @@ before/after line pairs.
      four benchmark counts unchanged
 4. **Run 3 — Quartus.** Confirm **131,072** memory bits. The reference's own numbers to compare
    against are now in §0.c — note the pipeline figures all changed.
-5. **Send the questions** (§0.6). **Q6 and Q14 first** — those two are the only ones now blocking
+   **Also, one check that only Quartus can answer:** open ISMCE and confirm the `DTCM` instance
+   still appears and can be read and written. Phase 3B added `byteena_a` to the same `altsyncram`
+   that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8 validation loop. If the
+   instance is gone, **report it and change nothing** — sub-word access and ISMCE are both
+   mandatory, so a conflict between them is a question for Hanan. Details in `DMEMORY.vhd`.
+5. **Two leaf tests, no setup needed.** `do run_sync.do` (Phase 4A) and `do run_decode.do`
+   (Phase 5A). Neither needs a memory image or `app_bin` staging, and neither depends on
+   `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected verdicts are in the
+   Phase 4A and Phase 5A results blocks.
+6. **Send the questions** (§0.6). **Q6 and Q14 first** — those two are the only ones now blocking
    implementation, and together they decide nine of the ten remaining ISA-suite mismatches. Q14 is
    new: it asks whether a conformant 32×32 `mul` is required, whether `mulh*` is in scope, and
    whether `div` belongs in the ALU at all given that §6.iii defines a division *accelerator*. Then
    Q1, Q2, Q3.
-6. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
+7. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
    were instructions.
-7. ~~Answer G-331~~ — done: `Auxilary/Ori/` is another student's pipeline, usable as a reference
+8. ~~Answer G-331~~ — done: `Auxilary/Ori/` is another student's pipeline, usable as a reference
    only. §0.d records what it is worth.
 
 ## Yehonatan — MacBook
 
-1. **Commit and push.** Still not done, and it is still the only thing standing between Adar and any
-   of the above. Now covers Phase 1, 2, 3A and 3D plus the replaced reference folder.
-2. **Phase 5 — the MMIO address decoder.** Now the next real design work: 3B and 4A are done, 3C is
-   blocked on Hanan, and 4B turned out to need Quartus (see Phase 4B). Phase 5 is fully specified by
-   Figure 5, needs no frequency, and fixes a live bug: `RV32IM_CORE.vhd` narrows `alu_res_w` to the
-   DTCM word address with a bare bit-slice and no decode, so `0x2000` aliases onto DTCM word 0 —
-   which is where the interrupt vector table lives.
-3. **Update the `DOC/` documents for the new reference.** `01_source_inventory.md` and
-   `02_requirements_traceability.md` both describe the old Lab 5 tree — in particular the
-   defect-provenance table is now five rows where it should be seven, and
-   `04_baseline_runbook.md` still tells Adar to run `run_test.do` from a reference folder that no
-   longer contains it.
+1. ~~Commit and push~~ — done. ~~Update the `DOC/` documents for the new reference~~ — done in
+   `82a1a11`. ~~Phase 5A~~ — done, see above.
+2. **Phase 5B — wire the decoder in.** The next real design work, and the step that actually stops
+   the vector-table corruption. It is riskier than 5A because it changes `RV32IM_CORE`'s ports and
+   `dmemory`'s interface, and because it lands inside the single-cycle critical path. Do it after
+   Adar has Run 1 and the Phase 5A verdict, so a cycle-count change can be attributed.
+3. **Phase 6 — GPIO** can start in parallel with 5B's verification: `hex_decoder.vhd` is a drop-in,
+   and the two findings recorded in `ADDR_DECODER.vhd`'s header settle the write path
+   (`Data<7..0>`, no lane replication, no `byteena_a`). Still blocked on **Q5** for `PORT_PB`'s bit
+   layout only — the seven output registers are not blocked on anything.
 4. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for
    `c0`/`c1`/`c2` and all three existing copies expose only `c0`.
 

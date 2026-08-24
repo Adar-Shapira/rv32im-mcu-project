@@ -97,6 +97,66 @@ Two naming differences: the spec writes `RXBF`/`TXBF`, the benchmarks write `RXB
 **[BENCH]** `Intrrupt-based IO/test1/asm-code/01_func.s:17-20` performs `sw` to `0x2005`, a
 non-word-aligned byte address. Sub-word MMIO stores are therefore mandatory, not optional.
 
+### 2.1 What the twenty addresses imply about the decoder — Phase 5A
+
+**[BENCH]** Grouped by word — the addresses being those of §5 and §6 above — the map has no ragged edges: the twenty registers occupy exactly
+**twelve consecutive 32-bit words** and **no register straddles a word boundary**.
+
+| SFR word | Byte address(es) | Register(s) | Mapped lanes |
+| --- | --- | --- | --- |
+| 0 | `0x2000` | `PORT_LEDR` | 0 |
+| 1 | `0x2004` `0x2005` | `PORT_HEX0` `PORT_HEX1` | 0 1 |
+| 2 | `0x2008` `0x2009` | `PORT_HEX2` `PORT_HEX3` | 0 1 |
+| 3 | `0x200C` `0x200D` | `PORT_HEX4` `PORT_HEX5` | 0 1 |
+| 4 | `0x2010` | `PORT_SW` | 0 |
+| 5 | `0x2014` | `PORT_PB` | 0 |
+| 6 | `0x2018` `0x2019` `0x201A` | `UTCL` `RXBUF` `TXBUF` | 0 1 2 |
+| 7 | `0x201C` `0x201D` | `BTCTL1` `BTCTL2` | 0 1 |
+| 8 | `0x2020` | `BTCMPR0` — Word | 0 1 2 3 |
+| 9 | `0x2024` | `BTCMPR1` — Word | 0 1 2 3 |
+| 10 | `0x2028` | `BTCAPR` — Word | 0 1 2 3 |
+| 11 | `0x202C` `0x202D` `0x202E` | `IE` `IFG` `TYPE` | 0 1 2 |
+
+**[DEC]** The chip-select index is therefore `addr(5 DOWNTO 2)` — the word offset itself — and no
+lookup table is needed to produce the one-hot. This is exactly Figure 5's structure: one CS per word,
+`A0` separating the pair that shares it. Two words carry three registers, so `A1` joins `A0` there.
+Implemented in `DUT/RV32IMscMCU/ADDR_DECODER.vhd`; the map is data in `const_package.vhd`
+(`SFR_LANE_MASK`).
+
+**[DEC]** Totals, exhaustively checked by `TB/RV32IMscMCU/tb_addr_decoder.vhd`: **8192** DTCM
+bytes, **29** mapped SFR bytes (17 byte registers + 3 word registers × 4 lanes), **8163** unmapped.
+
+**[BENCH] The write path is not the DTCM's write path.** `GPIO/test0/asm-code/test0.s:21-28` is
+`li t4,PORT_HEX1` then `sw t0,0(t4)` — a **word** store to byte address `0x2005`. Every MMIO write in
+every supplied benchmark has this shape, odd addresses included, and
+`Intrrupt-based IO/test1/asm-code/01_func.s:17-20` uses an `srli` to place the value in bits 7..0
+before the `sw`. Two consequences:
+
+1. On the I/O side `A1..A0` are the **register selector**, not an offset into the data being
+   written. Figure 5 wires the latch inputs `D0..D7` to `Data<7..0>` unconditionally.
+2. The MMIO write path must **not** reuse the lane replication and `byteena_a` of Phase 3B
+   (`DMEMORY.vhd`). Those are correct for the DTCM and wrong for a peripheral. A byte-resolution
+   peripheral takes `Data<7..0>`; a Word-resolution one takes `Data<31..0>`.
+
+**[BENCH] The read path only needs eight bits.** All three MMIO reads in the benchmarks are
+`lw` from `PORT_SW`, and each is immediately followed by `andi` against a mask
+(`GPIO/test1/asm-code/test1.s:24-25` and `test2.s:24-25`). Figure 5 drives only `Data<7..0>` from the
+`PORT_SW` tri-state. **Assumption:** the upper 24 bits read as zero. Harmless either way in every
+supplied benchmark, because the mask discards them. **Falsified by** a program that uses the upper
+bits of an MMIO read.
+
+**[DEC] Full decode, not partial.** `A12..A6 = 0` is part of the qualifier, so `0x2040` does not
+alias onto `0x2000`. Figure 2 calls the SFR page "distributed among many I/O devices, **not all
+used**", so unused addresses exist by design and must not land on used ones; and an unmapped-access
+report is only meaningful under a full decode. Cost is a 7-input zero-compare. If Phase 14 finds the
+decoder on the critical path, dropping `A12..A6` is the cheapest concession — `A13` must never be
+dropped, as that is the DTCM/SFR split itself.
+
+**[DEC] Naming deviation, recorded.** Figure 5 labels its chip selects `CS1`, `CS6` and `CS7` for
+`PORT_LEDR`, the `PORT_HEX0`/`PORT_HEX1` pair and `PORT_SW`. No arithmetic relation to the addresses
+reproduces those three numbers, so the figure's numbering is treated as **illustrative** and the
+constants are named after the registers instead. The figure's structure is implemented unchanged.
+
 ---
 
 ## 3. Basic Timer
@@ -582,6 +642,10 @@ Everything in this document that is not cited to a source.
 | A8 | Five submission directories, not six | LAB5 uses identical wording and was accepted with five | Course staff naming a sixth |
 | A9 | `Final_report.pdf` | Table 1 is more specific than the prose | Course staff preferring `final.pdf` |
 | A10 | Board is DE2-115 | All Lab 5 material and the students' own hardware runs target it | Course staff naming DE10-Standard |
+| A11 | The upper 24 bits of an MMIO read return zero | Figure 5 drives only `Data<7..0>` from the `PORT_SW` tri-state; all three MMIO reads in the benchmarks `andi` the result immediately | A program that uses the upper bits of an MMIO read |
+| A12 | A Word-resolution register owns all four lanes of its word | §6's table gives `BTCMPR0`/`BTCMPR1`/`BTCAPR` Address Resolution "Word", and `io_map.s` marks them "define a Word address" | A byte-resolution use of any of those three |
 
-Ten assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
-(roadmap Step 9) is verified against real constants; A10 before pin planning.
+Twelve assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
+(roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of
+Phase 5A and are both exercised by `TB/RV32IMscMCU/tb_addr_decoder.vhd`, so if either is wrong the
+change is one line in `const_package.vhd` and the exhaustive sweep re-proves the whole map.

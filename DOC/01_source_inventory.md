@@ -138,7 +138,7 @@ displacements are 0 and 8 with no `jalr` at all. They are covered instead by
 | Basic Timer core (`BTCNT`, `BTSSEL` mux, `BTCL0/1` latches, comparators, capture) | §6.ii, Fig 7 | **no** | — | — | **write new** |
 | Interrupt controller (`IE`/`IFG`/`TYPE`, priority, `INTR`/`INTA`) | §6.v | **no** | — | — | **write new** |
 | CPU interrupt entry FSM | §6.v protocol | **no** | — | — | **write new** |
-| MMIO address decoder | §5, §6, Fig 5 | **no** | — | — | **write new** — Figure 5 gives the schematic |
+| MMIO address decoder | §5, §6, Fig 5 | **no** | — | — | ~~write new~~ **built, Phase 5A** — `DUT/RV32IMscMCU/ADDR_DECODER.vhd`, structure from Figure 5, map from `io_map.s`, exhaustively tested over all 16384 addresses |
 | GPIO buffer registers (LEDR, HEX×6, SW, PB) | §5, §6 | **no** | — | — | **write new** |
 | Division accelerator | §6.iii, Fig 9 | **no** | — | — | **write new** — Figure 9 specifies it completely |
 | Subtractor for the divider | §6.iii | yes | `Auxilary/Lab4/DUT/AdderSub.vhd`, `FA.vhd` | students, Lab 4 | **reference** — generic n-bit ripple-carry add/sub |
@@ -279,7 +279,7 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
 | **use as is** | 6 | `hex_decoder.vhd`; `BidirPin.vhd` (`width => 32`); the M-extension instruction masks; the 32×32 register file; the measured baseline dumps; the two lecturer procedure PDFs |
 | **adapt** | 14 | both CPU cores, hazard/forward units, `MUL16`, `pwm.vhd`, the ALTPLL, UART option 1, both testbenches, the `.do` scripts, the SDCs, the two-revision PPA structure, the `.stp`, the report structure, the architecture figures |
 | **reference only** | 8 | the RV32I baseline, `Shifter.vhd`, `AdderSub.vhd`/`FA.vhd`, `Lab3/RF.vhd`, `progMem`/`dataMem`, `fpga_hw_interface.vhd`, `Lab4/pll.vhd`, `Lab3/tb_top.vhd` assertions |
-| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, MMIO decoder, GPIO buffer registers, `div`/`rem`/`mulh*`, ~~byte enables and sub-word load/store~~ **(built, Phase 3B)**, edge detectors, CDC synchronizer, multi-output clock tree, the UART register layer |
+| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, ~~MMIO decoder~~ **(built, Phase 5A)**, GPIO buffer registers, `div`/`rem`/`mulh*`, ~~byte enables and sub-word load/store~~ **(built, Phase 3B)**, edge detectors, ~~CDC synchronizer~~ **(built, Phase 4A)**, multi-output clock tree, the UART register layer |
 
 The roadmap assumed the seven-segment decoder, the PWM unit and the bidirectional bus would all be
 written from scratch. They exist. Conversely it under-scoped sub-word load/store and the UART

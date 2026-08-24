@@ -53,6 +53,107 @@ package const_package is
 	constant MEM_BU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "100";		--lbu
 	constant MEM_HU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "101";		--lhu
 --------------------------------------------------------------------
+--	Memory-mapped I/O map (Phase 5, gap G-305)
+--------------------------------------------------------------------
+-- SOURCE OF EVERY VALUE BELOW
+--   Auxiliary/Benchmark Apps/*/asm-code/io_map.s -- all four copies of that
+--   file define the same twenty addresses; they differ only in the mask
+--   constants appended after line 31, verified by diff. Cross-checked against
+--   Auxiliary/Final Project 2026 definition.pdf p5 (§5, eight GPIO registers)
+--   and p6 (§6, twelve interrupt-capable registers).
+--
+-- STRUCTURE THE ADDRESSES THEMSELVES REVEAL
+--   The twenty registers occupy exactly twelve consecutive 32-bit words at the
+--   bottom of the SFR page, and no register straddles a word boundary:
+--
+--     word  byte address(es)        register(s)                  mapped lanes
+--     ----  ---------------------   --------------------------   ------------
+--       0   0x2000                  PORT_LEDR                    0
+--       1   0x2004 0x2005           PORT_HEX0  PORT_HEX1         0 1
+--       2   0x2008 0x2009           PORT_HEX2  PORT_HEX3         0 1
+--       3   0x200C 0x200D           PORT_HEX4  PORT_HEX5         0 1
+--       4   0x2010                  PORT_SW                      0
+--       5   0x2014                  PORT_PB                      0
+--       6   0x2018 0x2019 0x201A    UTCL  RXBUF  TXBUF           0 1 2
+--       7   0x201C 0x201D           BTCTL1  BTCTL2               0 1
+--       8   0x2020                  BTCMPR0   (Word resolution)  0 1 2 3
+--       9   0x2024                  BTCMPR1   (Word resolution)  0 1 2 3
+--      10   0x2028                  BTCAPR    (Word resolution)  0 1 2 3
+--      11   0x202C 0x202D 0x202E    IE  IFG  TYPE                0 1 2
+--
+--   That is precisely the structure Figure 5 (p5) draws: one chip select per
+--   word, with A0 separating the two registers that share it -- PORT_HEX0 on
+--   /A0 and PORT_HEX1 on A0, both on one CS. Two words carry three registers,
+--   so A1 joins A0 as the lane selector there.
+--
+--   The useful consequence: the chip-select index IS the word offset inside the
+--   SFR page, i.e. addr(5 DOWNTO 2). ADDR_DECODER.vhd needs no lookup table to
+--   produce the one-hot -- see the header of that file.
+--
+--   The three Word-resolution registers claim all four lanes, because the whole
+--   32-bit word belongs to them. The byte registers claim only the lanes their
+--   own addresses name; the remaining lanes of those words are undefined and
+--   ADDR_DECODER reports them as unmapped.
+--
+-- NAMING DEVIATION, STATED OPENLY
+--   Figure 5 labels its chip selects CS1, CS6 and CS7 for PORT_LEDR, the
+--   PORT_HEX0/PORT_HEX1 pair and PORT_SW respectively. Those three numbers fit
+--   no arithmetic relation to the addresses that could be derived, so the
+--   figure's numbering is treated as illustrative and the constants below are
+--   named after the registers instead. The figure's *structure* is unchanged.
+--
+-- WHAT IS DELIBERATELY NOT HERE
+--   Bit-field layouts (BTCTL1, BTCTL2, IE, IFG, TYPE, UCTL) are recorded in
+--   DOC/02_requirements_traceability.md and belong to the phases that implement
+--   those peripherals. This section is the address map only.
+	constant DATA_ADDR_WIDTH	:	integer := 14;	-- §3: "the lowest 14-bit address 0...0 A13...A0"
+	constant SFR_CS_NUM			:	integer := 12;	-- one chip select per mapped SFR word
+
+-- Chip-select indices == the word offset inside the SFR page == addr(5 DOWNTO 2).
+	constant CS_LEDR			:	integer := 0;	-- 0x2000
+	constant CS_HEX01			:	integer := 1;	-- 0x2004 0x2005
+	constant CS_HEX23			:	integer := 2;	-- 0x2008 0x2009
+	constant CS_HEX45			:	integer := 3;	-- 0x200C 0x200D
+	constant CS_SW				:	integer := 4;	-- 0x2010
+	constant CS_PB				:	integer := 5;	-- 0x2014
+	constant CS_UART			:	integer := 6;	-- 0x2018 0x2019 0x201A
+	constant CS_BTCTL			:	integer := 7;	-- 0x201C 0x201D
+	constant CS_BTCMPR0			:	integer := 8;	-- 0x2020
+	constant CS_BTCMPR1			:	integer := 9;	-- 0x2024
+	constant CS_BTCAPR			:	integer := 10;	-- 0x2028
+	constant CS_INTC			:	integer := 11;	-- 0x202C 0x202D 0x202E
+
+-- Which byte lanes of each SFR word carry a defined register: bit i of the mask
+-- is lane i, i.e. byte address (word*4 + i). Indexed by addr(5 DOWNTO 2) over
+-- its full 0..15 range, not 0..SFR_CS_NUM-1, so the upper quarter of the page
+-- has an entry too and reads as "nothing defined" instead of being absent.
+--
+-- This array is the *specification* of the map, in one place. ADDR_DECODER.vhd
+-- does not index it -- it writes the same twelve values out as a selected
+-- assignment, to keep to_integer off the live address bus -- and
+-- tb_addr_decoder.vhd builds its expected result from this array, so the two
+-- are proved to agree on all 16384 addresses rather than trusted to.
+--
+-- A TYPE declaration needs no package body; only FUNCTION or PROCEDURE would
+-- (Auxiliary/hanan/Package (sub-library).md).
+	type sfr_lane_mask_t is array (0 TO 15) of STD_LOGIC_VECTOR(3 DOWNTO 0);
+
+	constant SFR_LANE_MASK	:	sfr_lane_mask_t := (
+		CS_LEDR		=> "0001",		-- 0x2000
+		CS_HEX01	=> "0011",		-- 0x2004 0x2005
+		CS_HEX23	=> "0011",		-- 0x2008 0x2009
+		CS_HEX45	=> "0011",		-- 0x200C 0x200D
+		CS_SW		=> "0001",		-- 0x2010
+		CS_PB		=> "0001",		-- 0x2014
+		CS_UART		=> "0111",		-- 0x2018 0x2019 0x201A
+		CS_BTCTL	=> "0011",		-- 0x201C 0x201D
+		CS_BTCMPR0	=> "1111",		-- 0x2020 -- Word resolution
+		CS_BTCMPR1	=> "1111",		-- 0x2024 -- Word resolution
+		CS_BTCAPR	=> "1111",		-- 0x2028 -- Word resolution
+		CS_INTC		=> "0111",		-- 0x202C 0x202D 0x202E
+		OTHERS		=> "0000"		-- 0x2030..0x203F -- no register defined
+	);
+--------------------------------------------------------------------
 -- ALU Operations
 --------------------------------------------------------------------
 	constant ALU_NONE						:	STD_LOGIC_VECTOR(4 DOWNTO 0) :=	"00000";
