@@ -230,6 +230,56 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
 
 ---
 
+## 2.4 Provenance of every RTL file — is this Lab 5's or ours?
+
+**Asked directly, and answered from the files rather than from memory.** This project is a
+continuation of Lab 5, so the honest question about any file is which parts are the lab's and which
+are new. Regenerate this table by diffing `DUT/RV32IMscMCU/` against
+`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_sc/`.
+
+**11 of the 21 RTL files come straight from Lab 5** — the entire CPU: fetch, decode,
+execute, data memory, the multiplier, the PLL, and all three packages. Nothing about the core was
+rewritten; every ISA repair, the byte enables and the bus interface are edits **on top of** the
+supplied files, which is why the diffs are line counts rather than whole files.
+
+| File | Base | Relationship to Lab 5 |
+| --- | --- | --- |
+| `ADDR_DECODER.vhd` | new / other lab | **new** — Figure 5. Searched: no address decoder exists anywhere in Lab 3, 4 or 5. |
+| `BIDIRPIN.vhd` | new / other lab | **Lab 3, used as is** — body byte-identical to `Auxilary/Lab3/DUT/BidirPin.vhd` (md5 `ab12d81d…`). |
+| `CLOCK_TREE.vhd` | new / other lab | **new** — Figure 1. Board-level PLL placement follows `Auxilary/Lab4/DUT/fpga_hw_interface.vhd`; the three-instance structure is new (every ALTPLL in the tree exposes `c0` only). |
+| `CONTROL.vhd` | Lab 5 | **extended** — 60 changed line(s) vs the Lab 5 single-cycle core |
+| `DIV_ACCEL.vhd` | new / other lab | **new** — Figure 9. Subtractor alternative documented from `Auxilary/Lab4/DUT/AdderSub.vhd`. |
+| `DIV_UNIT.vhd` | new / other lab | **new** — Figures 3 + 10b. Wraps our own `DIV_ACCEL` and `SYNC`. |
+| `DMEMORY.vhd` | Lab 5 | **extended** — 229 changed line(s) vs the Lab 5 single-cycle core |
+| `EXECUTE.vhd` | Lab 5 | **extended** — 51 changed line(s) vs the Lab 5 single-cycle core |
+| `GPO_PORT.vhd` | new / other lab | **new** — Figure 5. Register-with-enable idiom follows `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38`. |
+| `HEX_DECODER.vhd` | new / other lab | **Lab 4, used as is** — body byte-identical to `Auxilary/Lab4/DUT/hex_decoder.vhd` (md5 `56f2f166…`). |
+| `IDECODE.vhd` | Lab 5 | **extended** — 32 changed line(s) vs the Lab 5 single-cycle core |
+| `IFETCH.vhd` | Lab 5 | **extended** — 54 changed line(s) vs the Lab 5 single-cycle core |
+| `MUL16.vhd` | Lab 5 | **identical** — not one byte changed |
+| `PLL.vhd` | Lab 5 | **identical** — not one byte changed |
+| `PLL_GEN.vhd` | new / other lab | **derived from `PLL.vhd`** — four wizard constants promoted to generics; `PLL.vhd` itself left byte-identical. |
+| `RV32IM_CORE.vhd` | Lab 5 | **extended** — 252 changed line(s) vs the Lab 5 single-cycle core |
+| `RV32IMscMCU.vhd` | new / other lab | **new** — §3 requires a structural top. Pattern from `Auxilary/Lab4/DUT/fpga_hw_interface.vhd`. |
+| `SYNC.vhd` | new / other lab | **new** — Figures 10a/10b. Searched: no synchroniser in the material (`IFETCH.vhd`'s "rst_i synchronization" is a single flop, not one). |
+| `aux_package.vhd` | Lab 5 | **extended** — 327 changed line(s) vs the Lab 5 single-cycle core |
+| `cond_compilation_package.vhd` | Lab 5 | **extended** — 23 changed line(s) vs the Lab 5 single-cycle core |
+| `const_package.vhd` | Lab 5 | **extended** — 130 changed line(s) vs the Lab 5 single-cycle core |
+
+**What genuinely did not exist in Lab 3, 4 or 5 — verified by searching every `.vhd` under
+`Auxiliary/`:** an address decoder, a GPIO port, a clock tree or any second clock domain, a
+synchroniser, and a divider. Those are the five things the final project adds, and they are exactly
+the five the assignment's own figures introduce (5, 5, 1, 10a/10b, 9).
+
+**Where Lab 5 DID have a precedent and it is used, it is cited in the file itself.** The clearest
+case is the Phase 7B2 stall: `IFETCH.vhd` holds the PC by feeding `pc_q` back into `next_pc_w`, which
+is the same mechanism — and the same reasoning about the synchronous ITCM re-reading the address —
+that our own Lab 5 **pipeline** uses for its load-use interlock at
+`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/IFETCH.vhd:107`. That citation was **missing
+until it was asked for**, and the file now carries it, including what differs (the name is Figure 3's
+`PCHold`, the source is a divide rather than a load-use hazard, and there is no IF/ID register to
+hold in a single-cycle core).
+
 ## 3. Hazards recorded while surveying
 
 1. **Reset polarity is welded to the simulation switch in BOTH copies now.** This used to be a

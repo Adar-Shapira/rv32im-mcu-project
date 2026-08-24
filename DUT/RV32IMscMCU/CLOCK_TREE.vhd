@@ -7,17 +7,30 @@
 -- so the entity name and all three output names come off the figure, not from
 -- us. Phase 4B. Closes gap G-311.
 --
--- SCOPE: this is the leaf only. It is NOT instantiated yet -- wiring it in,
--- releasing reset on lock, and constraining the three clocks in the SDC are
--- Phase 4C, and 4C has consequences this file deliberately does not take on
--- (see "WHAT WIRING THIS IN WILL BREAK" below). Same split as 4A before 4B, 5A
--- before 5B, 6A before 6B, 7A before 7B.
+-- SCOPE: built as a leaf in Phase 4B and WIRED IN by Phase 4C. RV32IMscMCU now
+-- instantiates it, clk_i reaches it and nothing else, the core receives mclk,
+-- the peripherals smclk, and the divider accelclk (Phase 7B2). Reset is held
+-- until locked_o rises. The section "WHAT WIRING THIS IN MEANT" below is kept
+-- because those consequences are live, not hypothetical.
 --============================================================================
 -- WHAT THE MATERIAL ACTUALLY SETTLES
 --
 --   [REQ p3, Figure 1]  Three clocks, named mclk / accelclk / smclk, from a
 --   50 MHz base. mclk feeds the core, smclk the peripherals, accelclk the
 --   accelerator.
+--
+--   WHAT LAB 5 AND LAB 4 ALREADY HAD, so the new part is only the new part:
+--   the students' own Lab 4 board top,
+--   Auxiliary/Lab 5/Auxilary/Lab4/DUT/fpga_hw_interface.vhd, already
+--   instantiates a PLL at BOARD level (not inside the logic) and already
+--   captures its locked output -- which is the structural pattern this entity
+--   follows, and the precedent Phase 4C's reset-on-lock builds on.
+--   What neither lab had is more than ONE clock: every ALTPLL copy in the whole
+--   tree exposes c0 alone, and nothing anywhere generates a second or third
+--   clock domain. Verified by searching every .vhd under Auxiliary/ for a clock
+--   tree, a multi-output PLL or a second clock domain: there is none. So the
+--   three-instance structure and the ratio generics are genuinely new work, and
+--   the board-level placement is not.
 --
 --   [FORUM F6]  Asked whether the three come out of ONE PLL module, Hanan:
 --   **"No -- on the basis of three different PLL instances"**, each fed from the
@@ -80,21 +93,22 @@
 --   the assignment draws. **Raised as a question rather than settled by us.**
 --   Assumption A19.
 --============================================================================
--- WHAT WIRING THIS IN WILL BREAK -- read before starting Phase 4C
+-- WHAT WIRING THIS IN MEANT -- live consequences, not warnings about the future
 --
---   1. In simulation, MCLK IS clk_i, exactly as the core does today
---      (RV32IM_CORE.vhd: `mclk_w <= clk_i` at MODELSIM = 1). That is deliberate,
---      so that wiring the tree in does not move a single benchmark cycle count.
---      The four numbers 134 / 1514 / 2725 / 2735 must survive Phase 4C unchanged,
---      and this is what makes that possible.
+--   1. In simulation, MCLK IS clk_i -- the same tie the core used to make for
+--      itself at MODELSIM = 1 before Phase 4C removed its internal PLL. That is
+--      deliberate: it is what lets the tree be wired in without moving a single
+--      benchmark cycle count. The four numbers 134 / 1514 / 2725 / 2735 must
+--      still hold, and this is what makes that possible.
 --
---   2. locked_o is LOW for SIM_LOCK_DELAY_NS at the start of every simulation.
---      Every existing testbench releases reset at 80 ns. If 4C gates reset
---      release on lock -- which is the point of 4C -- then with the default
---      200 ns the core stays in reset past that, and every cycle count moves.
---      The default is deliberately NOT zero: this is a real consequence of
---      reset-on-lock and it is better seen now, in a leaf test, than found as a
---      changed benchmark number later.
+--   2. locked_o is LOW for SIM_LOCK_DELAY_NS at the start of every simulation,
+--      and Phase 4C DOES gate reset release on it (GEN_RESET_ON_LOCK). Every
+--      existing testbench releases reset at 80 ns, so the core now stays in reset
+--      until 200 ns. The CYCLE COUNTS still must not move: mclk_cnt_q is held at
+--      zero by reset and starts when reset releases, while the program starts
+--      executing at that same moment, so a later release shifts both together.
+--      Only the wall-clock end time changes. If a count does move,
+--      GEN_RESET_ON_LOCK => FALSE isolates this from the clock change.
 --
 --   3. The simulation clock generators are FREE-RUNNING processes. A testbench
 --      that instantiates this must terminate with `std.env.stop` (as tb_sync,

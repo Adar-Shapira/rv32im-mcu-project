@@ -2103,12 +2103,21 @@ pairs signed and all 65536 unsigned** at N=8, plus 32-bit corners and random cas
 cannot: two **coprime** clocks (50 ns against 21 ns), so the DIVCLK edge lands at every phase of the
 MCLK period rather than the fixed 5:2 relationship the real design will have.
 
+**A bug found after this phase was committed, and fixed.** `DONE` waited for `start_i` to fall —
+which two **adjacent** `div` instructions never allow, because the second asserts `DIVstart` on the
+very cycle the first retires. The unit sat in `DONE` with `done_o` still high and the second div
+retired immediately **carrying the first one's result**: a silent wrong answer, not a hang. `DONE`
+now lasts exactly one cycle, which is safe because the retire and that transition happen on the same
+edge. **Neither the model nor the testbench covered it** — `do_op` always lowered `start` between
+operations, and the model does not simulate the FSM at all. New property **P8** drives the case the
+core actually produces.
+
 **Adar's results — Phase 7B1**
 
 | Check | Expect | Result |
 | --- | --- | --- |
 | `do run_divunit.do` | `VERDICT: PASS`, failures 0 | |
-| operations | 55 (15 directed + 40 random) | |
+| operations | **57** (15 directed + 40 random + P8's adjacent pair) | |
 | Runtime | about 60 us simulated, quick | |
 
 ### Phase 7B2 — wire it into the core  ·  **built, awaiting verification**

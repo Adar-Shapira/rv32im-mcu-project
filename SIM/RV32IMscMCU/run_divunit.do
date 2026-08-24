@@ -46,6 +46,14 @@
 #      one MCLK cycle (the LAUNCH state) to give the data a head start. Standard
 #      rule for crossing a bus alongside its control: data first, control after.
 #
+# P8 EXISTS BECAUSE THAT CASE WAS FOUND BROKEN, after the phase was committed.
+#   The DONE state used to wait for start_i to fall -- which two adjacent div
+#   instructions never allow, because the second asserts DIVstart on the very
+#   cycle the first retires. The unit sat in DONE with done_o still high and the
+#   second div retired IMMEDIATELY carrying the FIRST one's result: a silent
+#   wrong answer, not a hang. DONE now lasts exactly one cycle, which is safe
+#   because the retire and that transition happen on the same edge.
+#
 # SIGNED div/rem -- the two cases the ISA overrides
 #   -2^31 / -1 needs NO special hardware: |-2^31| is 0x80000000, the engine
 #   returns quotient 0x80000000, the signs agree so nothing is negated, and
@@ -64,7 +72,9 @@
 #   P3/P4 quotient and remainder match NUMERIC_STD's own signed and unsigned
 #   "/" and "rem"; P5 every operation completes within a bounded number of MCLK
 #   cycles; P6 back-to-back operations are all correct; P7 the run really did
-#   what it claims and really produced non-zero results.
+#   what it claims and really produced non-zero results; P8 TWO ADJACENT DIVIDES
+#   WITH start_i NEVER DROPPING -- what the core actually does, and what every
+#   other property here misses because do_op lowers start between operations.
 #
 # WHAT PASS DOES NOT MEAN
 #   Nothing about the core. div/rem decode, the PCHold stall itself and the
@@ -74,7 +84,8 @@
 #   the result is stable when it is read.
 #
 # EXPECTED NUMBERS
-#   VERDICT: PASS, failed 0, operations 55 (15 directed corners + 40 random).
+#   VERDICT: PASS, failed 0, operations 57 (15 directed corners + 40 random +
+#   the two of P8's adjacent pair).
 #   About 60 us of simulated time. Quick.
 #
 # WHY THE FIRST RUN SHOULD PASS
@@ -93,7 +104,7 @@ run -all
 
 echo ""
 echo "Read the SUMMARY block above. Expected: VERDICT: PASS, failed 0,"
-echo "operations 55."
+echo "operations 57."
 echo ""
 echo "If P5 latency_bound fails: the handshake is STUCK, not slow. The likely"
 echo "cause is WAIT_RISE never seeing DIVBUSY, which is the clock-ratio"
@@ -102,6 +113,8 @@ echo "longer than the MCLK synchroniser needs to catch it."
 echo "If quotient is right but remainder is wrong on negative dividends: the"
 echo "remainder sign follows the DIVIDEND, not the quotient."
 echo "If -1/0 gives +1: the divisor=0 override is missing or is being applied"
-echo "after the sign correction instead of instead of it."
+echo "after the sign correction rather than in place of it."
 echo "If only the random cases fail: suspect the crossings, not the algebra -"
 echo "the directed corners exercise the same wrapper at the same clock phases."
+echo "If P8 fails: two ADJACENT div instructions are broken - the second retires"
+echo "with the first one's result. Check that DONE lasts exactly one cycle."

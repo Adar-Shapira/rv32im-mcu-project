@@ -43,6 +43,12 @@
 --       stale latched operand or an un-cleared sign flag fails here.
 --   P7  ANTI-VACUITY: the run really executed the operations it claims, and
 --       really produced non-zero quotients and non-zero remainders.
+--   P8  ADJACENT DIVIDES, start_i NEVER DROPPING. Every other property here
+--       lowers start between operations; the CORE does not, because two adjacent
+--       div instructions keep DIVstart asserted continuously. This property was
+--       added after exactly that case was found broken: a DONE state that waits
+--       for start_i to fall leaves done_o high, and the second div retires
+--       immediately carrying the FIRST one's result -- a silent wrong answer.
 --
 -- THE REFERENCE
 --   IEEE.NUMERIC_STD's own "/" and "rem" on SIGNED and UNSIGNED, which share no
@@ -193,6 +199,7 @@ BEGIN
 		variable ops	: NATURAL := 0;
 		variable nzq	: NATURAL := 0;
 		variable nzr	: NATURAL := 0;
+		variable waited	: NATURAL := 0;			-- P8
 		variable lf		: STD_LOGIC_VECTOR(31 DOWNTO 0) := x"2468ACE1";
 		variable a, b	: STD_LOGIC_VECTOR(31 DOWNTO 0);
 
@@ -363,13 +370,83 @@ BEGIN
 			end if;
 		end loop;
 
+		-- ---- P8: ADJACENT DIVIDES, start_i NEVER DROPS ----------------------
+		-- The property every other test in this file misses, because do_op always
+		-- lowers start between operations. The CORE does not: two adjacent div
+		-- instructions keep DIVstart asserted continuously, because the second one
+		-- asserts it on the very cycle the first retires.
+		--
+		-- The bug this catches is silent, not loud: with a DONE state that waits
+		-- for start_i to fall, the unit sits in DONE with done_o still high and the
+		-- SECOND div retires immediately carrying the FIRST one's result.
+		--
+		-- 100/7 = 14 rem 2, then 1000/3 = 333 rem 1, with start held high across
+		-- the change. If the second read gives 14, the bug is back.
+		dvd    <= x"00000064";			-- 100
+		dvs    <= x"00000007";			--   7
+		is_sgn <= '1';
+		start  <= '1';
+		waited := 0;
+		loop
+			wait until rising_edge(mclk);
+			waited := waited + 1;
+			exit when done = '1' or waited > MAX_WAIT;
+		end loop;
+		if quot = x"0000000E" and remd = x"00000002" then
+			p := p + 1;
+		else
+			f := f + 1;
+			report "FAIL P8 setup: first of the adjacent pair gave 0x" &
+				to_hstring(quot) & " rem 0x" & to_hstring(remd) &
+				", expected 0x0000000E rem 0x00000002" severity error;
+		end if;
+
+		-- The second div arrives. Operands change; start_i does NOT fall.
+		dvd <= x"000003E8";				-- 1000
+		dvs <= x"00000003";				--    3
+		waited := 0;
+		loop							-- it must re-arm, i.e. drop done
+			wait until rising_edge(mclk);
+			waited := waited + 1;
+			exit when done = '0' or waited > MAX_WAIT;
+		end loop;
+		if waited > MAX_WAIT then
+			f := f + 1;
+			report "FAIL P8 adjacent_divides: done_o never fell after the first " &
+				"result, with start_i held high. The unit is stuck in DONE, so a " &
+				"second back-to-back div would retire immediately carrying the " &
+				"FIRST divide's result." severity error;
+		end if;
+		waited := 0;
+		loop
+			wait until rising_edge(mclk);
+			waited := waited + 1;
+			exit when done = '1' or waited > MAX_WAIT;
+		end loop;
+		if quot = x"0000014D" and remd = x"00000001" then
+			p := p + 1;
+			report "PASS P8 adjacent_divides: the second of a back-to-back pair " &
+				"got its OWN result" severity note;
+		else
+			f := f + 1;
+			report "FAIL P8 adjacent_divides: the second divide gave 0x" &
+				to_hstring(quot) & " rem 0x" & to_hstring(remd) &
+				", expected 0x0000014D rem 0x00000001. Getting 0x0000000E means " &
+				"it retired with the FIRST divide's result." severity error;
+		end if;
+		start <= '0';
+		wait until rising_edge(mclk);
+		wait until rising_edge(mclk);
+		ops := ops + 2;
+		p_cnt <= p; f_cnt <= f; ops_cnt <= ops;
+
 		-- ---- P7 --------------------------------------------------------------
-		if ops = 15 + RANDOM_OPS then
+		if ops = 17 + RANDOM_OPS then
 			p := p + 1;
 		else
 			f := f + 1;
 			report "FAIL P7 anti_vacuity: ran " & integer'image(ops) &
-				" operations, expected " & integer'image(15 + RANDOM_OPS)
+				" operations, expected " & integer'image(17 + RANDOM_OPS)
 				severity error;
 		end if;
 		if nzq > 0 and nzr > 0 then

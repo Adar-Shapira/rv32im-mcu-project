@@ -420,11 +420,13 @@ BEGIN
 	-- Clock tree — Figure 1, Phase 4B/4C
 	--=======================================
 	-- clk_i (the 50 MHz board oscillator) enters here and nowhere else. The core
-	-- receives mclk; the peripherals receive smclk; accelclk waits for Phase 7B.
+	-- receives mclk; the peripherals receive smclk; and as of Phase 7B2 the core
+	-- passes accelclk on to its division accelerator, so all three have loads.
 	--
-	-- accelclk_w has NO LOAD until 7B wires the divider in, so Quartus will prune
-	-- the ACCELCLK PLL from this build. That is expected, not a fault -- but it
-	-- does mean this build's resource report shows two PLLs, not three.
+	-- As of Phase 7B2 accelclk_w HAS a load: it goes into the core, which passes
+	-- it to div_unit. So all three PLLs survive synthesis and the resource report
+	-- should show THREE. Two would mean the divider is being optimised away, and
+	-- the SDC's ACCELCLK clock-group constraint would then be matching nothing.
 	CLKTREE : clock_tree
 	generic map(
 		MODELSIM			=> MODELSIM

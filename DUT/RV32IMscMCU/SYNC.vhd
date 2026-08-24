@@ -55,6 +55,19 @@
 --   a bus that is changing. If a future crossing cannot guarantee stability, this
 --   entity is the wrong tool and the design needs a handshake or a gray code.
 --
+-- NOTHING IN THE COURSE MATERIAL IS A PRECEDENT FOR THIS -- CHECKED
+--   Searched every .vhd under Auxiliary/ for an existing synchronizer before
+--   writing one. The only hits are IFETCH.vhd's "rst_i synchronization" comment
+--   -- in the Lab 5 single-cycle core, the pipeline, and Ori's copy -- and that
+--   is NOT a synchronizer: it is
+--       IF rst_i='1' THEN rst_q<='1' ELSIF rising_edge(clk) THEN rst_q<=rst_i
+--   a single flip-flop with an asynchronous preset. One flop cannot let a
+--   metastable sample settle; that is the whole point of the second stage.
+--   Do not mistake the two for each other, and do not "reuse" that code here.
+--   (The supplied UART, Auxiliary/USART Material/UART_FPGA_option2/VHDL/DUT/
+--   UART_RX.vhd, does mention synchronization -- relevant to Phase 12, not to
+--   this entity, and it is third-party code rather than course material.)
+--
 -- RESET
 --   Neither figure draws one. Simulation needs one anyway, or the chain starts at
 --   'U' and propagates unknowns into the divider for two cycles. It is an

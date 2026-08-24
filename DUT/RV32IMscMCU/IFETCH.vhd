@@ -108,18 +108,37 @@ END PROCESS;
 	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN G_ISA_REPAIR ELSE
 						alu_res_i(PC_WIDTH-1 DOWNTO 0);
 
-	-- PHASE 7B2 -- THE STALL, AND WHY IT IS ONE LINE.
-	--   Feeding pc_q back as the next PC does the whole job. itcm_addr_w is
-	--   next_pc_w, so holding it at pc_q re-fetches the CURRENT instruction
-	--   rather than the next one -- and freezing only the pc register would not
-	--   have done that: next_pc_w would still have been pc_plus4_q, the ITCM
+	-- PHASE 7B2 -- THE STALL.
+	--
+	-- THIS IS NOT A NEW IDEA, AND IT IS NOT OURS. It is the same mechanism our
+	-- own Lab 5 pipeline already uses for the load-use interlock:
+	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/IFETCH.vhd:107
+	--     pc_q(PC_WIDTH-1 DOWNTO 0)   WHEN  stall_i  ELSE  -- freeze PC (hazard stall)
+	--   with the comment at lines 103-104 giving the same reason this needs:
+	--     "On stall the PC recirculates, which also keeps the synchronous ITCM
+	--      re-reading the same address so the IF-stage instruction is held."
+	-- The only differences here are the name -- Figure 3 of the final-project
+	-- definition calls the signal PCHold, so that is what the port is called --
+	-- and the source: there it comes from HAZARD_UNIT's load-use check, here from
+	-- a divide that has not finished. The pipeline's version also has to hold the
+	-- IF/ID register (its line 149); a single-cycle core has no such register, so
+	-- that half has no counterpart.
+	--
+	-- Why it works, restated because the consequence is easy to get wrong:
+	--   itcm_addr_w is next_pc_w, so holding it at pc_q re-fetches the CURRENT
+	--   instruction rather than the next one. Freezing only the pc register would
+	--   NOT have done that -- next_pc_w would still have been pc_plus4_q, the ITCM
 	--   would have fetched the following instruction, instruction_o would have
 	--   changed underneath the stall, and DIVstart would have dropped mid-divide.
-	--   pc_plus4_q needs no separate hold either: it tracks next_pc_w + 4, so
-	--   while the PC is held it simply sits at pc_q + 4, which is the right value
-	--   to resume on.
-	--   It is placed after the reset arm and before every redirect so that reset
-	--   still wins, and so a branch cannot slip past a stall.
+	--   pc_plus4_q needs no separate hold: it tracks next_pc_w + 4, so while the
+	--   PC is held it sits at pc_q + 4, the right value to resume on.
+	--
+	-- ORDERING DIFFERS FROM THE PIPELINE, DELIBERATELY. There, flush has priority
+	-- OVER stall, because the redirecting instruction is older than the stalled
+	-- one. Here the hold sits ABOVE the jalr/branch arms instead: in a
+	-- single-cycle core the stalled instruction IS the current instruction, there
+	-- is nothing older in flight, and a redirect computed from a div that has not
+	-- produced its result yet would be meaningless. Reset still wins over both.
 	next_pc_w	<=	(others => '0') 					WHEN	rst_q 					ELSE
 					pc_q								WHEN	PCHold_i = '1'			ELSE	-- Phase 7B2: hold
 					jalr_target_w						WHEN	Jalr_ctrl_i				ELSE	-- case of jalr

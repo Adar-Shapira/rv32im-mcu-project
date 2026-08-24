@@ -287,11 +287,30 @@ BEGIN
 					END IF;
 
 				WHEN DONE =>
-					-- Hold the result until the core has taken it, i.e. until the
-					-- div instruction retires and DIVstart drops.
-					IF start_i = '0' THEN
-						state_q <= IDLE;
-					END IF;
+					-- ONE CYCLE, UNCONDITIONALLY.
+					--
+					-- This used to wait for start_i to fall, which looked like the
+					-- safe choice and was a BUG: two ADJACENT div instructions --
+					-- perfectly legal RISC-V -- never let start_i fall, because the
+					-- second div asserts it as soon as the first retires. The FSM
+					-- would sit here with done_o still high, and the second div
+					-- would retire IMMEDIATELY carrying the FIRST one's result. A
+					-- silent wrong answer, not a hang.
+					--
+					-- Why leaving unconditionally is nevertheless safe -- i.e. why
+					-- this does not reintroduce the level-restart trap that
+					-- DIV_ACCEL's own DONE state exists to avoid: the retire and
+					-- this transition happen on the SAME EDGE. done_o is high, so
+					-- pc_hold (start AND NOT done) is low, so the core advances its
+					-- PC on exactly the edge that moves this FSM to IDLE. By the
+					-- next cycle the old instruction is gone, and whatever start_i
+					-- then reads belongs to a NEW instruction. So IDLE is never
+					-- evaluated while the finished div is still the current one.
+					--
+					-- DIV_ACCEL still needs its own wait-for-low guard, and still
+					-- has it: ena_q is dropped in WAIT_FALL above, so the engine
+					-- sees its enable fall regardless of what start_i does here.
+					state_q <= IDLE;
 
 			END CASE;
 		END IF;
