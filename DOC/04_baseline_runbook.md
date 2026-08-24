@@ -426,6 +426,40 @@ copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\DTCM.hex"  C:\Tes
 
 **Put `test0`'s images back afterwards**, or `run_mmio.do` and `run_gpio.do` will not reproduce.
 
+### 8.1d The directed GPIO test — the one that needs nothing from you
+
+`run_gpio_directed.do` (Phase 6D) closes gaps G-406 and G-407. It is the only GPIO test that needs
+**neither a benchmark image nor `G_ISA_REPAIR = TRUE`**, so it can be run at any point, in whatever
+configuration you happen to have compiled.
+
+Stage the **generated** images, not a benchmark:
+
+```
+copy <repo>\SIM\RV32IMscMCU\gpio\ITCM.hex  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
+copy <repo>\SIM\RV32IMscMCU\gpio\DTCM.hex  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
+```
+
+| Script | Closes | Expect |
+| --- | --- | --- |
+| `do run_gpio_directed.do` | G-406, G-407 | `VERDICT: PASS`; **32 of 32** stores; **0** mismatches; ~305 cycles |
+
+**Zero is the only passing number here**, unlike `run_isa.do`. The program uses only `addi`, `slli`,
+`sw` and `lw`-at-offset-zero plus one `beq` sentinel, so it touches none of the seven ISA defects and
+nothing is expected to fail in either configuration. A mismatch here is a GPIO problem, never an ISA
+one.
+
+**Every mismatch names its case.** Look the case up in `SIM\RV32IMscMCU\gpio\listing.txt`, which
+says in words what that case is for and what its failure means. Quick reading:
+
+- two stores of one pair swapped → the `lane_en_i` term on those two `P_HEXn` instances
+- every `:rd` entry reading zero → read-back is off; check `GEN_GPO_READBACK` and `rdbk_w`
+- the unmapped read non-zero → the bus terminator's enable
+- DTCM word 0 having lost its `0xDEADBEEF` marker → the Phase 5B write gating in `DMEMORY.vhd`
+
+The images are committed, so they do not need regenerating. If the map or the cases ever change,
+`python3 tools/gen_gpio_test.py` rebuilds them and refuses to write anything if its two independent
+derivations of the expected sequence disagree.
+
 **Why this is the strongest test in the set.** It does not assert on the read bus; it drives the
 switches and watches what the *program* does, because test1 branches on what it reads. `SW=0x01` must
 make the counter go up, `SW=0x02` down, and `SW=0x00` must produce **no writes at all** — with
@@ -530,6 +564,9 @@ waiting:
 - `run_sync.do` and `run_decode.do` verdicts (Phases 4A and 5A) — and `run_decode.do`'s three totals;
 - `run_mmio.do`'s **`DTCM WRITES ACCEPTED`** figure and `run_gpio.do`'s seven write counts
   (Phases 5B and 6A);
+- `run_gpio_read.do`'s three phase counts (Phase 6B) — phase 3 must be **0**;
+- `run_gpio_directed.do`'s store count and mismatch count (Phase 6D) — **32 of 32, zero
+  mismatches**;
 - **one Quartus-only answer nobody else can give:** open the In-System Memory Content Editor and
   confirm the `DTCM` instance still appears and can be read and written. Phase 3B added `byteena_a`
   to the same `altsyncram` that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8

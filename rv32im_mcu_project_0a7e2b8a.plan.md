@@ -341,6 +341,10 @@ wrong — say so.
      store. Also expect ~126 MMIO stores and `DTCM stores seen 0`.
    - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
+   - **`do run_gpio_directed.do`** → **Phase 6D**, the directed GPIO test. Stage the *generated*
+     images from `SIM\RV32IMscMCU\gpio\` instead of a benchmark. **This one does not care what
+     `G_ISA_REPAIR` is**, so it can also be run outside this step entirely. Expect 32 of 32 stores and
+     **zero** mismatches — there is no expected-failure count here.
    - **Then restage for the last one — this is the only test that wants a different program.**
      Copy GPIO **`test1`**'s `M9K-intel` `ITCM.hex` and `DTCM.hex` over the same two `app_bin` files,
      and `do run_gpio_read.do` → **Phase 6B**. Expect `VERDICT: PASS`, and specifically **phase 3
@@ -1666,6 +1670,79 @@ P5 alone means Phase 6A broke, not 6B.
 - **Exit:** GPIO test1 and test2 become runnable — both branch on `PORT_SW`, so neither can run
   before this lands. That is why test0 is the only GPIO benchmark Phase 6A could use.
 
+### Phase 6D — the directed GPIO test  ·  **built, awaiting verification**
+
+Done 2026-08-24. **Closes G-406 and G-407** — the two verification gaps Phases 6A
+and 6B each registered against their own tests. Not a new feature: it is the
+evidence the previous two phases were missing.
+
+| Done | What |
+| --- | --- |
+| ✔ | `tools/gen_gpio_test.py` — 304 instructions, 32 scored stores, an independent GPIO model, and a second derivation that must agree |
+| ✔ | `SIM/RV32IMscMCU/gpio/{ITCM.hex,DTCM.hex,listing.txt}` — generated, committed |
+| ✔ | `TB/RV32IMscMCU/gpio_expected_pkg.vhd` + `tb_gpio_directed.vhd` + `run_gpio_directed.do` |
+
+**The two gaps close each other, which is why one program does both.** Read-back
+(G-407) is what makes a port's *content* observable; once content is observable
+the lane decode is discriminable in **both** directions (G-406). So the program
+writes different values to the two halves of each shared chip select, in both
+orders, and reads both back:
+
+| Store | Case | Catches |
+| --- | --- | --- |
+| 3 | `hex01_ascending:rd` PORT_HEX0 must be `A5`, not `5A` | `PORT_HEX0` also capturing the `0x2005` store — **the direction GPIO test0 cannot see** |
+| 8 | `hex01_descending:rd` PORT_HEX1 must be `B7`, not `7B` | `PORT_HEX1` also capturing the later `0x2004` store |
+
+**It is the one GPIO test that needs neither a benchmark nor `G_ISA_REPAIR = TRUE`.**
+The program builds every address with `addi`/`slli` (`li32`, no `lui`), loads at
+offset zero throughout, and has no compares, no `sra`, no `jalr` and one `beq`
+sentinel at offset 0 — so it touches **none of the seven ISA defects**, checked
+one by one in the generator's header. The expected sequence is identical in both
+configurations, which means a mismatch here is a GPIO problem and never an ISA
+one. **Zero is the only passing number**, unlike the ISA suite.
+
+**Five more things the 32 stores cover, beyond the two gaps:**
+
+- **Assumption A11.** Write `0xFF` to `PORT_LEDR`, read it back: must be
+  `0x000000FF`. A sign-extending or floating read path gives `0xFFFFFFFF` or `X`.
+- **`PORT_SW` through the synchroniser**, value `0x5C` — deliberately not
+  bit-symmetric, so a reversed bit order cannot pass.
+- **The bus terminator.** An unmapped SFR read at `0x2030` must return `0`. A
+  floating bus would give `'Z'`, which arrives as `'X'` in the register file.
+- **An unmapped SFR write** at `0x2034` must be discarded and must not disturb
+  `PORT_LEDR`.
+- **The Phase 5B property at *program* level.** A marker `0xDEADBEEF` is planted
+  in **DTCM word 0** — the word `PORT_LEDR` aliased onto before Phase 5B, and
+  where the interrupt vector table lives — and read back at the end after
+  fourteen MMIO stores. Until now that property was only checked at the mechanism
+  level, by watching `dtcm_wren_o`.
+
+**Addresses are compared as full byte addresses**, from `alu_res_o`, not as DTCM
+word indices. That is not cosmetic: an MMIO store to `0x2004` and a DTCM store to
+word 1 produce the *same* `dtcm_addr_o`, because the core drops bit 13 on the way
+to the RAM. Comparing `dtcm_addr_o` would leave this suite unable to tell an MMIO
+store from the DTCM store it used to alias onto — one of the things being tested.
+
+**Derived twice, as the ISA suite is.** The generator computes the expected
+sequence once while *emitting* the code and once by *executing* it on an
+interpreter with an independent model of the GPIO block, and aborts if the two
+disagree. They agree on all 32. That discipline is what caught two real bugs in
+the Phase 2 generator, which is why it is repeated here.
+
+#### ▸ Adar's results — Phase 6D
+
+Stage the **generated** images, not a benchmark:
+`SIM\RV32IMscMCU\gpio\ITCM.hex` and `DTCM.hex` → `app_bin`. Then
+`do run_gpio_directed.do`. **Configuration does not matter** — run it in whatever
+state `G_ISA_REPAIR` happens to be in.
+
+- stores seen: ____ of 32 · cycles: ____ (expect ~305)
+- mismatches: ____ — **zero is the only pass**
+- **VERDICT line:** ____________________
+
+Every mismatch names its case; look it up in `SIM\RV32IMscMCU\gpio\listing.txt`,
+which says in words what that case is for.
+
 ### Phase 6C — `PORT_PB` and the KEY inputs  ·  **blocked**
 
 - `PORT_PB` at `0x2014` reads KEY3-1. KEY0 is reset only, handled at the board boundary.
@@ -1913,8 +1990,8 @@ before/after line pairs.
 | **G-204** | `mem_dump.do` exports 1024 of 2048 DTCM words; the upper half is never checked. |
 | **G-403** | Per-component test plans not written. |
 | **G-404** | `Benchmark Apps/RV32IM/test1/output/RARS/DTCM.hex` is a stale golden — 16 words disagree with `DTCM.h`. Would fail a correct CPU. |
-| **G-407** | **NEW, from Phase 6B.** The seven GPO read-back tri-states of Figure 5 are implemented (behind `GEN_GPO_READBACK`) and exercised by nothing: no supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn` — the only MMIO reads in any suite are three `lw ... PORT_SW`. So only `PORT_SW`'s tri-state is proved. Closing it needs a small program of ours that stores a byte to a GPO port and loads it back. Related: the paths also rest on assumption **A15**, so if Hanan says an output port must not answer a read, the right action is `GEN_GPO_READBACK => FALSE` rather than a test. |
-| **G-406** | **NEW, from the Phase 6A review.** `tb_gpio`'s cross-talk check is one-sided. GPIO test0 writes the *same* value to all seven GPO ports in ascending address order, so a port that wrongly captures an **earlier** store fails, while a port that wrongly captures a **later** store of the same iteration re-captures a value it already holds and is invisible. Concretely: dropping `lane_en_i` on `P_HEX1` is caught, dropping it on `P_HEX0` is not. No supplied benchmark discriminates — test1 and test2 also write one value to all seven — so closing this needs a small program of ours that writes different values to the two ports of a pair. |
+| **G-407** | The seven GPO read-back tri-states of Figure 5 were exercised by nothing — no supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn`. **CLOSED 2026-08-24** by the directed GPIO test, which reads all seven back. Read-back is also what closed G-406, since it is what makes a port's content observable. The paths still rest on assumption **A15**; if Hanan says an output port must not answer a read, the action is `GEN_GPO_READBACK => FALSE` and this suite's read-back cases go with it. |
+| **G-406** | `tb_gpio`'s cross-talk check is one-sided — GPIO test0 writes the *same* value to all seven GPO ports in ascending address order, so a port wrongly capturing a **later** store re-captures a value it already holds and is invisible. **CLOSED 2026-08-24** by the directed GPIO test: `tools/gen_gpio_test.py` writes **different** values to the two halves of each shared chip select in **both** orders and reads both back, so store 3 catches an extra capture by `PORT_HEX0` and store 8 catches one by `PORT_HEX1`. |
 | **G-405** | GPIO suite never writes the DTCM, so no golden-memory comparison is possible. |
 
 ## Documentation and submission
