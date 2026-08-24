@@ -240,6 +240,42 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- Phase 8A. The Basic Timer core of Figure 7 (gap G-302): BTCNT + BTSSEL
+	-- prescaler + compare + the Lab 4 pwm.vhd output unit + input capture,
+	-- with the five F16 interface registers. Phase 8B wires it onto the bus
+	-- CSs and Phase 9 latches btifg_set_o. Skeleton adapted from
+	-- Auxiliary/Lab4/DUT/pwm.vhd -- see BASIC_TIMER.vhd's header for the
+	-- line-by-line mapping.
+	component basic_timer is
+		generic(
+			DATA_WIDTH	: integer := 32
+		);
+		PORT(
+			--Inputs
+			clk_i			: IN	STD_LOGIC;
+			rst_i			: IN	STD_LOGIC;
+			ctl_cs_i		: IN	STD_LOGIC;
+			cmpr0_cs_i		: IN	STD_LOGIC;
+			cmpr1_cs_i		: IN	STD_LOGIC;
+			MemWrite_i		: IN	STD_LOGIC;
+			lane0_i			: IN	STD_LOGIC;
+			lane1_i			: IN	STD_LOGIC;
+			data_i			: IN	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			capin1_i		: IN	STD_LOGIC := '0';
+			capin2_i		: IN	STD_LOGIC := '0';
+
+			--Outputs
+			pwm_o			: OUT	STD_LOGIC;
+			btifg_set_o		: OUT	STD_LOGIC;
+			btctl1_o		: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			btctl2_o		: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			btcmpr0_o		: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			btcmpr1_o		: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			btcapr_o		: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			btcnt_o			: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
 	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase

@@ -80,6 +80,10 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
 # the MCLK-side handshake and the signed div/rem wrapper, and RV32IM_CORE now
 # instantiates it -- so this subtree is LIVE and appears in the resource tables.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
+# Phase 8A. The Basic Timer core (skeleton from Auxiliary/Lab4/DUT/pwm.vhd).
+# Not instantiated by the top level until Phase 8B, so analysed and pruned --
+# listed to keep the two file lists in step.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd

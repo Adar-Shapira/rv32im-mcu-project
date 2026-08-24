@@ -563,6 +563,39 @@ mul-related and all out of scope** per F1.
 
 ---
 
+### What Phase 8A built — the Basic Timer core
+
+*(The timer's specification facts live in §3; this build note sits here with the other phase-build
+notes rather than renumbering the document.)*
+
+**[CODE, ours]** `DUT/RV32IMscMCU/BASIC_TIMER.vhd`, verified by `TB/RV32IMscMCU/tb_basic_timer.vhd`
+and pre-verified by `tools/model_basic_timer.py` (0 failures; eight faithful mutations all caught).
+
+**[CODE, Lab 4] The skeleton is `Auxiliary/Lab4/DUT/pwm.vhd`**, read in full first per the standing
+check-the-labs rule: its wrap-at-`Y` counter → `BTCNT` wrapping at `BTCL0`; its `ena` → `BTOUTEN`
+(page 8's *"hold the PWMout signal value"* is an update-enable's behaviour, stated in prose); its
+Mode 0/1 → `BTOUTMD`; `X` → `BTCL1`; its Mode 2 Toggle dropped (one mode bit, two Figure 8 traces).
+
+**[BENCH] B4 largely resolved from the benchmarks.** `BTINT` codes `00`→EQU0 and `10`→capture are
+pinned by `io_map.s`'s `BTINT2=0x02` being written exactly when test4 configures capture, and by
+every compare test using `BTINT=0`. `01`→EQU1 / `11`→reserved are **A20**.
+
+**[FORUM F16]** implemented literally: reset clears `BTCTL1`, `BTCTL2`, `BTCAPR`, `BTCMPR0`,
+`BTCMPR1` — and `BTCNT` has **no reset arm** at all (`BTCLR` only).
+
+**[FORUM F17] and a new finding.** `EQU0 = (BTCNT = BTCL0)` with restart on the next counting tick
+makes the period **`BTCL0`+1** ticks. Consequence, measured by the testbench rather than argued:
+`FREQ_5K = 500` at ÷8 yields (500+1)×8 = **4008** SMCLK cycles = **4990 Hz**, not the 5 kHz the
+`io_map.s` comment claims; exactly 5 kHz needs 499. Reported (P8's printed note), not silently
+"fixed" — the same posture as B2's `SEC_PERIOD` factor-8.
+
+**[DEC]** The prescaler is a clock **enable**, not a divided clock net (fabric idiom; nothing
+observable differs at the register boundary). Capture uses two synchroniser stages plus an
+edge-delay stage, because an edge detector must compare two *settled* samples — the `SYNC.vhd` rule
+applied inline. Writes to `BTCAPR` are ignored; capture hardware owns it.
+
+---
+
 **[REQ p10, Figures 10a/10b]** The CDC rule and its exact structure, read off the figures rather
 than inferred from the prose. **Three flip-flops, not two.**
 
@@ -961,8 +994,10 @@ Everything in this document that is not cited to a source.
 | A17 | All five Basic Timer interface registers are readable as well as writable, `BTCTL2` included | One of the two forum lines that could not be transcribed with full confidence appeared to make `BTCTL2` read-only, but `BTCTL2` is the capture-control register and the applications do write to it. Asked rather than assumed — `DOC/05` §2 | Course staff confirming `BTCTL2` is read-only |
 | A18 | Figure 9's blocks are interconnected as classical restoring division | The figure is a raster image and its bit-level wiring is not legible; this is the only interconnection of those blocks that yields a correct quotient and residue. Verified exhaustively at N=8, all 65536 pairs | Course staff describing a different interconnection |
 | A19 | When `MCLK` and `SMCLK` are configured to the same frequency they share **one PLL and one net** | F6 (three instances) and F7 (equal values permitted) taken literally together give two independent PLLs at 20 MHz, across which the core drives a synchronous parallel bus into peripheral registers (F11) with no synchroniser drawn anywhere. Two PLLs on one reference are frequency-identical but phase-unspecified, so that capture cannot be timing-analysed. See §6.1 | Course staff saying the two must be separate nets even at equal frequency. One generic: `SMCLK_SHARES_MCLK => FALSE` |
+| A20 | `BTINT`: `01`→EQU1 and `11`→no source | `00`→EQU0 and `10`→capture are **benchmark-pinned** (`BTINT2=0x02` set exactly when test4 configures capture; every compare test uses 0); EQU1 is the only source left and page 8 says "three options" | Course staff giving a different table — one selected-signal assignment in `BASIC_TIMER.vhd` |
+| A21 | `BTCL0`/`BTCL1` shadow latches load on the bus write | Figure 7's latch-enable label `HEU0` is defined nowhere (open question P1); immediate transfer is indistinguishable in every supplied benchmark, which all configure the compare registers while the timer is held | `HEU0` turning out to mean update-on-EQU0 — one enable term |
 
-Nineteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A and A19 out of Phase 4B. **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Twenty-one assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, and A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin. **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

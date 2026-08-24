@@ -42,6 +42,9 @@ vcom -2008 ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
 # Phase 7B1. DIV_UNIT instantiates DIV_ACCEL and SYNC, so both must precede it.
 vcom -2008 ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
+# Phase 8A. The Basic Timer core -- skeleton from Auxiliary/Lab4/DUT/pwm.vhd.
+# A leaf until Phase 8B wires it in; compiled so its testbench runs.
+vcom -2008 ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
 # byte-identical to Auxiliary/Lab4/DUT/hex_decoder.vhd, md5
 # 56f2f16645e9bb4643c3a113c36e49c4. Only a provenance header was added.
@@ -71,6 +74,9 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_clock_tree.vhd
 
 # Phase 7B1: zero setup. Two coprime clocks, signed and unsigned div/rem.
 vcom -2008 ../../TB/RV32IMscMCU/tb_div_unit.vhd
+
+# Phase 8A: zero setup. F16/F17, prescaler, PWM duty, capture, BTINT select.
+vcom -2008 ../../TB/RV32IMscMCU/tb_basic_timer.vhd
 
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.

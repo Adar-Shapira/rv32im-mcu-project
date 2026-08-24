@@ -347,7 +347,7 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
-### 8.1a Five tests that need nothing — run them first
+### 8.1a Six tests that need nothing — run them first
 
 No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
 straight after `compile.do`; if any fails, nothing after it is meaningful.
@@ -358,7 +358,8 @@ straight after `compile.do`; if any fails, nothing after it is meaningful.
 | `do run_decode.do` | 5A — address decoder | `VERDICT: PASS`, failures 0, totals **8192 / 29 / 8163** |
 | `do run_clock.do` | 4B — clock tree | `VERDICT: PASS`, failures 0, ~**110** accelclk edges, **10** distinct phases |
 | `do run_div.do` | 7A — division accelerator | `VERDICT: PASS`, failures 0, **N=8 65536 ops**, **N=32 517 ops** |
-| `do run_divunit.do` | 7B1 — division subsystem | `VERDICT: PASS`, failures 0, **55 operations** |
+| `do run_divunit.do` | 7B1 — division subsystem | `VERDICT: PASS`, failures 0, **57 operations** |
+| `do run_timer.do` | 8A — Basic Timer | `VERDICT: PASS`, failures 0, plus the printed **FREQ_5K 4008-cycle** note |
 
 `run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
 not verify the PLLs, and it cannot.** `altpll` is an Altera black box needing `altera_mf`, and the
@@ -622,6 +623,9 @@ waiting:
   cycle counter starts when reset releases so holding reset longer shifts the start and the count
   together. If a count **does** move, set `GEN_RESET_ON_LOCK => FALSE` and re-run: that separates the
   reset change from the clock change in one run instead of bisecting the phase;
+- `run_timer.do`'s verdict (Phase 8A) — and note its P8 line PRINTS a finding on purpose: FREQ_5K's
+  interval is 4008 cycles (4990 Hz), because F17-literal hardware makes the period BTCL0+1. Do not
+  "fix" the RTL to make it 4000; the constant is the suspect (same class as B2);
 - `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
   clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
   tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —

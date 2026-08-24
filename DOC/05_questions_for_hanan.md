@@ -79,7 +79,13 @@ choice in the report. A wrong guess costs one PLL parameter.
 The forum clarified the *behaviour* — in compare mode the core interrupts per `BTINT` on comparison
 with `BTCL0`/`BTCL1`, and the count always restarts at `BTCL0` — but not the **encoding**.
 
-**Meanwhile:** Phase 8 is not started. This must be answered before it is.
+**Update 2026-08-25 — the benchmarks pin half the table, so this is no longer blind.** `io_map.s`
+defines `BTINT2 = 0x02`, and test4 writes it **exactly when configuring input capture**, while every
+compare test runs with `BTINT = 0`. So `00`→EQU0 and `10`→capture are benchmark facts; `01`→EQU1 is
+the only source left; `11` reserved — which is precisely "three options" in two bits.
+
+**Meanwhile:** Phase 8A is built on that table (assumption **A20** covers only the `01`/`11` half).
+A different answer changes one selected-signal assignment in `BASIC_TIMER.vhd`.
 
 ---
 

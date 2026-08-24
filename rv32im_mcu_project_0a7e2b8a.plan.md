@@ -282,7 +282,7 @@ wrong — say so.
 
 1. Execute `compile.do`. Expect 0 errors and the same three warnings.
 
-   **Then four tests that need nothing at all** — no images, no `app_bin`, and they do not care what
+   **Then six tests that need nothing at all** — no images, no `app_bin`, and they do not care what
    `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
@@ -291,6 +291,10 @@ wrong — say so.
    - `do run_clock.do` → **Phase 4B**, the clock tree. Expect `VERDICT: PASS`, failures 0, about
      110 accelclk edges and 10 distinct phases. Quick. It does **not** verify the PLLs — `altpll` is
      not instantiated at `MODELSIM = 1` — and its header lists three Quartus-only items for you.
+   - `do run_divunit.do` → **Phase 7B1**, the division subsystem. Expect `VERDICT: PASS`, failures
+     0, operations 57.
+   - `do run_timer.do` → **Phase 8A**, the Basic Timer. Expect `VERDICT: PASS`, failures 0, and the
+     printed FREQ_5K note (4008 cycles = 4990 Hz — a finding, not a bug).
    - `do run_div.do` → **Phase 7A**, the division accelerator. Expect `VERDICT: PASS`, failures 0,
      **65536** operations at N=8 and **517** at N=32. This is the long one — tens of seconds, because
      it sweeps every one of the 65536 operand pairs; it prints a progress line every 16 dividends so
@@ -429,7 +433,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
 | **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
 | **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
-| 8 Basic Timer | Yehonatan | Adar | waits on **B2**, **B4** (was Q3, Q8) |
+| **8A Basic Timer core** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_timer.do`.** B4 mostly settled from the benchmarks; B2 still open for `SEC_PERIOD` |
+| 8B Timer onto the bus | Yehonatan | Adar | next after 8A verifies |
 | 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
@@ -2186,19 +2191,69 @@ Touches `CONTROL`/`IFETCH`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why i
 
 ## Phase 8 — Basic Timer  ·  Yehonatan writes · Adar verifies
 
-- 32-bit `BTCNT` up-counter, `BTSSEL` 4-to-1 clock mux (`00`→÷1 … `11`→÷8), `BTHOLD` enable,
-  `BTCLR` clear.
-- `BTCL0`/`BTCL1` shadow latches loaded from `BTCMPR0`/`BTCMPR1`.
-- Output Unit adapted from `Auxiliary/Lab4/DUT/pwm.vhd` — 16→32 bit, and re-map period `Y`→`BTCL0`,
-  duty `X`→`BTCL1` to match Figure 8's Set/Reset and Reset/Set traces.
-- Capture path: `CAPISEL` mux → `CAPMD` edge select → `BTCNT_CAPTURE` → `BTCAPR`.
-- `BTINT` selects the `BTIFG` source from `EQU0`, `EQU1`, capture.
-- **Exit:** self-checking compare, rate-change, PWM duty and capture tests. Then the real constants:
-  `FREQ_5K = 500` at `BTSSEL=3` must give exactly 5 kHz.
-- **Known contradiction:** `SEC_PERIOD = 20,000,000` at the same `BTSSEL=3` gives **8 seconds**, not
-  the 1 second its comment claims. Implement Figure 7 as drawn and report the discrepancy — see Q3.
+### Phase 8A — the timer core  ·  **built, awaiting verification**
 
-Gaps: G-302. Blocked on **Q3, Q4, Q8**.
+**Files:** `DUT/RV32IMscMCU/BASIC_TIMER.vhd` (new), `TB/RV32IMscMCU/tb_basic_timer.vhd` (new),
+`SIM/RV32IMscMCU/run_timer.do` (new), `tools/model_basic_timer.py` (new); `aux_package.vhd`,
+`compile.do` and the `.qsf` updated. The leaf only — the MMIO wiring and the read path are 8B, and
+`btifg_set_o` waits for Phase 9's IFG.
+
+**Most of the skeleton is Lab 4's, taken on the standing check-the-labs-first rule.**
+`Auxiliary/Lab4/DUT/pwm.vhd` was read in full before a line was written, and maps almost one to one:
+its wrap-at-`Y` counter is `BTCNT` with the wrap point moved to F17's `BTCL0`; its `ena` is
+`BTOUTEN` — and page 8's own wording, *"hold the PWMout signal value"*, is exactly what an
+update-enable does when low; its Mode 0 Set/Reset and Mode 1 Reset/Set are `BTOUTMD`'s two values
+with `X` renamed `BTCL1`; its Mode 2 (Toggle) is dropped because `BTOUTMD` is one bit and Figure 8
+draws exactly two traces. The full line-by-line mapping is in `BASIC_TIMER.vhd`'s header. No other
+timer/counter/capture precedent exists in Labs 3, 4 or 5 — searched.
+
+**B4 is now mostly answered from the benchmarks, not guessed.** `io_map.s` defines `BTINT2 = 0x02`,
+and `test4/01_func.s:156-158` writes `BTCTL1=(BTHOLD,BTCLR,BTINT=2)` precisely when configuring
+**input capture**, while every compare-interrupt test runs with `BTINT=0`. So `00`→EQU0 and
+`10`→capture are **benchmark facts**; `01`→EQU1 is the only source left; `11` is reserved — "three
+options" in two bits, exactly as page 8 says. Only the `01`/`11` half is still assumption (**A20**).
+
+**Forum answers built in literally:** **F16** — reset clears only the five interface registers, so
+`BTCNT` lives in a process with **no reset arm** (only `BTCLR` clears it); **F17** — the count
+restarts after reaching `BTCL0`, so `EQU0 = (BTCNT = BTCL0)` and **the period is `BTCL0`+1 ticks**.
+
+**A NEW FINDING FALLS OUT OF F17-LITERAL HARDWARE:** `FREQ_5K = 500` at ÷8 gives a period of
+(500+1)×8 = **4008** SMCLK cycles = **4990 Hz, not 5000**. Exactly 5 kHz needs `BTCMPR0 = 499`.
+Same class as B2's `SEC_PERIOD` factor-8: the constant and the definition disagree, the hardware
+follows Hanan's stated definition, and the testbench asserts 4008 and **prints** the discrepancy.
+
+**A21:** the `BTCL0`/`BTCL1` shadow latches load on the bus write (Figure 7's `HEU0` label is
+defined nowhere — open question P1). Indistinguishable in every supplied benchmark; one enable term
+to change.
+
+**Verification:** `tools/model_basic_timer.py` executes the RTL's per-edge semantics through the
+same phases as the testbench — 0 failures, and **eight faithful mutations all caught**, including a
+counter that obeys reset (P0b names the F16 violation), a wrap one count early, swapped PWM modes,
+and the reserved `BTINT` code firing. The testbench itself went through three self-caught bug fixes
+before it ever saw a simulator: a park-at-nonzero sequence that could not move (BTCL0 was still 0), a
+phase-sensitive PWM window, and a Mode1 window measured before steady state.
+
+**Adar's results — Phase 8A**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_timer.do` | `VERDICT: PASS`, failures 0 | |
+| P1 periods | 10 / 20 / 40 / 80 | |
+| P8 FREQ_5K interval | **4008** cycles, plus the printed 4990 Hz note | |
+| BTIFG events counted | ≥ 10 (P9 anti-vacuity) | |
+
+Gaps: **G-302 closed for the core.** `BTINT` codes `01`/`11` are **A20**; shadow-latch timing is
+**A21**; `SEC_PERIOD` remains **B2**.
+
+### Phase 8B — wire it in  ·  **next after verification**
+
+- Instantiate on `pclk_w` with `sfr_cs_w(CS_BTCTL/CS_BTCMPR0/CS_BTCMPR1)`, `lane0_w`/`lane1_w`, the
+  shared `data_bus_w`, and BidirPin read-backs for all five registers (word 10's `BTCAPR` included).
+- `PWMout`, `CAPIN1`, `CAPIN2` go to expansion-header pins — **F18** says choose three; **B1**
+  (which board) still gates the actual pin numbers.
+- `btifg_set_o` → Phase 9's IFG under the falsified-A6 rule (IFG latches request AND enable).
+- **Exit:** the interrupt benchmarks' timer flows run on the MCU; `SEC_PERIOD`'s 8-second-vs-1-second
+  question (B2) gets its answer measured, not argued.
 
 ## Phase 9 — Interrupt controller and CPU protocol  ·  Yehonatan writes · Adar verifies
 
