@@ -52,6 +52,13 @@ package aux_package is
 			dtcm_data_wr_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_data_rd_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
+			-- Phase 5B (G-305): decoder observation, gated by GEN_DEBUG_PORTS.
+			-- dtcm_wren_o is the gated write enable -- the fix itself, and what
+			-- tb_mmio_alias asserts on.
+			dtcm_cs_o			:OUT	STD_LOGIC;
+			unmapped_o			:OUT	STD_LOGIC;
+			dtcm_wren_o			:OUT	STD_LOGIC;
+
 			mclk_cnt_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 		);
 	end component;
@@ -72,7 +79,18 @@ package aux_package is
 			--Inputs
 			rst_i		 		:IN	STD_LOGIC;
 			clk_i				:IN	STD_LOGIC;
-			
+
+			--Data-bus master interface -- Phase 5B (G-305). Figure 1's boundary
+			--between the RISC-V core and the BUS Interface Logic. Kept separate
+			--from the Signal-Tap ports below, which clause 7 requires to be
+			--removable and which therefore cannot carry a functional bus.
+			dbus_addr_o			:OUT	STD_LOGIC_VECTOR(DATA_ADDR_WIDTH-1 DOWNTO 0);
+			dbus_wdata_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+			dbus_MemRead_o		:OUT	STD_LOGIC;
+			dbus_MemWrite_o		:OUT	STD_LOGIC;
+			dtcm_cs_i			:IN		STD_LOGIC := '1';
+			dbus_rdata_i		:IN		STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 			--Outputs (used also for Signal-Tap auxiliary pins)
 			pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 			instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -91,6 +109,7 @@ package aux_package is
 			dtcm_addr_o			:OUT 	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
 			dtcm_data_wr_o		:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_data_rd_o		:OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+			dtcm_wren_o			:OUT	STD_LOGIC;		-- Phase 5B, observation
 			
 			mclk_cnt_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 		);		
@@ -141,9 +160,9 @@ package aux_package is
 ---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
-	-- per mapped SFR word. Phase 5A: a leaf with its own exhaustive testbench,
-	-- not yet instantiated -- Phase 5B wires it in at the MCU level, where the
-	-- peripherals of Phases 6-9 and 12 attach to sfr_cs_o.
+	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase
+	-- 5B instantiates it in RV32IMscMCU, where Figure 1 puts the BUS Interface
+	-- Logic. The peripherals of Phases 6-9 and 12 attach to sfr_cs_o.
 	component addr_decoder is
 		generic(
 			ADDR_WIDTH		: integer := DATA_ADDR_WIDTH;
@@ -179,9 +198,14 @@ package aux_package is
 			-- word-only memory; MEM_W comes from const_package.
 			MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
 			byte_sel_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";
+			-- Phase 5B (G-305). Defaulted to '1' so a pre-decoder instantiation
+			-- behaves exactly as before.
+			dtcm_cs_i			: IN 	STD_LOGIC := '1';
 
 			--Outputs
-			dtcm_data_rd_o 		: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
+			dtcm_data_rd_o 		: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+			-- Phase 5B: the gated write enable, for observation. See DMEMORY.vhd.
+			dtcm_wren_o			: OUT STD_LOGIC
 		);
 	end component;
 ---------------------------------------------------------		

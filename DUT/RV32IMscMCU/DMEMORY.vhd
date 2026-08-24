@@ -81,9 +81,25 @@ ENTITY dmemory IS
 		-- still elaborates as a word-only memory.
 		MemOp_ctrl_i	: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;	-- access width/signedness
 		byte_sel_i		: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";	-- byte offset inside the word
+		-- Phase 5B (G-305): this memory's chip select, from the address decoder.
+		-- Defaults to '1' so an instantiation that predates the decoder still
+		-- behaves exactly as before -- which is what keeps the Lab 5 baseline
+		-- reproducible through a bare-core instantiation.
+		dtcm_cs_i		: IN 	STD_LOGIC := '1';						-- address is in the DTCM region
 
 		--Outputs
-		dtcm_data_rd_o 	: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
+		dtcm_data_rd_o 	: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		-- Phase 5B. The gated write enable, exported for observation only.
+		--
+		-- WHY A PORT EXISTS PURELY TO BE WATCHED
+		--   The Phase 5B fix IS the AND gate below. A testbench that watches the
+		--   decoder's chip select instead proves only that the decode is right,
+		--   and would still pass if this gate were removed -- which is exactly the
+		--   regression the phase exists to prevent. So the thing that has to be
+		--   asserted on is the enable itself. It is also what Signal-Tap wants on
+		--   the board when a store goes somewhere unexpected: "did the memory
+		--   actually take this write".
+		dtcm_wren_o		: OUT STD_LOGIC
 	);
 END dmemory;
 
@@ -93,6 +109,7 @@ ARCHITECTURE behavior OF dmemory IS
 	CONSTANT NBYTES		: integer := DATA_BUS_WIDTH/8;		-- 4 lanes on a 32-bit bus
 
 	SIGNAL wrclk_w		: STD_LOGIC;
+	SIGNAL wren_w		: STD_LOGIC;									-- Phase 5B: gated write enable
 	SIGNAL q_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- raw RAM word
 
 	-- store path
@@ -163,6 +180,29 @@ BEGIN
 	dtcm_data_rd_o	<= extend_w			WHEN G_ISA_REPAIR ELSE q_w;
 
 	--=====================================================================
+	-- PHASE 5B (G-305): the write enable is gated by the chip select
+	--=====================================================================
+	-- This one AND gate is the whole fix for the aliasing bug. Without it the
+	-- address decoder can be perfectly correct and still change nothing, because
+	-- MemWrite reaches wren_a regardless of which region the address named.
+	--
+	-- It is deliberately NOT conditional on G_ISA_REPAIR. That switch selects
+	-- between the LAB5 core as submitted and the same core with its seven ISA
+	-- defects repaired; the missing region decode is not one of those seven and
+	-- is not an ISA conformance question -- it is a Final Project requirement
+	-- (clause 3 and Figure 2) that LAB5 had no reason to implement. Putting it
+	-- behind the same switch would mean the as-submitted measurement silently
+	-- also lost the decode, which would make the two measurements differ in two
+	-- ways at once.
+	--
+	-- Nothing gates the READ side. An altsyncram read is unconditional and
+	-- harmless: q_a always presents the addressed word, and RV32IM_CORE selects
+	-- between it and the peripheral read data with the same chip select. Adding
+	-- a read enable here would only add logic to the critical path.
+	wren_w      <= MemWrite_ctrl_i AND dtcm_cs_i;
+	dtcm_wren_o <= wren_w;
+
+	--=====================================================================
 	data_memory : altsyncram
 	GENERIC MAP  (
 		operation_mode			=> "SINGLE_PORT",
@@ -197,7 +237,7 @@ BEGIN
 		intended_device_family 	=> "Cyclone"
 	)
 	PORT MAP (
-		wren_a 					=> MemWrite_ctrl_i,
+		wren_a 					=> wren_w,			-- Phase 5B: MemWrite AND dtcm_cs_i
 		clock0					=> wrclk_w,
 		address_a				=> dtcm_addr_i,
 		data_a					=> store_data_w,
@@ -212,9 +252,13 @@ BEGIN
 	-- benchmark is word-aligned, and the directed ISA suite addresses its
 	-- half-words at offsets 0 and 2 on purpose.
 	--=====================================================================
+	-- Phase 5B added dtcm_cs_i to the condition: this memory should only comment
+	-- on accesses actually aimed at it. An odd byte address in the SFR page is
+	-- normal there -- PORT_HEX1 is at 0x2005 -- and is the peripheral's business.
 	misalign_check : process(all)
 	begin
-		if (MemRead_ctrl_i = '1' or MemWrite_ctrl_i = '1')
+		if dtcm_cs_i = '1'
+		   and (MemRead_ctrl_i = '1' or MemWrite_ctrl_i = '1')
 		   and (MemOp_ctrl_i = MEM_H or MemOp_ctrl_i = MEM_HU)
 		   and byte_sel_i(0) = '1' then
 			report "DMEMORY: misaligned half-word access at byte offset " &

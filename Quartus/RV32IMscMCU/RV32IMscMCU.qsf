@@ -46,6 +46,16 @@ set_global_assignment -name LAST_QUARTUS_VERSION "21.1.0 Lite Edition"
 set_global_assignment -name SDC_FILE RV32IMscMCU.sdc
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IMscMCU.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IM_CORE.vhd
+# Phase 5A/5B. ADDR_DECODER is instantiated by RV32IMscMCU.vhd (the DEC instance),
+# so it MUST be here or Analysis & Synthesis fails to bind the component -- there
+# is no SEARCH_PATH assignment in this project, and Quartus resolves a component
+# only from the file list.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
+# Phase 4A. Not instantiated yet -- the divider (Phase 7), the KEY1-3 edge
+# detectors (Phase 6) and the UART (Phase 12) will use it. Listed now so it is
+# compiled and available; synthesis prunes an uninstantiated entity, so it costs
+# nothing in the resource tables.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/MUL16.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/IFETCH.vhd

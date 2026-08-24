@@ -10,6 +10,7 @@ USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 use ieee.std_logic_unsigned.all;
 USE work.cond_compilation_package.all;
+USE work.const_package.all;		-- Phase 5B: DATA_ADDR_WIDTH (clause 3's 14-bit space)
 USE work.aux_package.all;
 
 
@@ -25,11 +26,44 @@ ENTITY RV32IM_CORE IS
 			DATA_WORDS_NUM 		: integer 	:= G_DATA_WORDSNUM;
 			CLK_CNT_WIDTH 		: integer 	:= 16
 	);
-	PORT(	
+	PORT(
 		--Inputs
 		rst_i		 			:IN		STD_LOGIC;
 		clk_i					:IN		STD_LOGIC;
-		
+
+		--======================================================================
+		-- Data-bus master interface -- Phase 5B (G-305)
+		--======================================================================
+		-- Figure 1 (p3) draws the Control / Address / Data buses leaving the
+		-- RISC-V core box and reaching the peripherals through a BUS Interface
+		-- Logic block. This is that boundary. The DTCM stays inside the core,
+		-- because Figures 1 and 3 both draw it there; what leaves is the request,
+		-- so the decoder outside can say which region it names.
+		--
+		-- WHY THIS IS A SEPARATE PORT GROUP AND NOT THE SIGNAL-TAP PORTS
+		--   alu_res_o, dtcm_data_wr_o and MemWrite_ctrl_o below already carry the
+		--   address, the write data and the write strobe -- it is tempting to
+		--   reuse them. That would be a bug: clause 7 requires the Signal-Tap
+		--   pins to be removable through a generate, and a bus that depends on
+		--   them cannot be removed. They are observation only. This group is
+		--   functional.
+		--
+		-- WHY MemOp IS NOT HERE
+		--   A peripheral does not need the access width. Figure 5 wires every
+		--   latch input D0..D7 to Data<7..0> unconditionally, and the benchmarks
+		--   reach byte registers with a word store (see ADDR_DECODER.vhd). Width
+		--   only matters to the DTCM, which is inside.
+		dbus_addr_o				:OUT	STD_LOGIC_VECTOR(DATA_ADDR_WIDTH-1 DOWNTO 0);
+		dbus_wdata_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		dbus_MemRead_o			:OUT	STD_LOGIC;
+		dbus_MemWrite_o			:OUT	STD_LOGIC;
+
+		-- Both defaulted, so this entity still elaborates and behaves exactly as
+		-- it did before Phase 5B when instantiated without a bus interface --
+		-- which is what keeps the LAB5 baseline reproducible.
+		dtcm_cs_i				:IN		STD_LOGIC := '1';
+		dbus_rdata_i			:IN		STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 		--Outputs (used also for Signal-Tap auxiliary pins)
 		pc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		instruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -48,6 +82,9 @@ ENTITY RV32IM_CORE IS
 		dtcm_addr_o				:OUT 	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
 		dtcm_data_wr_o			:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		dtcm_data_rd_o			:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		-- Phase 5B: the DTCM's gated write enable. Observation only -- see the
+		-- header of DMEMORY.vhd for why this is a port and not an internal signal.
+		dtcm_wren_o				:OUT	STD_LOGIC;
 		
 		mclk_cnt_o				:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 	);		
@@ -63,6 +100,9 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 	SIGNAL addr_gen_w 			: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL alu_res_w 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL dtcm_data_rd_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	-- Phase 5B: the DTCM's own output, before the region mux below chooses
+	-- between it and the peripheral read data.
+	SIGNAL dtcm_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL dtcm_addr_w 			: STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
 	SIGNAL alu_src_w 			: STD_LOGIC;
 	SIGNAL branch_w 			: STD_LOGIC;
@@ -231,10 +271,41 @@ BEGIN
 		MemWrite_ctrl_i 	=> mem_write_w,
 		MemOp_ctrl_i		=> mem_op_w,
 		byte_sel_i			=> byte_sel_w,
+		dtcm_cs_i			=> dtcm_cs_i,		-- Phase 5B (G-305): gates wren_a
 
 		--Outputs
-		dtcm_data_rd_o 		=> dtcm_data_rd_w
+		dtcm_data_rd_o 		=> dtcm_rd_w,
+		dtcm_wren_o			=> dtcm_wren_o		-- Phase 5B: straight out for observation
 	);
+
+	--=======================================
+	-- Load-data region mux -- Phase 5B (G-305)
+	--=======================================
+	-- The load value the register file writes back comes from the DTCM when the
+	-- address named the DTCM, and from the bus interface otherwise. A plain mux,
+	-- not a tri-state: Figure 1's "Bi-directional Data BUS (reminder)" arrow
+	-- points at the buses on the PERIPHERAL side of the BUS Interface Logic, and
+	-- Figure 5 draws the tri-state at the peripheral (PORT_SW on CS7.MemRead).
+	-- The core-to-bus-interface link is not where the figures put the shared
+	-- driver, so the tri-state belongs in Phase 6, where it will have a real
+	-- second driver instead of being a one-driver bus with a keeper.
+	--
+	-- Assumption, recorded in DOC/02 section 2.1: Figure 3 shows a buffer symbol
+	-- below the DTCM whose connectivity cannot be resolved at the resolution of
+	-- the supplied raster. If it turns out to be a tri-state onto a shared
+	-- core-internal data bus, this mux is the single place that changes.
+	dtcm_data_rd_w <= dtcm_rd_w WHEN dtcm_cs_i = '1' ELSE dbus_rdata_i;
+
+	--=======================================
+	-- Data-bus master outputs -- Phase 5B (G-305)
+	--=======================================
+	-- The full byte address, NOT the narrowed word address: the decoder needs
+	-- A13 for the region split and A1..A0 to separate the registers that share a
+	-- chip select. G1 above drops exactly those bits on the way to the RAM.
+	dbus_addr_o		<= alu_res_w(DATA_ADDR_WIDTH-1 DOWNTO 0);
+	dbus_wdata_o	<= read_data2_w;	-- what a store presents, same source as the DTCM's
+	dbus_MemRead_o	<= mem_read_w;
+	dbus_MemWrite_o	<= mem_write_w;
 	
 	--=======================================
 	-- MCLK counter register connection
@@ -267,7 +338,10 @@ BEGIN
   
 	dtcm_addr_o 			<= 	dtcm_addr_w;		-- DMEMORY input
 	dtcm_data_wr_o 			<= 	read_data2_w;		-- DMEMORY input
-	dtcm_data_rd_o			<=	dtcm_data_rd_w;		-- DMEMORY output
+	dtcm_data_rd_o			<=	dtcm_data_rd_w;		-- the load value written back.
+													-- Phase 5B: this is now AFTER the
+													-- region mux, so on an SFR load it
+													-- shows the bus data, not the DTCM word.
 	
 	mclk_cnt_o				<=	mclk_cnt_q;			-- TOP output
 	
