@@ -79,10 +79,12 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 	SIGNAL instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mclk_w 				: STD_LOGIC;
 	SIGNAL mclk_cnt_q			: STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
-	-- internal active-high reset (see RSTPOL generate below)
-	SIGNAL rst_w 				: STD_LOGIC;
+	SIGNAL rst_w					: STD_LOGIC;
 
 BEGIN
+	-- ModelSim drives an active-high reset. On the DE2-115, KEY0 is
+	-- active-low, so invert the top-level pin only in FPGA mode.
+	rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i;
 	
 	--=======================================
 	-- PLL module connection
@@ -96,22 +98,6 @@ BEGIN
 		);
 	else generate
 		mclk_w 	<= clk_i;
-	end generate;
-
-	--=======================================
-	-- Reset polarity
-	--=======================================
-	-- In simulation the testbench drives rst_i active-high directly, so
-	-- rst_w must equal rst_i unchanged. On hardware rst_i is wired to
-	-- KEY0, which the DE2-115 drives active-low (idle='1', pressed='0');
-	-- inverting it here gives the intuitive "press KEY0 briefly to reset,
-	-- release to run" behavior while every internal process still only
-	-- ever checks an active-high reset (rst_w).
-	RSTPOL:
-	if (MODELSIM = 1) generate
-		rst_w	<= rst_i;
-	else generate
-		rst_w	<= not rst_i;
 	end generate;
 	--===========================================
 	-- IFETCH (including ITCM) module connection
@@ -127,7 +113,7 @@ BEGIN
 	PORT MAP (
 		--Inputs
 		clk_i 				=> mclk_w,  
-		rst_i 				=> rst_w, 
+		rst_i 				=> rst_w,
 		addr_gen_i 			=> addr_gen_w,
 		Branch_ctrl_i 		=> branch_w,
 		brTaken_i			=> brTaken_w,

@@ -2,12 +2,12 @@
 -- Copyright 2026 Hananya Ribo 
 -- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
 -- Pipelined RISC-V RV32IM Core - EX stage
--- EXECUTE holds the ALU (with the MUL16 M-extension multiplier), the branch
+-- EXECUTE holds the ALU (with multiplier stage 1), the branch
 -- comparison logic, the branch address adder, the two forwarding muxes and
 -- the EX/MEM pipeline register. Pipeline changes vs the single-cycle version:
 --   * forwarding muxes in front of both register operands, selected by
---     FORWARD_UNIT: "00" = ID/EX value, "10" = EX/MEM ALU result (internal
---     ex_mem_alu_res_q register), "01" = WB write-back data (wb_write_data_i)
+--     FORWARD_UNIT: "00" = ID/EX value, "10" = current MEM-stage result,
+--     "01" = WB write-back data (wb_write_data_i)
 --   * the forwarded rs2 value also feeds the store data path to MEM
 --   * brTaken is computed here but the branch/jump redirect is issued only
 --     in the MEM stage, so it is carried in the EX/MEM register together
@@ -35,6 +35,7 @@ ENTITY  Execute IS
 		-- ID/EX inputs (EX-stage view produced by IDECODE)
 		pc_i				: IN 	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		pc_plus4_i			: IN 	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		instruction_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		read_data1_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		read_data2_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		sign_extend_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -55,16 +56,25 @@ ENTITY  Execute IS
 		-- forwarding (FORWARD_UNIT selects, WB-stage write-back data)
 		forward_a_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0);					-- rs1 operand select
 		forward_b_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0);					-- rs2 operand select
-		wb_write_data_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB write-back mux output (IDECODE)
+		mem_forward_data_i	: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- MEM ALU or stage-2 mul result
+		wb_write_data_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB write-back mux output (WRITEBACK)
 			
 		--Outputs
 		-- EX/MEM pipeline register outputs (MEM-stage view)
+		mem_pc_o			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		mem_pc_plus4_o		: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- WB value for jal/jalr
+		mem_instruction_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		mem_alu_res_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- DTCM address / WB value / jalr target
 		mem_write_data_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- store data (forwarded rs2 value)
 		mem_addr_gen_o 		: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- branch/jal target
 		mem_brTaken_o 		: OUT	STD_LOGIC;
 		mem_rd_o			: OUT	STD_LOGIC_VECTOR(4 DOWNTO 0);					-- FORWARD_UNIT + WB
+		-- Figure 7 multiplier stage-1 values, carried through EX/MEM
+		mem_mul_p0_o		: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mem_mul_p1_o		: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mem_mul_p2_o		: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mem_mul_p3_o		: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mem_Mul_ctrl_o		: OUT	STD_LOGIC;
 		-- carried control bits: MEM stage
 		mem_Branch_ctrl_o 	: OUT	STD_LOGIC;
 		mem_Jal_ctrl_o 		: OUT	STD_LOGIC;
@@ -80,15 +90,15 @@ END Execute;
 
 
 ARCHITECTURE struct OF Execute IS
-	-- MUL16 declared locally (the pipeline aux_package is created with the top)
-	COMPONENT MUL16 IS
-		generic(
-			DATA_BUS_WIDTH 	: integer := 32
-		);
+	CONSTANT NOP_INSTRUCTION	: STD_LOGIC_VECTOR(31 DOWNTO 0) := X"00000013";
+	COMPONENT multiplier_1 IS
 		PORT(
-			a_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH/2-1 DOWNTO 0);
-			b_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH/2-1 DOWNTO 0);
-			res_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
+			a_i		: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			b_i		: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p0_o	: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p1_o	: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p2_o	: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p3_o	: OUT	STD_LOGIC_VECTOR(15 DOWNTO 0)
 		);
 	END COMPONENT;
 
@@ -109,7 +119,8 @@ ARCHITECTURE struct OF Execute IS
 	SIGNAL	msbneq_res_w		: STD_LOGIC;
 	SIGNAL	alu_res_r 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL	brTaken_w 			: STD_LOGIC;
-	SIGNAL	mul_res_w 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL	mul_p0_w, mul_p1_w	: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL	mul_p2_w, mul_p3_w	: STD_LOGIC_VECTOR(15 DOWNTO 0);
 	
 	SIGNAL	brl_shl_s1_r		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL	brl_shl_s2_r		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -123,12 +134,19 @@ ARCHITECTURE struct OF Execute IS
 	SIGNAL	brl_shr_pad_r		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
 	-- EX/MEM pipeline register
+	SIGNAL	ex_mem_pc_q			: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL	ex_mem_pc_plus4_q	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL	ex_mem_instruction_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL	ex_mem_alu_res_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL	ex_mem_write_data_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL	ex_mem_addr_gen_q	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL	ex_mem_brTaken_q	: STD_LOGIC;
 	SIGNAL	ex_mem_rd_q			: STD_LOGIC_VECTOR(4 DOWNTO 0);
+	SIGNAL	ex_mem_mul_p0_q		: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL	ex_mem_mul_p1_q		: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL	ex_mem_mul_p2_q		: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL	ex_mem_mul_p3_q		: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL	ex_mem_Mul_q		: STD_LOGIC;
 	SIGNAL	ex_mem_Branch_q		: STD_LOGIC;
 	SIGNAL	ex_mem_Jal_q		: STD_LOGIC;
 	SIGNAL	ex_mem_Jalr_q		: STD_LOGIC;
@@ -142,25 +160,25 @@ ARCHITECTURE struct OF Execute IS
 BEGIN
 --------------------------------------------------------------------------------------------------------
 -- Forwarding muxes (in front of both register operands)
--- EX/MEM source is this module's own ALU result register; loads in MEM are
--- covered by the HAZARD_UNIT load-use stall, and jal/jalr in MEM flush the
--- younger instructions, so ex_mem_alu_res_q is always the correct value here
+-- The MEM source selects the normal EX/MEM ALU result or multiplier stage-2
+-- result in DMEMORY. Loads are covered by the HAZARD_UNIT load-use stall.
 --------------------------------------------------------------------------------------------------------
 WITH forward_a_i SELECT
-	fw_read_data1_w <=	ex_mem_alu_res_q	WHEN	FWD_MEM,
+	fw_read_data1_w <=	mem_forward_data_i	WHEN	FWD_MEM,
 						wb_write_data_i		WHEN	FWD_WB,
 						read_data1_i		WHEN	OTHERS;
 
 WITH forward_b_i SELECT
-	fw_read_data2_w <=	ex_mem_alu_res_q	WHEN	FWD_MEM,
+	fw_read_data2_w <=	mem_forward_data_i	WHEN	FWD_MEM,
 						wb_write_data_i		WHEN	FWD_WB,
 						read_data2_i		WHEN	OTHERS;
 
 --------------------------------------------------------------------------------------------------------
 -- Branch Address Adder
--- addr_gen = pc_i + (sign_extend_i << 2)  (registered, used in MEM)
+-- Branch/JAL immediates already contain bits [12:1]/[20:1], so append one
+-- zero bit to form the byte offset before adding it to the PC.
 --------------------------------------------------------------------------------------------------------					  
-addr_gen_w	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-3 DOWNTO 0) & '0');
+addr_gen_w	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');
 
 --------------------------------------------------------------------------------------------------------
 --ALU
@@ -175,21 +193,23 @@ bin_w <= 	fw_read_data2_w	WHEN not ALUSrc_ctrl_i ELSE	sign_extend_i(DATA_BUS_WID
 
 --Reused resuls 
 sub_res_w			<= ain_w - bin_w;
-ltu_res_w			<= '1' WHEN ain_w < bin_w 			ELSE '0';
+-- Prefixing zero makes the signed-package comparison equivalent to RV32 unsigned.
+ltu_res_w			<= '1' WHEN ('0' & ain_w) < ('0' & bin_w)	ELSE '0';
 eq_res_w			<= '1' WHEN ain_w = bin_w 			ELSE '0'; 
 msbneq_res_w		<= '1' WHEN ain_w(31) /= bin_w(31) 	ELSE '0';
 
 --------------------------------------------------------------------------------------------------------
--- M-extension multiplier (mul): 16x16 -> 32 on the lower half-words of the ALU operands
+-- Figure 7 multiplier stage 1 (EX): four 8x8 partial products. The EX/MEM
+-- register carries P0-P3 to multiplier stage 2 in DMEMORY.
 --------------------------------------------------------------------------------------------------------
-MUL: MUL16
-	generic map(
-		DATA_BUS_WIDTH 	=> DATA_BUS_WIDTH
-	)
+MUL1: multiplier_1
 	port map(
-		a_i 	=> ain_w(DATA_BUS_WIDTH/2-1 DOWNTO 0),
-		b_i 	=> bin_w(DATA_BUS_WIDTH/2-1 DOWNTO 0),
-		res_o 	=> mul_res_w
+		a_i 	=> ain_w(15 DOWNTO 0),
+		b_i 	=> bin_w(15 DOWNTO 0),
+		p0_o	=> mul_p0_w,
+		p1_o	=> mul_p1_w,
+		p2_o	=> mul_p2_w,
+		p3_o	=> mul_p3_w
 	);
 
 	
@@ -224,9 +244,9 @@ BEGIN
 			alu_res_r	<= sub_res_w;		 
 			brTaken_w	<= '0';
 		
-		-- mul (M-extension, result taken from the MUL16 instance)
+		-- mul result is completed in MEM by multiplier stage 2
 		WHEN ALU_MUL	=>
-			alu_res_r	<= mul_res_w;
+			alu_res_r	<= (others => '0');
 			brTaken_w	<= '0';
 	------------------------------------------------------
     -- Logic
@@ -294,9 +314,9 @@ BEGIN
  	 	WHEN ALU_SHIFTR | ALU_SHIFTR_ARITH 	=>
 			--if sra? pad with 1's else pad with 0's 
 			if (ain_w(31) = '1' and (ALUOp_ctrl_i = ALU_SHIFTR_ARITH)) then
-				brl_shr_pad_r <= 32x"FFFF";
+				brl_shr_pad_r <= (others => '1');
 			else
-				brl_shr_pad_r <= 32x"0000";
+				brl_shr_pad_r <= (others => '0');
 			end if;
 			
 			-- Barrel-Shifter SHR stage 0
@@ -423,12 +443,19 @@ END PROCESS;
 PROCESS (clk_i, rst_i)
 BEGIN
 	IF rst_i = '1' THEN
+		ex_mem_pc_q			<= (OTHERS => '0');
 		ex_mem_pc_plus4_q	<= (OTHERS => '0');
+		ex_mem_instruction_q	<= NOP_INSTRUCTION;
 		ex_mem_alu_res_q	<= (OTHERS => '0');
 		ex_mem_write_data_q	<= (OTHERS => '0');
 		ex_mem_addr_gen_q	<= (OTHERS => '0');
 		ex_mem_brTaken_q	<= '0';
 		ex_mem_rd_q			<= (OTHERS => '0');
+		ex_mem_mul_p0_q		<= (OTHERS => '0');
+		ex_mem_mul_p1_q		<= (OTHERS => '0');
+		ex_mem_mul_p2_q		<= (OTHERS => '0');
+		ex_mem_mul_p3_q		<= (OTHERS => '0');
+		ex_mem_Mul_q		<= '0';
 		ex_mem_Branch_q		<= '0';
 		ex_mem_Jal_q		<= '0';
 		ex_mem_Jalr_q		<= '0';
@@ -439,12 +466,19 @@ BEGIN
 		ex_mem_MemtoReg_q	<= '0';
 	ELSIF (clk_i'EVENT AND clk_i='1') THEN
 		IF flush_i = '1' THEN
+			ex_mem_pc_q			<= (OTHERS => '0');
 			ex_mem_pc_plus4_q	<= (OTHERS => '0');
+			ex_mem_instruction_q	<= NOP_INSTRUCTION;
 			ex_mem_alu_res_q	<= (OTHERS => '0');
 			ex_mem_write_data_q	<= (OTHERS => '0');
 			ex_mem_addr_gen_q	<= (OTHERS => '0');
 			ex_mem_brTaken_q	<= '0';
 			ex_mem_rd_q			<= (OTHERS => '0');
+			ex_mem_mul_p0_q		<= (OTHERS => '0');
+			ex_mem_mul_p1_q		<= (OTHERS => '0');
+			ex_mem_mul_p2_q		<= (OTHERS => '0');
+			ex_mem_mul_p3_q		<= (OTHERS => '0');
+			ex_mem_Mul_q		<= '0';
 			ex_mem_Branch_q		<= '0';
 			ex_mem_Jal_q		<= '0';
 			ex_mem_Jalr_q		<= '0';
@@ -454,12 +488,23 @@ BEGIN
 			ex_mem_RegWrite_q	<= '0';
 			ex_mem_MemtoReg_q	<= '0';
 		ELSE
+			ex_mem_pc_q			<= pc_i;
 			ex_mem_pc_plus4_q	<= pc_plus4_i;
+			ex_mem_instruction_q	<= instruction_i;
 			ex_mem_alu_res_q	<= alu_res_r;
 			ex_mem_write_data_q	<= fw_read_data2_w;
 			ex_mem_addr_gen_q	<= addr_gen_w;
 			ex_mem_brTaken_q	<= brTaken_w;
 			ex_mem_rd_q			<= rd_i;
+			ex_mem_mul_p0_q		<= mul_p0_w;
+			ex_mem_mul_p1_q		<= mul_p1_w;
+			ex_mem_mul_p2_q		<= mul_p2_w;
+			ex_mem_mul_p3_q		<= mul_p3_w;
+			IF ALUOp_ctrl_i = ALU_MUL THEN
+				ex_mem_Mul_q	<= '1';
+			ELSE
+				ex_mem_Mul_q	<= '0';
+			END IF;
 			ex_mem_Branch_q		<= Branch_ctrl_i;
 			ex_mem_Jal_q		<= Jal_ctrl_i;
 			ex_mem_Jalr_q		<= Jalr_ctrl_i;
@@ -474,12 +519,19 @@ END PROCESS;
 	
 --------------------------------------------------------------------------------------------------------
 -- EX/MEM register outputs (MEM-stage view)
+mem_pc_o				<= ex_mem_pc_q;
 mem_pc_plus4_o		<= ex_mem_pc_plus4_q;
+mem_instruction_o		<= ex_mem_instruction_q;
 mem_alu_res_o		<= ex_mem_alu_res_q;
 mem_write_data_o	<= ex_mem_write_data_q;
 mem_addr_gen_o		<= ex_mem_addr_gen_q;
 mem_brTaken_o		<= ex_mem_brTaken_q;
 mem_rd_o			<= ex_mem_rd_q;
+mem_mul_p0_o		<= ex_mem_mul_p0_q;
+mem_mul_p1_o		<= ex_mem_mul_p1_q;
+mem_mul_p2_o		<= ex_mem_mul_p2_q;
+mem_mul_p3_o		<= ex_mem_mul_p3_q;
+mem_Mul_ctrl_o		<= ex_mem_Mul_q;
 mem_Branch_ctrl_o	<= ex_mem_Branch_q;
 mem_Jal_ctrl_o		<= ex_mem_Jal_q;
 mem_Jalr_ctrl_o		<= ex_mem_Jalr_q;

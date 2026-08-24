@@ -4,16 +4,11 @@
 -- Testbench for the Single-Cycle RISC-V RV32IM Core (Part 1)
 -- Based on the given tb_RV32I: clock (100ns period) + reset generator around
 -- the core; all core outputs are exposed for the wave window
--- monitor_end_of_program (below) copies run_test.do's own stop condition
--- (instruction_o reaches the final while(1) self-jump) into VHDL via
--- std.env.stop, so the run halts by itself even without loading run_test.do
--- - e.g. from a plain GUI Run -All.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 use ieee.std_logic_unsigned.all;
-use std.env.all;
 USE work.cond_compilation_package.all;
 USE work.aux_package.all;
 
@@ -114,21 +109,5 @@ BEGIN
 		rst_i <='1','0' after 80 ns;
 		wait;
   end process;
---------------------------------------------------------------------
-	-- Auto-stop: same condition as run_test.do's Tcl "when" block - every
-	-- benchmark (test1..test4) ends in an unconditional self-jump - beq
-	-- x0,x0,0 (0x00000063, man_compiled tests) or jal x0,0 (0x0000006F,
-	-- gcc_compiled tests) - reached at instruction_o. Single-cycle
-	-- write-back completes the same clock, so no retire delay is needed
-	-- before stopping (unlike the pipeline testbench).
-	monitor_end_of_program : process
-	begin
-		-- triggers directly on instruction_o's own transitions, exactly like
-		-- run_test.do's "when {instruction_o == ... OR instruction_o == ...}"
-		-- - no clock-edge alignment assumption needed.
-		wait until instruction_o = X"00000063" or instruction_o = X"0000006F";
-		report "Program finished (while(1) reached) - stopping simulation" severity note;
-		std.env.stop;
-	end process monitor_end_of_program;
---------------------------------------------------------------------
+--------------------------------------------------------------------		
 END struct;

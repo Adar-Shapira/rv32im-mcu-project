@@ -3,10 +3,12 @@
 -- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
 -- Pipelined RISC-V RV32IM Core - ID stage
 -- IDECODE holds the register file, instruction field extraction, immediate
--- generation + sign extension, the write-back mux, and the ID/EX pipeline
--- register. Pipeline changes vs the single-cycle version:
---   * the RF write port is driven from the WB stage (wb_* inputs come from
---     the MEM/WB pipeline register) while reads still happen in ID
+-- generation + sign extension, and the ID/EX pipeline register. The WB mux
+-- lives in WRITEBACK; IDECODE only consumes the selected write data.
+-- Pipeline changes vs the single-cycle version:
+--   * the RF write port is driven from the WB stage (wb_write_data_i from
+--     WRITEBACK, wb_rd/wb_RegWrite from the MEM/WB register) while reads
+--     still happen in ID
 --   * RF read bypass: an instruction in WB writes the RF only at the clock
 --     edge, so an ID-stage reader of the same register (distance 3, not
 --     visible to the EX forwarding unit) takes the WB write data directly
@@ -50,24 +52,19 @@ ENTITY Idecode IS
 		ALUSrc_ctrl_i 		: IN 	STD_LOGIC;
 		UpperIm_ctrl_i		: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0);
 		ALUOp_ctrl_i	 	: IN 	STD_LOGIC_VECTOR(4 DOWNTO 0);
-		-- WB-stage inputs (from the MEM/WB pipeline register) - RF write port
-		wb_RegDst_ctrl_i 	: IN 	STD_LOGIC;
+		-- WB-stage inputs (RF write port)
 		wb_RegWrite_ctrl_i 	: IN 	STD_LOGIC;
-		wb_MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
 		wb_rd_i				: IN 	STD_LOGIC_VECTOR(4 DOWNTO 0);
-		wb_pc_plus4_i		: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
-		wb_alu_res_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		wb_dtcm_data_rd_i 	: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		wb_write_data_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		
 		--Outputs
 		-- ID-stage (combinational) - for HAZARD_UNIT
 		id_rs1_o			: OUT	STD_LOGIC_VECTOR(4 DOWNTO 0);
 		id_rs2_o			: OUT	STD_LOGIC_VECTOR(4 DOWNTO 0);
-		-- WB write-back mux result - RF write data, WB forwarding, debug
-		wb_write_data_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		-- ID/EX pipeline register outputs (EX-stage view)
 		ex_pc_o				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		ex_pc_plus4_o		: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		ex_instruction_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		ex_read_data1_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		ex_read_data2_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		ex_sign_ext_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -94,9 +91,9 @@ END Idecode;
 
 ARCHITECTURE behavior OF Idecode IS
 TYPE register_file IS ARRAY (0 TO 31) OF STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	CONSTANT NOP_INSTRUCTION				: STD_LOGIC_VECTOR(31 DOWNTO 0) := X"00000013";
 
 	SIGNAL RF_q							: register_file;
-	SIGNAL wb_write_data_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL wb_rf_write_w				: STD_LOGIC;
 	SIGNAL read_data1_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL read_data2_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -123,6 +120,7 @@ TYPE register_file IS ARRAY (0 TO 31) OF STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNT
 	-- ID/EX pipeline register
 	SIGNAL id_ex_pc_q					: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL id_ex_pc_plus4_q				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL id_ex_instruction_q			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL id_ex_read_data1_q			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL id_ex_read_data2_q			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL id_ex_sign_ext_q				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -160,16 +158,11 @@ BEGIN
 	-- Register-File read ports with WB bypass: the WB-stage value is written
 	-- into the RF only at the next clock edge, so a same-cycle ID reader
 	-- (3 instructions younger) must take the write data directly
-	read_data1_w <= wb_write_data_w WHEN (wb_rf_write_w = '1' AND rs1_w = wb_rd_i) ELSE
+	read_data1_w <= wb_write_data_i WHEN (wb_rf_write_w = '1' AND rs1_w = wb_rd_i) ELSE
 					RF_q(CONV_INTEGER(rs1_w));
 	
-	read_data2_w <= wb_write_data_w WHEN (wb_rf_write_w = '1' AND rs2_w = wb_rd_i) ELSE
+	read_data2_w <= wb_write_data_i WHEN (wb_rf_write_w = '1' AND rs2_w = wb_rd_i) ELSE
 					RF_q(CONV_INTEGER(rs2_w));
-	
-	-- Write-back mux, fed by the MEM/WB pipeline register (WB stage)
-	wb_write_data_w <=	ZEROS_DBUS2PCADDR & wb_pc_plus4_i			WHEN	wb_RegDst_ctrl_i		ELSE
-						wb_alu_res_i(DATA_BUS_WIDTH-1 DOWNTO 0) 	WHEN	not wb_MemtoReg_ctrl_i 	ELSE 
-						wb_dtcm_data_rd_i;
 	
 	-- Sign Extend
   	SignExt_Iimm_w 	<=	ZEROS_IMM20 & Iimm_w 	WHEN	not Iimm_w(11) 	ELSE ONES_IMM20 & Iimm_w;
@@ -182,9 +175,11 @@ BEGIN
 	with	opc_w select
 		SignExt_w 	<=	SignExt_Iimm_w				when ITYPE_OPC,
 		SignExt_Iimm_w								when INST_JALR(6 DOWNTO 0),
+						SignExt_Iimm_w								when LOAD_OPC,
 		SignExt_Simm_w								when STYPE_OPC,
 		SignExt_SBimm_w 							when SBTYPE_OPC,
-		SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	when UTYPE_OPC,
+						SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	when AUIPC_OPC,
+						SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	when LUI_OPC,
 		SignExt_UJimm_w								when UJTYPE_OPC,
 		(others => '0')								when others;
 	--==============================================================================
@@ -198,7 +193,7 @@ BEGIN
 			END LOOP;
 		elsif (clk_i'event and clk_i='1') then
 			if (wb_rf_write_w = '1') then
-				RF_q(CONV_INTEGER(wb_rd_i)) <= wb_write_data_w;
+				RF_q(CONV_INTEGER(wb_rd_i)) <= wb_write_data_i;
 				-- index type is integer so we must use conv_integer for type casting
 			end if;
 		end if;
@@ -217,6 +212,7 @@ BEGIN
 		if (rst_i='1') then
 			id_ex_pc_q			<= (OTHERS => '0');
 			id_ex_pc_plus4_q	<= (OTHERS => '0');
+			id_ex_instruction_q	<= NOP_INSTRUCTION;
 			id_ex_read_data1_q	<= (OTHERS => '0');
 			id_ex_read_data2_q	<= (OTHERS => '0');
 			id_ex_sign_ext_q	<= (OTHERS => '0');
@@ -240,6 +236,7 @@ BEGIN
 				-- bits deasserted so the NOP has no architectural effect
 				id_ex_pc_q			<= (OTHERS => '0');
 				id_ex_pc_plus4_q	<= (OTHERS => '0');
+				id_ex_instruction_q	<= NOP_INSTRUCTION;
 				id_ex_read_data1_q	<= (OTHERS => '0');
 				id_ex_read_data2_q	<= (OTHERS => '0');
 				id_ex_sign_ext_q	<= (OTHERS => '0');
@@ -260,6 +257,7 @@ BEGIN
 			else
 				id_ex_pc_q			<= pc_i;
 				id_ex_pc_plus4_q	<= pc_plus4_i;
+				id_ex_instruction_q	<= instruction_i;
 				id_ex_read_data1_q	<= read_data1_w;
 				id_ex_read_data2_q	<= read_data2_w;
 				id_ex_sign_ext_q	<= SignExt_w;
@@ -285,11 +283,11 @@ BEGIN
 	-- ID-stage outputs (combinational)
 	id_rs1_o			<= rs1_w;				-- HAZARD_UNIT load-use check
 	id_rs2_o			<= rs2_w;
-	wb_write_data_o		<= wb_write_data_w;		-- RF write data / WB forwarding
 	
 	-- ID/EX register outputs (EX-stage view)
 	ex_pc_o				<= id_ex_pc_q;
 	ex_pc_plus4_o		<= id_ex_pc_plus4_q;
+	ex_instruction_o	<= id_ex_instruction_q;
 	ex_read_data1_o		<= id_ex_read_data1_q;
 	ex_read_data2_o		<= id_ex_read_data2_q;
 	ex_sign_ext_o		<= id_ex_sign_ext_q;

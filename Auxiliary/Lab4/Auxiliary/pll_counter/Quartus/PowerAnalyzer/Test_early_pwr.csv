@@ -1,0 +1,36 @@
+EARLY_POWER_ESTIMATOR_FILE_FORMAT_VERSION,6
+QUARTUS_II_VERSION,21.1.0 Build 842 10/21/2021 SJ Lite Edition
+PROJECT,"Test"
+REVISION,"Test"
+PROJECT_FILE,"C:/TestPrograms/Quartus21_1/Test.qpf"
+TIME,"Thu Apr 30 18:00:30 2026"
+TIME_SECONDS,"1777561230"
+FAMILY,"Cyclone IV E"
+DEVICE,"EP4CE115"
+PACKAGE,"FBGA"
+PART,"EP4CE115F29C7"
+POWER_USE_DEVICE_CHARACTERISTICS,"TYPICAL"
+POWER_AUTO_COMPUTE_TJ,"ON"
+POWER_TJ_VALUE,"25"
+POWER_USE_CUSTOM_COOLING_SOLUTION,"OFF"
+MIN_JUNCTION_TEMPERATURE,"0"
+MAX_JUNCTION_TEMPERATURE,"85"
+POWER_PRESET_COOLING_SOLUTION,"23 MM HEAT SINK WITH 200 LFPM AIRFLOW"
+POWER_BOARD_THERMAL_MODEL,"NONE (CONSERVATIVE)"
+POWER_USE_TA_VALUE,"25.00"
+POWER_BOARD_TEMPERATURE,"-1.00"
+POWER_OJC_VALUE,"3.90"
+POWER_OCS_VALUE,"0.10"
+POWER_OSA_VALUE,"2.50"
+POWER_OJB_VALUE,"-1.00"
+VCCIO,,1,2.50,2,2.50,3,2.50,4,2.50,5,2.50,6,2.50,7,2.50,8,2.50,
+RAIL_VOLTAGES,,VCCINT,1.200,VCCA,2.500,VCCD,1.200,
+
+
+BLOCK,PLL,count,1,pll_type,"FAST",pll_is_lvds,"0",pll_dpa_buses,"0",pll_output_max_freq,"2",pll_nominal_vco_freq,"599.88"
+BLOCK,Combinational cell,count,32,avg_toggle_rate,"241049.446195",avg_toggle_rate_ratio,"0.120525",avg_fanout,"1.000000",fmax,"2"
+BLOCK,Clock control block,count,1,avg_toggle_rate,"4000000.000000",avg_toggle_rate_ratio,"2.000000",avg_fanout,"32.000000",fmax,"2",global_type,"GCLK",global_clk_ena_static_prob,"1",global_type_usage,"Clock",num_raw_fanout,"32",num_lc_comb_fanout,"0",num_lc_ff_fanout,"32",sum_lc_ff_clkena_static_prob,"31.9992",avg_lc_ff_clk_ena_static_prob,"0.999976",num_pin_fanout,"0",num_m512_fanout,"0",num_m9k_fanout,"0",num_m144k_fanout,"0",num_mlab_fanout,"0",num_dsp_fanout,"0",num_dsp9x9_fanout,"0",num_misc_fanout,"0"
+BLOCK,Register cell,count,32,avg_toggle_rate,"250000.000000",avg_toggle_rate_ratio,"0.125000",avg_fanout,"1.281250",fmax,"2"
+BLOCK,I/O pad,count,1,avg_toggle_rate,"4999.750000",avg_toggle_rate_ratio,"0.002500",avg_fanout,"1.000000",fmax,"2",io_mode,"INPUT_PIN",output_load,"0",io_standard,"2_5",drive_strength,"DEFAULT",is_ddr,"0",input_termination,"OFF",output_termination,"OFF",output_termination_sp,"0",output_ena_static_prob,"0",vod,"-1",slew_rate,"-1"
+BLOCK,I/O pad,count,1,avg_toggle_rate,"99999992.000000",avg_toggle_rate_ratio,"2.000000",avg_fanout,"1.000000",fmax,"50",io_mode,"INPUT_PIN",output_load,"0",io_standard,"2_5",drive_strength,"DEFAULT",is_ddr,"0",input_termination,"OFF",output_termination,"OFF",output_termination_sp,"0",output_ena_static_prob,"0",vod,"-1",slew_rate,"-1"
+BLOCK,I/O pad,count,8,avg_toggle_rate,"12450001.472656",avg_toggle_rate_ratio,"6.225001",avg_fanout,"0.000000",fmax,"2",io_mode,"OUTPUT_PIN",output_load,"0",io_standard,"2_5",drive_strength,"DEFAULT",is_ddr,"0",input_termination,"OFF",output_termination,"SERIES_50_OHMS_WITHOUT_CALIBRATION",output_termination_sp,"0",output_ena_static_prob,"1",vod,"-1",slew_rate,"2"

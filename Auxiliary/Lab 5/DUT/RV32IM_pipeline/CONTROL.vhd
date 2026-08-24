@@ -39,7 +39,7 @@ END control;
 
 ARCHITECTURE behavior OF control IS
 
-	SIGNAL	Rtype_w, Itype_w, Stype_w, SBtype_w, Utype_w, UJtype_w 								: STD_LOGIC;
+	SIGNAL	Rtype_w, Itype_w, Stype_w, Utype_w, UJtype_w 										: STD_LOGIC;
 	SIGNAL	lb_w, lh_w, lw_w, lbu_w, lhu_w, lwu_w, ld_w, sb_w, sh_w, sw_w, st_w					: STD_LOGIC;
 	SIGNAL	beq_w, bne_w, blt_w, bge_w, bltu_w, bgeu_w, branch_w, jal_w, jalr_w 				: STD_LOGIC;
 	SIGNAL	add_w, addi_w, and_w, andi_w, or_w, ori_w, sll_w, slli_w, sra_w, srai_w				: STD_LOGIC;
@@ -53,8 +53,7 @@ BEGIN
 	Rtype_w		<=  '1'	WHEN	opc_w = RTYPE_OPC  ELSE '0';
 	Itype_w		<=  '1'	WHEN	(opc_w = ITYPE_OPC) or (ld_w = '1') or (jalr_w = '1') ELSE '0';
 	Stype_w 	<=  '1'	WHEN	opc_w = STYPE_OPC  ELSE '0';
-	SBtype_w 	<=  '1'	WHEN	opc_w = SBTYPE_OPC ELSE '0';
-	Utype_w 	<=  '1'	WHEN	((opc_w and UTYPE_OPC) = UTYPE_OPC)  ELSE '0';
+	Utype_w 	<=  '1'	WHEN	(opc_w = AUIPC_OPC) or (opc_w = LUI_OPC) ELSE '0';
 	UJtype_w 	<=  '1'	WHEN	opc_w = UJTYPE_OPC ELSE '0';
 
 	lb_w		<=	'1'	WHEN	(instruction_i and INST_LB_MASK) = INST_LB				ELSE 	'0';	--lb		
@@ -145,7 +144,7 @@ BEGIN
 							"00";
 		  						      		
 	ALUOp_ctrl_o		<=  ALU_ADD					WHEN	add_w	or 	addi_w or auipc_w or lui_w or jal_w or jalr_w or ld_w or st_w 	ELSE																																																				
-							ALU_AND					WHEN	and_w 	or 	ori_w	ELSE																			
+							ALU_AND					WHEN	and_w 	or 	andi_w	ELSE
 							ALU_OR					WHEN	or_w 	or 	ori_w	ELSE
 							ALU_SHIFTL				WHEN	sll_w 	or	slli_w	ELSE																					
 							ALU_SHIFTR_ARITH		WHEN	sra_w 	or	srai_w	ELSE 																									
