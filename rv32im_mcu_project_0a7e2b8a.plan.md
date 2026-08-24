@@ -536,6 +536,76 @@ Four of the five are in the code Hanan distributed. The baseline is a repair sou
 
 ---
 
+# 1.5 NEW — Hanan's forum answers, 2026-08-24
+
+Three screenshots of the course forum Q&A arrived. They are **the most valuable material we have
+received since the reference replacement**, because they turn five assumptions into facts, unblock
+three phases, and — importantly — contradict three things already written.
+
+The full transcription, with the wording of every answer and the cross-checks against the repo, is in
+`DOC/03_open_questions.md` under "ANSWERS FROM HANAN'S FORUM". This section is the consequences.
+
+## 1.5.a Three phases unblocked
+
+| Phase | Was blocked on | The answer |
+| --- | --- | --- |
+| **3C** | whether `mul` must be 32×32, whether `mulh*` is in scope, and Q6 | **Nothing to build.** 16-bit `mul` *is* the requirement; `mulh*` is not required; the divider's registers are core-internal. The phase collapses into Phase 7 |
+| **4B** | Q2, and the belief that ALTPLL had to be regenerated for `c1`/`c2` | **"No — on the basis of three different PLL instances."** The existing single-output `PLL.vhd` is instantiated **three times**. Nothing to regenerate. And `MCLK = SMCLK` is permitted for a single-cycle core |
+| **6C** | `PORT_PB`'s bit layout, which appears in no file | **`KEY1`→bit 0, `KEY2`→bit 1, `KEY3`→bit 2**; `KEY0` excluded because it is the RESET interface |
+
+## 1.5.b Five assumptions settled
+
+`A1` (`SMCLK = 20 MHz`) — **confirmed in writing** in the added `ReadMe.txt`.
+`A2` (`MCLK = SMCLK`) — **confirmed**, explicitly permitted for a single-cycle core.
+`A7` (divider registers core-internal) — **confirmed**.
+`A14` (a HEX shows the low nibble) — **confirmed**: *"each HEX stands on its own"*.
+`A6` (`IFG` holds the raw flag) — **FALSIFIED.** `IFG` is the **masked** value; it only rises when
+`IE = 1`. Nothing is built on it yet, so this cost nothing — it would have cost a Phase 9 rebuild.
+
+## 1.5.c Three things already written that the answers contradict
+
+Recorded here and not buried, because two of them are real rework:
+
+1. **The `SW_i` synchroniser (Phase 6B) is not wanted.** Hanan: buttons and switches need no
+   two-DFF synchroniser, *"since their rate of change is many orders of magnitude slower than the
+   system clock, so the signal is considered static"*. It was added citing his **own** Figures 10a/10b
+   material, which is exactly the kind of reasoning-from-analogy the project rules warn about.
+   → Put it behind a generic defaulting to **off**, with his answer quoted next to it.
+2. **The bidirectional data bus is mandatory, and ours is half-built.** *"It is mandatory to use a
+   DATA BUS based on the bi-directional bus."* Phase 6B built the **read** side as a genuine
+   tri-state bus, but write data still leaves the core on a separate `dbus_wdata_w` path — that is
+   two unidirectional buses, not one bidirectional one.
+   → Restructure so the CPU drives the same wires on a write, through `BidirPin`. This is now a
+   requirement, not a preference.
+3. **The peripherals belong on `SMCLK`, not `MCLK`.** Phase 6A clocks the seven GPO ports from the
+   core's `mclk_o`. Benign while `MCLK = SMCLK` (which is permitted), but architecturally wrong.
+   → Fix as part of Phase 4B, which now has everything it needs.
+
+## 1.5.d What the added ReadMe is worth on its own
+
+`Auxiliary/Benchmark Apps/Intrrupt-based IO/ReadMe.txt` — which the forum says was added in response
+to exactly the question we had — is **the expected-behaviour contract for Phase 10**, per application,
+in English, including test4's three modes (compare / output-compare PWM at 5 kHz with four duty
+cycles / input-capture timing of a division loop). Until now Phase 10 had cycle counts and golden
+memories but no statement of what the interrupt applications were supposed to *do*.
+
+**And we are already current.** The forum says the interrupt `bin` folders were updated so the vector
+table is ITCM-relative; our copies read `0x200`/`0x11C`/`0x17C`/`0x234`, `test4` and `ReadMe.txt` are
+present, and the pre-update copy is preserved under `_superseded/`. No re-import.
+
+## 1.5.e The one question the forum did not settle — now better evidenced
+
+**`SEC_PERIOD` versus `BTSSEL`.** `Intrrupt-based IO/test{2,3}/asm-code/01_func.s:54-74` programs
+`BTCTL1 = 0x18` → `BTSSEL = 11` → **÷8**, then loads `SEC_PERIOD = 0x01312D00 = 20,000,000`, commented
+*"interrupt period of 1sec"*. At 20 MHz ÷ 8 that is **8 seconds**.
+
+The answers make this *sharper*: `SMCLK = 20 MHz` is now Hanan's own statement, and the new ReadMe
+repeats "1sec" for the same constant. Meanwhile `FREQ_5K = 500` at ÷8 gives exactly the 5 kHz test4's
+PWM needs — so ÷8 is right and it is `SEC_PERIOD` or its comment that is off by a factor of 8.
+**Still the question to ask, and now with three independent citations behind it.**
+
+---
+
 # 2. Reference hierarchy
 
 Anchor every decision here, in this order. Never skip a level silently.
@@ -985,11 +1055,18 @@ decode defects:
 | G-322 `lui` | 1 | ✔ 3A | — |
 | G-323 load offset | 1 | ✔ 3A | — |
 | G-309 sub-word access | 6 | ✔ 3B | — |
-| G-326 `MUL16` is 16×16 | 2 | ✘ | open question — mul width |
-| G-308 `mulh`/`mulhu`/`mulhsu` | 3 | ✘ | open question — "MULDIV partial" |
-| G-307 `div`/`divu`/`rem`/`remu` | 4 | ✘ | Phase 7, Q6 |
+| G-326 `MUL16` is 16×16 | 2 | ✘ | **ANSWERED — not a defect.** 16-bit `mul` is the requirement |
+| G-308 `mulh`/`mulhu`/`mulhsu` | 3 | ✘ | **ANSWERED — not required.** `mul` only |
+| G-307 `div`/`divu`/`rem`/`remu` | 4 | ✘ | Phase 7 — **now unblocked**, registers are core-internal |
 
-**25 → 9.** Defects 6 and 7 are not in that table because the Phase-2 suite does not reach them: its
+**25 → 9, and after Hanan's forum answers the 9 read differently.** Five of them —
+the two `mul` width cases and the three `mulh*` cases — are **not defects at all**: Hanan's forum says
+the required core is Lab 5's RV32IM *"including support for a 16-bit multiplier only"* and *"`mul`
+only (as in Lab 5)"*. So the directed suite is measuring conformance the project does not ask for.
+Those five stay as documented, deliberately-failing evidence in the report rather than work items.
+The remaining four are `div`/`divu`/`rem`/`remu`, and those are Phase 7, which is now unblocked.
+
+Defects 6 and 7 are not in that table because the Phase-2 suite does not reach them: its
 only branch displacements are 0 and 8, and it executes no `jalr` at all — both verified by scanning
 the generated image. That is what `repair_check.do` is for.
 
@@ -1080,22 +1157,25 @@ drawing any conclusion from it.
 
 Closes G-309. Takes the ISA suite from 25 mismatches to 9.
 
-### Phase 3C — `mul` width, `mulh`, and `div`  ·  **deliberately not started**
+### Phase 3C — `mul` width, `mulh`, and `div`  ·  **ANSWERED 2026-08-24 — mostly nothing to do**
 
-Nine of the ten remaining mismatches are here, and **all of them are blocked on a question, not on
-effort.** Implementing them now would be inventing requirements:
+This phase was held back because implementing it would have meant inventing requirements. Hanan's
+forum answers settle all three parts, and **two of them turn out to need no work at all**:
 
-- `MUL16` multiplies only `rs1(15:0) × rs2(15:0)`. `PROJECT_EXPLANATION.md` §1 calls the submitted
-  design "an RV32I-oriented teaching core extended with a tested 16-bit `mul` datapath" and it was
-  accepted that way. Whether the final project needs a full 32×32 `mul` is unanswered.
-- `mulh`/`mulhsu`/`mulhu` — masks exist in `const_package.vhd`, no ALU op consumes them. LAB5 calls
-  the whole thing "MULDIV **partial**".
-- `div`/`divu`/`rem`/`remu` — the Final Project defines a **division accelerator** as a peripheral
-  (Figure 9: `DIVIDEND`/`DIVISOR`/`QUOTIENT`/`RESIDUE`, `DIVCLK`/`DIVRST`/`DIVENA`/`DIVBUSY`), not as
-  an ISA instruction. Q6 asks whether those registers are memory-mapped or core-internal, and until
-  that is answered, adding `div` to the ALU may well be building the wrong thing.
+- **`MUL16` being 16×16 is the requirement, not a defect.** The base task is to *"extend the RV32I
+  single-cycle to the RV32IM single-cycle you were given, **including support for a 16-bit multiplier
+  only**"*. Nothing to widen. **G-326 closed.**
+- **`mulh`/`mulhsu`/`mulhu` are not required.** *"`mul` only (as in Lab 5)."* The masks in
+  `const_package.vhd` stay unused. **G-308 closed.**
+- **`div`/`divu`/`rem`/`remu` belong to the accelerator, and its registers are core-internal.**
+  `DIVRST` initialises the divider's internal quotient shift register *"in parallel with writing the
+  Dividend, Divisor values into the **core's** registers"* — so they are not memory-mapped, which was
+  Q6. **That moves the remaining four cases into Phase 7, which is now unblocked.**
 
-**Ask Hanan before writing any of this.** Q6 plus a new question on `mul` width.
+So the only thing that was ever really in this phase is the divider, and it has moved to where it
+belongs. **The five `mul`/`mulh*` mismatches in the directed ISA suite stay**, as documented evidence
+that the suite tests full RV32IM conformance while the project asks for a subset — which is worth a
+paragraph in the report, not a code change.
 
 ### Phase 3D — re-import the revised pipeline  ·  **built, awaiting verification**
 
@@ -1952,10 +2032,10 @@ Gaps: G-501…G-505.
 | **G-305** | MMIO address decoder. **CLOSED 2026-08-24** (Phases 5A + 5B) — `ADDR_DECODER.vhd` with an exhaustive 16384-address testbench, the map as data in `const_package.vhd`, `dmemory`'s write enable gated by the chip select, and the decoder instantiated where Figure 1 puts the `BUS Interface Logic`. The twenty registers occupy exactly twelve consecutive words, so the chip-select index *is* `addr(5 DOWNTO 2)`. **The aliasing was hidden by defect 2**: at `G_ISA_REPAIR = FALSE`, `lui` writes zero, so the GPIO benchmarks never formed an SFR address at all. | Figure 5, p5 |
 | **G-306** | GPIO buffer registers | §5, §6 |
 | **G-307** | `div`/`divu`/`rem`/`remu` decode — masks exist, hardware does not | §2 |
-| **G-308** | `mulh`/`mulhsu`/`mulhu` — scope undecided | §2 |
+| ~~G-308~~ | `mulh`/`mulhsu`/`mulhu` — **CLOSED 2026-08-24, NOT REQUIRED.** Hanan's forum: *"`mul` only (as in Lab 5)"*, and the base task is *"extend the RV32I single-cycle to RV32IM … including support for a 16-bit multiplier only"*. Nothing to build. | §2 |
 | **G-309** | Byte enables and sub-word load/store. `altsyncram` had no `byteena_a`; `CONTROL` detected `lb`/`lh`/`sb`/`sh` then discarded the width. **Built in Phase 3B**, awaiting verification. | §2 |
 | **G-310** | CDC synchroniser. **CLOSED 2026-08-24** (Phase 4A) — `DUT/RV32IMscMCU/SYNC.vhd` plus a self-checking testbench. The figure specifies **three** flip-flops, not two: one launch register in the slow domain, two settling stages in the fast one. | Figures 10a/10b |
-| **G-311** | Multi-output clock tree; all three ALTPLL copies expose only `c0` | Figure 1 |
+| **G-311** | Multi-output clock tree. **RESHAPED 2026-08-24 and no longer blocked on the megafunction.** Hanan's forum, asked whether `MCLK`/`ACCELCLK`/`SMCLK` come from one PLL module: *"No — on the basis of three different PLL instances"*, each fed by the 50 MHz base. So the existing single-output `PLL.vhd` is instantiated **three times** with different multiply/divide ratios — nothing has to be regenerated for `c1`/`c2`, which was the whole Phase 4B blocker. And `MCLK = SMCLK` is permitted for a single-cycle core. | Figure 1 |
 | **G-312** | Edge detector / one-shot for KEY1-3 | §6.i |
 | **G-313** | UART register layer | §6.iv, p12 |
 
@@ -1973,7 +2053,7 @@ before/after line pairs.
 | **G-323** | Loads address `rs1 + 0` | **lecturer's baseline**, `IDECODE.VHD:94-101` | repaired (3A) |
 | **G-324** | `sra` ≡ `srl` | **lecturer's baseline**, `EXECUTE.VHD:179` | repaired (3A) |
 | **G-325** | Unsigned compares are signed | **lecturer's baseline**, `EXECUTE.VHD:9` | repaired (3A) |
-| **G-326** | `mul` is 16×16 unsigned, lower half-words only | `EXECUTE.vhd:93-94` | open — Phase 3C, needs a question answered |
+| ~~G-326~~ | `mul` is 16×16 unsigned, lower half-words only — **NOT A DEFECT. CLOSED 2026-08-24.** Hanan's forum says the required core is the Lab 5 RV32IM *"including support for a 16-bit multiplier only"*. The supplied behaviour **is** the specification, so the four `mul_*` mismatches in the ISA suite are the suite measuring conformance the project does not ask for, not bugs. | `EXECUTE.vhd:93-94` | closed — not a defect |
 | **G-327** | test4's capture input never changes; `CAPISEL` stays at GND | supplied benchmark, current revision | open |
 | **G-328** | **NEW.** Branch/`jal` displacement truncated one bit: `EXECUTE.vhd:66` slices `(PC_WIDTH-3 DOWNTO 0)`, dropping immediate bit 11, so branch range is ±2 KiB instead of the full 8 KiB PC. No benchmark reaches that far, so it is latent and the golden DTCMs still match. | **lecturer's baseline**, `EXECUTE.VHD` | repaired (3A) |
 | **G-329** | **NEW.** `jalr` does not clear the target's bit 0 (`IFETCH.vhd:93`). Masked today by the word-granular ITCM dropping bits 1..0, but `pc_o`, `pc_plus4` and every link address carry the odd value. | **lecturer's baseline**, `IFETCH.vhd` | repaired (3A) |

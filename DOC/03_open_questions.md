@@ -8,6 +8,92 @@ Ordered by how much RTL behaviour depends on the answer.
 
 ---
 
+# ANSWERS FROM HANAN'S FORUM — added 2026-08-24
+
+Three screenshots of the course forum Q&A were supplied. They answer a large part of this document.
+Recorded here **before** any of it is acted on, so that what changed and why is traceable.
+
+**Transcription caveat.** The source is screenshots of Hebrew text, some of it small. Every row below
+that drives a design decision was cross-checked against a file in the repo where that was possible,
+and those cross-checks are named. Two rows are marked **[low confidence]** where the wording could not
+be read with certainty; neither is acted on without confirming.
+
+## A. Answers that close an open question
+
+| # | Question | Hanan's answer | Closes |
+| --- | --- | --- | --- |
+| F1 | Which core do we start from, and does `mul` include `mulh*`? | Base on **Lab 5 part 1**: extend the supplied RV32I single-cycle to RV32IM, **"including support for a 16-bit multiplier only"**. And separately: **"`mul` only (as in Lab 5)"** | **Q14**, **G-326**, **G-308** |
+| F2 | Are the divider's `DIVIDEND`/`DIVISOR`/`QUOTIENT`/`RESIDUE` memory-mapped or core-internal? | `DIVRST` initialises the divider's internal quotient shift register **"in parallel with writing the Dividend, Divisor values into the core's registers"** — *core* registers | **Q6**, confirms **A7** |
+| F3 | Is `Ain` the dividend or the divisor? | **`Ain` = Dividend, `Bin` = Divisor** | new |
+| F4 | What does divide-by-zero return? | Normally an exception status line; **"in your case there is no support for that and in practice the division result will be all ones"** | new |
+| F5 | Must the divider's subtractor be built from full adders? | **"You may use the subtraction operator"** — just check what Quartus synthesises | new |
+| F6 | Are `MCLK`, `ACCELCLK`, `SMCLK` produced by one PLL module? | **"No — on the basis of three different PLL instances"**, each fed by the 50 MHz base clock | **G-311**, and it **unblocks Phase 4B** |
+| F7 | May all three clocks run at the same frequency? | The separation exists for timing/power independence, **but: "since you are working with a single-cycle base CPU (not a pipeline) running at a low frequency … your values may be identical, i.e. MCLK = SMCLK"** | **Q2** (largely), confirms **A2** |
+| F8 | What is `SMCLK`? | Stated in writing in `Intrrupt-based IO/ReadMe.txt`: *"value of 0x01312D00 is for **SMCLK=20MHz**"* | confirms **A1** — no longer an assumption |
+| F9 | What is `PORT_PB`'s bit layout? | **"The mapping is in the order KEY1–KEY3 to bits 0–2 respectively (KEY0 is not included, since it is the system RESET interface)"** | **unblocks Phase 6C** |
+| F10 | Does each HEX stand alone, or do HEX0+HEX1 pair up for one value? | **"Each HEX stands on its own"** | confirms **A14** |
+| F11 | Must the GPIO registers be latches, or may they be DFFs on a clock? | For them to be latches the bus data would have to be stable and not a combinational output; **"while the other modules' registers are DFF based on SMCLK, that is preferable for the GPIO register too"** | **validates the Phase 6A deviation** |
+| F12 | Do we implement key debounce in VHDL? | **No — the board debounces in hardware** (a 74HC245 buffer, Figure 6); the signal entering the FPGA is clean | confirms the plan |
+| F13 | An interrupt arrives while `DIV`/`REM` is still `BUSY` — finish the instruction first? | **"Correct."** The CPU finishes the current instruction, then drops `INTA` and runs the protocol; for `DIV`/`REM` the instruction only completes **when `BUSY` falls** | confirms the plan |
+| F14 | Must `TYPE` be multiplied by 4 to index the vector table? | **"The `TYPE` register contains values that are multiples of 4"** — it is already a byte offset | confirms `DOC/02` §4.1 |
+| F15 | `BTCTL2` sits at an odd address and the assembly stores to it — is that legal? | **"Word-multiple addressing is relevant for the DTCM address space only; in the peripherals' address space any address value can be relevant (byte addresses)"** | confirms the MMIO map |
+| F16 | What exactly does RESET clear in the Basic Timer? | **"Only the timer's interface registers are reset: `BTCTL1`, `BTCTL2`, `BTCAPR`, `BTCMPR0`, `BTCMPR1`"** — so **`BTCNT` is not reset** | new, Phase 8 |
+| F17 | In compare mode, does `BTCNT` keep counting past `BTCL1`? | The core raises an interrupt per `BTINT` on comparison with `BTCL0`/`BTCL1`, **but the count always restarts after reaching `BTCL0` (on the rise of `EQU0`)** | new, Phase 8 |
+| F18 | Where do `PWMout`, `CAPIN1`, `CAPIN2` go? | **"Yes — you must choose three pins on the board's external interface connector"** for the three | narrows **G-504** |
+| F19 | Were the interrupt benchmarks changed? | **"bin folders under test1, test2, test3 under Interrupt-based IO were updated … the content of the interrupt vector table was adjusted to ITCM start address of value zero."** Also: **test4 was added, plus a ReadMe describing test1–test4**, and all four now initialise `state=STATE0` | see B below |
+
+**F19 checked against the repo, and we are current.** `Auxiliary/Benchmark Apps/Intrrupt-based IO/`
+holds `test1`–`test4` **and** `ReadMe.txt`, and the vector tables read `0x200` / `0x11C` / `0x17C` /
+`0x234` — ITCM-relative, no bias. The pre-update copy is preserved at
+`_superseded/Interupt-based IO/` and reads `0x1FC`. **No re-import is needed.**
+
+## B. What the added ReadMe gives us that no other file did
+
+`Auxiliary/Benchmark Apps/Intrrupt-based IO/ReadMe.txt` is the per-application description the
+forum asked for, and it is the **expected-behaviour contract** for Phase 10:
+
+- **test1** — `KEY1`→ `arr1[i]` on HEX5,HEX4; `KEY2` → `arr2[i]` on HEX3,HEX2; `KEY3` → quotient on
+  HEX1,HEX0 **and remainder on LEDR7-0**, then `i++`, then delay. `SW0` picks the delay length
+  (short for simulation, long for the board). **Not timer-based.**
+- **test2** — three FSM states printing `a0` to a HEX pair each; `a0++` on every **1 s** BT interrupt.
+- **test3** — the same, but each key also changes the interval: 1 s → 0.5 s → 0.25 s → 0.125 s.
+- **test4** — the application that covers everything: `KEY1` cycles the compare-mode interval,
+  `KEY2` puts the timer in **output-compare mode with a 5 kHz PWM** and cycles the duty cycle through
+  0.5 / 0.25 / 0.125 / 0.0625, `KEY3` uses **input-capture mode to time** an array division (even
+  presses) or modulo (odd presses) loop.
+
+## C. One thing the forum did NOT resolve — and it is now better evidenced
+
+**Q3 / A5 stands.** `Intrrupt-based IO/test{2,3}/asm-code/01_func.s:54-74` programs
+`BTCTL1 = BTSSEL3 = 0x18`, i.e. bits[4:3] = `11` → **÷8**, and then loads
+`SEC_PERIOD = 0x01312D00 = 20,000,000` with the comment *"interrupt period of 1sec"*. At
+`SMCLK = 20 MHz` divided by 8 that is **8 seconds**.
+
+The forum's answers make this sharper rather than softer: F8 confirms `SMCLK = 20 MHz` in Hanan's own
+words, and the ReadMe repeats "1sec" for the same constant. Meanwhile `FREQ_5K = 500` at ÷8 gives
+exactly 5 kHz, which is what test4's PWM needs — so the ÷8 reading is right and it is the
+`SEC_PERIOD` value or its comment that is off by 8. **Still the question to ask.**
+
+## D. What these answers CONTRADICT in code already written
+
+Recorded plainly, because three of them mean rework:
+
+| Answer | What it contradicts | Action |
+| --- | --- | --- |
+| **"No"** — buttons and switches need no two-DFF synchroniser, *"since their rate of change is many orders of magnitude slower than the system clock, so the signal is considered static"* | Phase 6B added exactly that on `SW_i`, justified by citing Hanan's **own** Figures 10a/10b material | Put it behind a generic defaulting to **off**, with his answer quoted. It costs 16 flops and 2 cycles, so it is not harmful — but the lecturer has said it is not wanted |
+| **"It is mandatory to use a DATA BUS based on the bi-directional bus"** | Phase 6B built the **read** side as a real tri-state bus, but the write data still leaves the core on its own separate `dbus_wdata_w` path. That is not one bidirectional bus | Restructure so the CPU drives the same wires on a write, through `BidirPin`. Real work, and it is now a requirement rather than a preference |
+| **F11**: the other modules' registers are DFFs based on **`SMCLK`** | Phase 6A clocks the seven GPO ports from **`mclk`**, via the transitional `mclk_o` export | Benign while `MCLK = SMCLK` (F7 permits that), but architecturally the peripherals belong on `SMCLK`. Fix when Phase 4B builds the three-PLL clock tree |
+| **IFG is the masked value** — *"the flag accumulated as '1' in IFG depends on BOTH conditions, interrupt request AND interrupt enable; if either is zero the flag drops to zero"*, and IFG only rises when `IE = 1` | **Assumption A6 in `DOC/02` says the opposite**: that `IFG` holds the raw latched flag and `IE` masks only the path toward `INTR` | **A6 is falsified.** Phase 9 follows Hanan. Nothing is built yet, so this costs nothing — it would have cost a rebuild |
+
+## E. Still open after the forum
+
+Q1 (which board), Q3/A5 (above), Q4 (`RXIFG` serving two `TYPE` values), Q5 (`HEU0`),
+Q9 (`BTINT`'s three-of-four encoding), Q11/Q12 (`UCTL` spelling, `UxBRx`/`UxMCTL`), and
+**[low confidence]** two forum rows: whether *all* timer interface registers are read/write with
+`BTCTL2` read-only, and the exact wording of the interrupt-request-in-the-control-unit answer.
+
+---
+
 ## Blocking before hardware work
 
 ### Q1 — Which FPGA board?

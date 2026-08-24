@@ -650,13 +650,13 @@ Everything in this document that is not cited to a source.
 
 | # | Assumption | Basis | Falsified by |
 | --- | --- | --- | --- |
-| A1 | `SMCLK = 20 MHz` | `FREQ_5K` resolves exactly at ÷8; benchmark annotations | A stated SMCLK |
-| A2 | `MCLK = SMCLK` | No statement to the contrary; simplest tree | A stated `f_MCLK` |
+| ~~A1~~ | `SMCLK = 20 MHz` — **CONFIRMED 2026-08-24, no longer an assumption.** Stated in Hanan's own words in `Intrrupt-based IO/ReadMe.txt`: *"value of 0x01312D00 is for SMCLK=20MHz"* | — | — |
+| ~~A2~~ | `MCLK = SMCLK` — **CONFIRMED 2026-08-24.** Hanan, on whether the three clocks may share a frequency: *"since you are working with a single-cycle base CPU (not a pipeline) running at a low frequency … your values may be identical, i.e. MCLK = SMCLK"* | — | — |
 | A3 | `ACCELCLK = 50 MHz` | §6.iii calls DIVCLK the fast clock; 50 MHz is the only faster clock | Timing closure failure, or a stated value |
 | A4 | `BTSSEL` is `00`→÷1 … `11`→÷8 as Figure 7 draws it | Figure 7 mux labels; the `BTSSEL=SMCLK` author comment on `0x26`; `FREQ_5K` resolving exactly | Course staff reversing it — but then `FREQ_5K` breaks |
 | A5 | The benchmarks' "1sec" comments are wrong, not the `BTSSEL` table | Three-to-one evidence, §3.2 | Course staff confirming a 1 s period at `BTSSEL=3` |
-| A6 | `IFG` holds the raw latched flag; `IE` masks only toward `INTR` | The multi-source diagram brackets the flop outputs as the IFG register; benchmarks clear `IFG` independently of `IE` | A benchmark reading a masked `IFG` |
-| A7 | Divider operand/result registers are core-internal | Absent from both MMIO tables; Figure 3 wires them to ALU operands | An assigned SFR address |
+| ~~A6~~ | ~~`IFG` holds the raw latched flag; `IE` masks only toward `INTR`~~ — **FALSIFIED 2026-08-24 by Hanan's forum answer.** `IFG` is the **masked** value: *"the flag accumulated as '1' in the IFG register depends on BOTH conditions, interrupt request AND interrupt enable; if either is zero the flag drops to zero and the meaning is that the source is not pending"*, and `IFG` only rises when `IE = 1`. The single-source diagram's `IFGx` label on the `irq AND eint` output was the correct reading after all. Phase 9 follows this. | — | — |
+| ~~A7~~ | Divider operand/result registers are core-internal — **CONFIRMED 2026-08-24.** Hanan on `DIVRST`: it initialises the divider's internal quotient shift register *"in parallel with writing the Dividend, Divisor values into the **core's** registers"* | — | — |
 | A8 | Five submission directories, not six | LAB5 uses identical wording and was accepted with five | Course staff naming a sixth |
 | A9 | `Final_report.pdf` | Table 1 is more specific than the prose | Course staff preferring `final.pdf` |
 | A10 | Board is DE2-115 | All Lab 5 material and the students' own hardware runs target it | Course staff naming DE10-Standard |
@@ -664,9 +664,11 @@ Everything in this document that is not cited to a source.
 | A12 | A Word-resolution register owns all four lanes of its word | §6's table gives `BTCMPR0`/`BTCMPR1`/`BTCAPR` Address Resolution "Word", and `io_map.s` marks them "define a Word address" | A byte-resolution use of any of those three |
 | A13 | A GPO port holds zero after reset — LEDs off, every HEX showing `0` | Nothing states a reset value and Figure 5 draws no reset on the latch at all; zero needs no extra state, whereas "blank until first written" needs a flag nothing asks for | Any statement that the displays should be dark after KEY0 |
 | A15 | The seven GPO ports are readable (Figure 5's `MemRead` tri-state), despite clause 5's Direction column saying `GPO` | Figure 5 draws the buffer inside every output-port block; a read-back register is the ordinary MMIO arrangement, and "GPO" plausibly describes the device | Course staff saying an output port must not respond to a read |
-| A14 | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 | Figure 5 draws `D0..D7` into the latch and a 7-segment encoder after it; `Intrrupt-based IO/test1/asm-code/01_func.s:17-20` masks and `srli`s the digit into bits 3..0 before storing | A program that expects the upper nibble to affect the display |
+| ~~A14~~ | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 — **CONFIRMED 2026-08-24.** Hanan, asked whether HEX0 and HEX1 are needed together to show one value: *"each HEX stands on its own"* | — | — |
 
-Fifteen assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
+Fifteen assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+
+None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of
 Phase 5A and are both exercised by `TB/RV32IMscMCU/tb_addr_decoder.vhd`, so if either is wrong the
 change is one line in `const_package.vhd` and the exhaustive sweep re-proves the whole map. A13 and
