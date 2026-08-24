@@ -142,8 +142,18 @@ ENTITY clock_tree IS
 		-- edge through every phase of the slow one. Same argument as
 		-- TB/RV32IMscMCU/tb_sync.vhd's 70/30. It does NOT reproduce the real 5:2
 		-- ratio, and is not trying to.
+		--
+		-- NOTE, because it looks like an inconsistency and is not: the three
+		-- SIM_* periods are NOT derived from MCLK_KHZ / SMCLK_KHZ / ACCELCLK_KHZ,
+		-- and are not meant to be. In simulation only the RATIOS between clocks
+		-- matter, and deriving the periods from the real frequencies would make
+		-- accelclk exactly 10x the testbench clock -- an integer ratio, which is
+		-- the one thing to avoid. So do not expect a clock_tree configured for
+		-- 10 MHz SMCLK to show a 100 ns period in a waveform; it shows 70 ns, on
+		-- purpose. The real frequencies are what the elaboration checks above and
+		-- the SDC (Phase 4C) are for.
 		SIM_ACCEL_HALF_NS	: natural := 15;
-		SIM_SMCLK_HALF_NS	: natural := 35;		-- only when NOT sharing
+		SIM_SMCLK_HALF_NS	: natural := 35;		-- only used when NOT sharing
 		SIM_LOCK_DELAY_NS	: natural := 200		-- see note 2 above
 	);
 	PORT(
