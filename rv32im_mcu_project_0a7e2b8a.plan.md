@@ -2167,7 +2167,8 @@ before/after line pairs.
 | --- | --- |
 | `DOC/01_source_inventory.md` | Every component: supplied or not, exact path, provenance, reuse verdict |
 | `DOC/02_requirements_traceability.md` | Every address, bit field, mode and clock with its source; four verification cross-checks; ten assumptions |
-| `DOC/03_open_questions.md` | Q1–Q14, each with a provisional decision so nothing blocks |
+| `DOC/03_open_questions.md` | The long record: Q1–Q14 with a provisional decision each, **plus the full transcription of Hanan's forum answers** and what each closes or falsifies |
+| `DOC/05_questions_for_hanan.md` | **The sendable list** — only what is still open after the forum. 18 items, one "Ask" line each, grouped by what they block, plus a 23-row "do not re-ask" table |
 | `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers. **Rewritten 2026-08-24** for the replaced reference: sections 2, 4, 5.2, 6 and 8 all changed, and section 8.1b covers the Phase 3A/3B measurement |
 | `SIM/baseline_reference/` | `compile.do`, `run_test.do`, `mem_dump.do` — replacements for the scripts the reference lost, reaching into `Auxiliary/` read-only |
 | `Auxiliary/Lab 5 - as submitted/README-import.md` | What was imported and why the two Lab 5 copies differ |
@@ -2205,11 +2206,17 @@ before/after line pairs.
 6. **`do run_mmio.do`** (Phase 5B). This one **does** need staging and **needs `G_ISA_REPAIR = TRUE`**
    — read the Phase 5B block above for why, it is not arbitrary. Then re-run Run 2 in full: the four
    benchmark counts must be unchanged.
-7. **Send the questions** (§0.6). **Q6 and Q14 first** — those two are the only ones now blocking
-   implementation, and together they decide nine of the ten remaining ISA-suite mismatches. Q14 is
-   new: it asks whether a conformant 32×32 `mul` is required, whether `mulh*` is in scope, and
-   whether `div` belongs in the ALU at all given that §6.iii defines a division *accelerator*. Then
-   Q1, Q2, Q3.
+7. **Send the questions — `DOC/05_questions_for_hanan.md`.** Rewritten 2026-08-24 after the forum
+   answers, and far shorter than it was: **Q6 and Q14 are answered**, and so are fifteen others.
+   Eighteen items remain, each with a one-sentence "Ask" line ready to send as-is.
+   **Send section 1 first** — four items, and they are the only ones that block a phase:
+   - **B1** which board, DE2-115 or DE10-Standard — blocks every pin assignment
+   - **B2** `SEC_PERIOD` versus `BTSSEL`, the factor of 8 — blocks Phase 8's timing
+   - **B3** what `ACCELCLK`/`DIVCLK` should be — blocks Phase 4B's third PLL ratio
+   - **B4** `BTINT`'s encoding, two bits for "three options" — blocks Phase 8
+
+   Section 6 of that file is a **do-not-re-ask** table of the 23 things the forum settled, so no
+   forum post is spent on an answered question.
 8. **Answer G-207 and G-208** — what is in `finalProj`, and whether the two circled Quartus settings
    were instructions.
 9. ~~Answer G-331~~ — done: `Auxilary/Ori/` is another student's pipeline, usable as a reference
