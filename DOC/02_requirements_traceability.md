@@ -477,6 +477,50 @@ domain straight from the register file, not from the data bus. Together with Fig
 `Ain`/`Bin` to the ALU operands, that is two figures pointing the same way and none pointing the
 other. Q6 still wants a confirmation, but the provisional answer is now well supported.
 
+### 5.2 What Phase 7B1 built — the subsystem around the engine
+
+**[CODE, ours]** `DUT/RV32IMscMCU/DIV_UNIT.vhd`, verified by `TB/RV32IMscMCU/tb_div_unit.vhd` and
+pre-verified in Python by `tools/model_div_unit.py`. Engine + four clock-domain crossings + the
+MCLK-side handshake + the signed `div`/`rem` wrapper, behind one MCLK-domain interface.
+
+**[DEC] The stall is built on `done_o`, not `busy_o`.** `DIVstart` takes two synchroniser stages to
+reach the engine and `DIVBUSY` two more to return, so for several MCLK cycles after a `div` issues
+`busy` still reads **low**: a stall written as "hold while busy" does not hold at all, and the core
+runs past its own divide. Phase 7B2's term is `PCHold <= DIVstart AND NOT done_o`.
+
+**[DEC] A launch race, found in review of our own design and fixed.** The enable and the two operand
+buses each cross through their own two-stage synchroniser. Launched on the same MCLK edge, nothing
+guarantees the operand bits resolve no later than the enable bit — `DIVENA` can legitimately arrive
+one DIVCLK edge before a bit of `Ain`/`Bin` has settled, and the engine would load a half-updated
+operand. The `LAUNCH` state holds the enable back one MCLK cycle: data first, control after.
+
+**[DEC] The result buses are deliberately not synchronised**, and that is the correct application of
+`SYNC.vhd`'s own rule rather than an omission of it: a two-flop synchroniser on a multi-bit bus is
+only sound when the bus is *stable*, and `Quotient`/`Residue` change on every iteration. They are
+read directly, after `DIVBUSY` has been seen to fall through two stages — by which point the engine
+has been idle and its outputs constant for at least two MCLK cycles.
+
+**[DEC] The operands are registered before crossing**, a deliberate deviation from Figure 10b, which
+draws live `Read data1`/`Read data2` going straight into the `Sync` block. A live register-file
+output is stable only *because* the core stalls; a latched copy is stable by construction.
+
+**[REQ, RISC-V] The signed wrapper needs exactly one special case, and it is not the one people
+expect.** `-2^31 / -1` needs **nothing**: `|-2^31|` is `0x80000000`, the engine returns quotient
+`0x80000000`, the signs agree so nothing is negated, and `0x80000000` *is* `-2^31`. **Divide by zero
+does** need hardware: RISC-V requires `-1` for every dividend, but for a *negative* dividend the sign
+correction would negate `0xFFFFFFFF` into `+1`. So `divisor = 0` bypasses the sign correction, giving
+quotient all-ones and remainder the original dividend — one rule that is simultaneously correct for
+`div`, `divu`, `rem` and `remu`. Confirmed necessary rather than defensive: removing it from the
+model produces 155 failures.
+
+**[DEC] A clock-ratio constraint, recorded because B3 is open.** The handshake's `WAIT_RISE` only
+terminates if `DIVBUSY` stays high long enough for the MCLK synchroniser to catch it — roughly
+`f_DIVCLK < 16 × f_MCLK`. At the planned 50 MHz against 20 MHz there is twelve times the margin
+needed. **The failure mode is a hang, not a wrong answer**, which is why the testbench checks it (P5)
+instead of trusting it. If B3 returns a much faster `DIVCLK`, re-check this.
+
+---
+
 **[REQ p10, Figures 10a/10b]** The CDC rule and its exact structure, read off the figures rather
 than inferred from the prose. **Three flip-flops, not two.**
 

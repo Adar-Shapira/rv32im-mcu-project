@@ -426,7 +426,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 5A/5B Bus interface + DTCM | Yehonatan ✔ | **Adar** | ready to run |
 | 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
 | **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
-| 7B Divider into the core | Yehonatan | Adar | waits on 4B for `DIVCLK` |
+| **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
+| 7B2 Divider into the core | Yehonatan | Adar | next — 4B/4C supply `DIVCLK`, nothing blocks it |
 | 8 Basic Timer | Yehonatan | Adar | waits on **B2**, **B4** (was Q3, Q8) |
 | 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
 | 10 SC benchmarks | Yehonatan | Adar | |
@@ -2059,30 +2060,75 @@ instantiation, or a dedicated revision with `TOP_LEVEL_ENTITY div_accel` and a `
 Gaps: G-301 closed for the engine. New assumption **A18** (Figure 9's bit-level wiring is not legible
 in the raster figure; restoring division is the only interconnection of its blocks that works).
 
-### Phase 7B — wire it into the core  ·  **blocked on Phase 4B**
+### Phase 7B1 — the division subsystem  ·  **built, awaiting verification**
 
-- Signed `div`/`rem` wrapper around the unsigned engine. **The benchmarks use the signed opcodes** —
-  `div`/`rem` in `RV32IM/test1` and in `Intrrupt-based IO` test1 and test4 — although every operand
-  in every supplied benchmark is a small positive integer, so the signed path is needed for
-  conformance rather than by any supplied program. RISC-V rules to honour: quotient truncates toward
-  zero, the remainder takes the dividend's sign, and `-2^31 / -1` gives `-2^31` remainder 0.
-- Two `sync` instances on the operands per Figure 10b — the first real use of Phase 4A's block.
-- **`DIVBUSY` crossing back, which no figure draws.** Figure 10 shows only MCLK→DIVCLK. The return
-  path is ours.
-- **And the stall cannot be "while `DIVBUSY`".** `DIVstart` takes two stages to reach the engine and
-  `DIVBUSY` two more to come back, so for several `MCLK` cycles after the `div` issues `DIVBUSY`
-  still reads low and a naive stall stalls for nothing. Begin the stall on the core's own `DIVstart`;
-  end it on a seen-high-then-low `DIVBUSY`.
-- Write-back mux widened, selected by `WBSrc1`/`WBSrc0` per Figure 3; `div`/`rem` decode in
-  `CONTROL.vhd`.
-- Block interrupt entry until the divide retires, so the architectural boundary stays precise —
-  Hanan confirmed this reading (F13): for `DIV`/`REM` the instruction completes only when `BUSY`
-  falls.
+**Files:** `DUT/RV32IMscMCU/DIV_UNIT.vhd` (new), `TB/RV32IMscMCU/tb_div_unit.vhd` (new),
+`SIM/RV32IMscMCU/run_divunit.do` (new), `tools/model_div_unit.py` (new); `aux_package.vhd`,
+`compile.do` and the `.qsf` updated.
+
+Everything between the core and Figure 9's engine, behind one MCLK-domain interface — so 7B2's job
+in the core is decode, a stall term and a mux, and nothing about clock domains. **This is `SYNC.vhd`'s
+first real use**, four times over.
+
+- **The stall is built on `done_o`, not `busy_o`**, and that is the whole reason this unit exists.
+  `DIVstart` takes two synchroniser stages to reach the engine and `DIVBUSY` two more to come back,
+  so for several MCLK cycles after a div issues **`busy` still reads low** — a stall written as "hold
+  while busy" does not hold at all. 7B2's term is `PCHold <= DIVstart AND NOT done_o`.
+- **A real race, found and fixed before the code ever ran.** The enable and the two operand buses
+  each cross through their own two-stage synchroniser. Launched on the same MCLK edge, nothing
+  guarantees the operand bits resolve no later than the enable bit — so `DIVENA` could arrive one
+  DIVCLK edge before a bit of `Ain`/`Bin` had settled, and the engine would load a half-updated
+  operand and return a confidently wrong answer. The `LAUNCH` state holds the enable back one MCLK
+  cycle. Data first, control after.
+- **The result buses are deliberately NOT synchronised.** `SYNC.vhd`'s own header forbids putting a
+  *changing* multi-bit bus through a two-flop synchroniser, and `Quotient`/`Residue` change on every
+  iteration. They are read directly, only after `DIVBUSY` has been seen to fall through two stages —
+  by which point the engine has been idle and its outputs constant for at least two MCLK cycles.
+- **Signed `div`/`rem`.** `-2^31 / -1` needs no special case: `|-2^31|` is `0x80000000`, the signs
+  agree, nothing is negated, and `0x80000000` *is* `-2^31`. **Divide-by-zero does** need one: RISC-V
+  requires `-1` for every dividend, but for a *negative* dividend the sign correction would negate
+  `0xFFFFFFFF` into `+1`. Verified that this is real, not defensive — removing the override from the
+  Python model produces **155 failures**.
+- **A clock-ratio constraint, written down because B3 is still open.** `WAIT_RISE` only terminates if
+  `DIVBUSY` stays high long enough for the MCLK synchroniser to catch it: roughly
+  `f_DIVCLK < 16 x f_MCLK`. At 50 MHz against 20 MHz there is twelve times the margin needed. The
+  failure mode is a **hang**, not a wrong answer, which is why it is a checked property (P5) and not
+  a comment.
+
+**Verification:** `tools/model_div_unit.py` checks the wrapper against `fractions.Fraction` — which
+truncates toward zero exactly and shares no step with the magnitude algorithm — over **all 65536
+pairs signed and all 65536 unsigned** at N=8, plus 32-bit corners and random cases: **131,488 cases,
+0 failures**, and **seven** deliberate mutations all caught. The testbench then does what the model
+cannot: two **coprime** clocks (50 ns against 21 ns), so the DIVCLK edge lands at every phase of the
+MCLK period rather than the fixed 5:2 relationship the real design will have.
+
+**Adar's results — Phase 7B1**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_divunit.do` | `VERDICT: PASS`, failures 0 | |
+| operations | 55 (15 directed + 40 random) | |
+| Runtime | about 60 us simulated, quick | |
+
+### Phase 7B2 — wire it into the core  ·  **next**
+
+All the clock-domain work is done and tested in 7B1. What is left is core-side and single-domain:
+
+- `div`/`rem`/`divu`/`remu` decode in `CONTROL.vhd`, producing Figure 3's `DIVstart` and the
+  `signed_i` qualifier. **The benchmarks use the signed opcodes** — `div`/`rem` in `RV32IM/test1` and
+  in `Intrrupt-based IO` test1 and test4, four occurrences each — and never `divu`/`remu`, though all
+  four are supported because the wrapper makes the unsigned pair nearly free.
+- The stall: `PCHold <= DIVstart AND NOT done_o`, and `PCHold` into `IFETCH` so the PC holds.
+- Write-back mux widened, selected by `WBSrc1`/`WBSrc0` per Figure 3, with `Quotient` and `Rem` as
+  two of its inputs.
+- Instantiate `div_unit` in `RV32IMscMCU` on `accelclk_w`, which Phase 4C already generates and
+  leaves waiting. **This is also what stops Quartus pruning the third PLL.**
+- Block interrupt entry until the divide retires — Hanan confirmed this reading (F13): for
+  `DIV`/`REM` the instruction completes only when `BUSY` falls. That lands in Phase 9.
 - **Exit:** the RV32IM benchmark's `div`/`rem` arrays produce the right values through the core, and
-  a `div` that is interrupted still retires first.
+  the four Lab 5 cycle counts still hold for the benchmarks that contain no `div`.
 
-Blocked on **4B** (needs `DIVCLK`) and touches `CONTROL`/`EXECUTE`/`IDECODE`/`RV32IM_CORE`, which is
-why it is not in 7A.
+Touches `CONTROL`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why it is separate from 7B1.
 
 ## Phase 8 — Basic Timer  ·  Yehonatan writes · Adar verifies
 

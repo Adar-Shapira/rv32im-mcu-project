@@ -204,6 +204,37 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- Phase 7B1. The division SUBSYSTEM: Figure 9's engine plus the four clock-
+	-- domain crossings, the MCLK-side handshake and the signed div/rem wrapper.
+	-- It presents an MCLK-domain interface so that Phase 7B2's work in the core is
+	-- decode, a stall term and a write-back mux -- and nothing about clock domains.
+	--
+	-- BUILD THE STALL ON done_o, NOT ON busy_o. DIVstart takes two synchroniser
+	-- stages to reach the engine and DIVBUSY two more to come back, so busy_o
+	-- still reads LOW for several MCLK cycles after a div issues. The stall term
+	-- is  PCHold <= DIVstart AND NOT done_o.
+	component div_unit is
+		generic(
+			N	: integer := 32
+		);
+		PORT(
+			--Inputs
+			mclk_i		: IN	STD_LOGIC;
+			divclk_i	: IN	STD_LOGIC;
+			rst_i		: IN	STD_LOGIC;
+			start_i		: IN	STD_LOGIC;
+			signed_i	: IN	STD_LOGIC;
+			dividend_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			divisor_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+
+			--Outputs
+			busy_o		: OUT	STD_LOGIC;
+			done_o		: OUT	STD_LOGIC;
+			quotient_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			remainder_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
 	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase

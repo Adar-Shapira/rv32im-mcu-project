@@ -20,10 +20,9 @@ vcom -2008 ../../DUT/RV32IMscMCU/cond_compilation_package.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/const_package.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/aux_package.vhd
 
-# leaf modules, in dependency order. ADDR_DECODER is here rather than at the end
-# because RV32IMscMCU.vhd instantiates it (Phase 5B); SYNC is not instantiated by
-# anything yet but is compiled so its own testbench can run and so the phase that
-# does instantiate it finds it already in the library.
+# leaf modules, in dependency order. ADDR_DECODER is here because RV32IMscMCU.vhd
+# instantiates it (Phase 5B). SYNC is no longer an orphan either - Phase 7B1's
+# DIV_UNIT instantiates it four times, which is its first real use.
 vcom -2008 ../../DUT/RV32IMscMCU/MUL16.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/CONTROL.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/IFETCH.vhd
@@ -38,10 +37,10 @@ vcom -2008 ../../DUT/RV32IMscMCU/PLL.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/PLL_GEN.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/CLOCK_TREE.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/SYNC.vhd
-# Phase 7A. Figure 9's division accelerator. Like SYNC, not instantiated by
-# anything yet - Phase 7B wires it into the core once Phase 4B provides DIVCLK -
-# but compiled so its own testbench can run.
+# Phase 7A. Figure 9's division accelerator, now instantiated by DIV_UNIT below.
 vcom -2008 ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
+# Phase 7B1. DIV_UNIT instantiates DIV_ACCEL and SYNC, so both must precede it.
+vcom -2008 ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
 # byte-identical to Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd, md5
@@ -69,6 +68,9 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_div_accel.vhd
 # Phase 4B: also zero setup. Note it does NOT verify the PLLs - altpll is not
 # instantiated at MODELSIM = 1. See run_clock.do.
 vcom -2008 ../../TB/RV32IMscMCU/tb_clock_tree.vhd
+
+# Phase 7B1: zero setup. Two coprime clocks, signed and unsigned div/rem.
+vcom -2008 ../../TB/RV32IMscMCU/tb_div_unit.vhd
 
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.
