@@ -42,6 +42,11 @@ package aux_package is
 			SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
 			KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
+			-- Phase 8B: the three expansion-header pins of F18 (numbers wait on B1)
+			CAPIN1_i			:IN		STD_LOGIC := '0';
+			CAPIN2_i			:IN		STD_LOGIC := '0';
+			PWM_o				:OUT	STD_LOGIC;
+
 			--GPIO board outputs (Phase 6A, Figure 5)
 			LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
 			HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);

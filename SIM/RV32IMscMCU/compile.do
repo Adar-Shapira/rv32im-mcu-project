@@ -78,6 +78,10 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_div_unit.vhd
 # Phase 8A: zero setup. F16/F17, prescaler, PWM duty, capture, BTINT select.
 vcom -2008 ../../TB/RV32IMscMCU/tb_basic_timer.vhd
 
+# Phase 8B: needs the generated timer images staged (SIM/RV32IMscMCU/timer/).
+# Runs at either G_ISA_REPAIR setting, like the directed GPIO test.
+vcom -2008 ../../TB/RV32IMscMCU/tb_timer_mmio.vhd
+
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.
 vcom -2008 ../../TB/RV32IMscMCU/tb_addr_decoder.vhd

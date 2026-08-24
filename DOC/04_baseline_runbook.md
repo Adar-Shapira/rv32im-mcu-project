@@ -623,6 +623,10 @@ waiting:
   cycle counter starts when reset releases so holding reset longer shifts the start and the count
   together. If a count **does** move, set `GEN_RESET_ON_LOCK => FALSE` and re-run: that separates the
   reset change from the clock change in one run instead of bisecting the phase;
+- `run_timer_mmio.do`'s verdict (Phase 8B) — needs the `SIM\RV32IMscMCU\timer\` images staged
+  into `app_bin` (they are committed; do NOT reuse the gpio ones). Report the captured K it prints —
+  the generator's interpreter predicts 10, and a value that is stable-but-different is fine (range
+  1..60), while S6 ≠ S7 is a real failure;
 - `run_timer.do`'s verdict (Phase 8A) — and note its P8 line PRINTS a finding on purpose: FREQ_5K's
   interval is 4008 cycles (4990 Hz), because F17-literal hardware makes the period BTCL0+1. Do not
   "fix" the RTL to make it 4000; the constant is the suspect (same class as B2);

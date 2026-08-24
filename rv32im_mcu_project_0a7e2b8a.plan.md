@@ -434,7 +434,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
 | **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
 | **8A Basic Timer core** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_timer.do`.** B4 mostly settled from the benchmarks; B2 still open for `SEC_PERIOD` |
-| 8B Timer onto the bus | Yehonatan | Adar | next after 8A verifies |
+| **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `timer/` images, `do run_timer_mmio.do`** |
 | 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
@@ -2245,15 +2245,50 @@ phase-sensitive PWM window, and a Mode1 window measured before steady state.
 Gaps: **G-302 closed for the core.** `BTINT` codes `01`/`11` are **A20**; shadow-latch timing is
 **A21**; `SEC_PERIOD` remains **B2**.
 
-### Phase 8B — wire it in  ·  **next after verification**
+### Phase 8B — wire it in  ·  **built, awaiting verification**
 
-- Instantiate on `pclk_w` with `sfr_cs_w(CS_BTCTL/CS_BTCMPR0/CS_BTCMPR1)`, `lane0_w`/`lane1_w`, the
-  shared `data_bus_w`, and BidirPin read-backs for all five registers (word 10's `BTCAPR` included).
-- `PWMout`, `CAPIN1`, `CAPIN2` go to expansion-header pins — **F18** says choose three; **B1**
-  (which board) still gates the actual pin numbers.
-- `btifg_set_o` → Phase 9's IFG under the falsified-A6 rule (IFG latches request AND enable).
-- **Exit:** the interrupt benchmarks' timer flows run on the MCU; `SEC_PERIOD`'s 8-second-vs-1-second
-  question (B2) gets its answer measured, not argued.
+**Files:** `RV32IMscMCU.vhd` and `aux_package.vhd` changed; `tools/gen_timer_test.py`,
+`SIM/RV32IMscMCU/timer/{ITCM,DTCM}.hex + listing.txt`, `TB/RV32IMscMCU/tb_timer_mmio.vhd`,
+`SIM/RV32IMscMCU/run_timer_mmio.do` new.
+
+- The timer sits on `pclk_w` / `sys_rst_w`, takes write data **from the shared bidirectional bus**
+  like every peripheral, and its five registers are readable through five new BidirPin readers
+  (`NRD` 9 → **14**). The three Word-resolution registers are the map's first, so `WEXT`'s
+  zero-extension now covers indices 0..10 only and **the word registers drive all 32 bits
+  directly** — that is what "Address Resolution: Word" means, and a wrong wiring here is exactly
+  what the S3/S4 checks catch.
+- **Three new top-level pins:** `PWM_o`, `CAPIN1_i`, `CAPIN2_i` (F18; locations wait on B1).
+- `bt_ifg_set_w` is generated and deliberately unconsumed until Phase 9 — same posture as
+  `div_busy_w`.
+- The SFR stub notices updated: the timer's four words now take writes and answer reads (a write to
+  `BTCAPR` reaches the timer and is ignored **there**, by design — different from falling into a
+  stub).
+
+**Verification — a directed program, because no supplied benchmark can do it:** every
+Interrupt-based IO test configures the timer and then waits for *interrupts*, which need Phase 9 —
+without it they hang in their idle loop. So `tools/gen_timer_test.py` generates a 113-instruction
+program (addi/slli/sw/lw-at-0 + one beq — runs at **either** `G_ISA_REPAIR`), and derives its
+expectations a second way by **executing it against `model_basic_timer.Timer`** — the model eight
+mutations already vetted — one timer edge per instruction. Generation aborts on disagreement.
+
+The program: configures while held, reads all five registers back (`BTCTL2` written via its **odd**
+address `0x201D`), echoes **test4's capture bug at MCU level** (S5: source parked on GND captures
+nothing), forces the edge test4 meant (`CAPISEL` GND→VCC), reads a stable K twice, then starts PWM —
+and the bench measures **10/31-cycle widths at the pin**. K is range-checked (1..60, predicted 10),
+not exact — pinning it would weld the test to an edge-level timing detail; exactness lives in
+`tb_basic_timer` P6 where the counter is frozen.
+
+**Adar's results — Phase 8B**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| stage `SIM\RV32IMscMCU\timer\*.hex` → `app_bin`, `do run_timer_mmio.do` | `VERDICT: PASS`, failed 0 | |
+| scored stores / captured K | 7 / K in 1..60 (predicted 10) | |
+| PWM widths at the pin | exactly 10 and 31 | |
+| Quartus: `PWM_o`/`CAPIN1_i`/`CAPIN2_i` appear as pins | yes — locations still unassigned (B1) | |
+
+**Exit for Phase 8 as a whole** stays: the interrupt benchmarks' timer flows on the MCU — that is
+Phase 9's integration test, since they need IFG/IE/TYPE to advance.
 
 ## Phase 9 — Interrupt controller and CPU protocol  ·  Yehonatan writes · Adar verifies
 

@@ -194,6 +194,13 @@ ENTITY RV32IMscMCU IS
 		-- see released keys.
 		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
+		-- Phase 8B (F18: "choose three pins on the board's external interface
+		-- connector" for PWMout, CAPIN1, CAPIN2). Pin numbers wait on B1.
+		-- Inputs defaulted so every earlier testbench still elaborates.
+		CAPIN1_i			:IN		STD_LOGIC := '0';
+		CAPIN2_i			:IN		STD_LOGIC := '0';
+		PWM_o				:OUT	STD_LOGIC;
+
 		--=== GPIO board outputs — Phase 6A, Figure 5 (clause 5) ===
 		-- Widths and roles from clause 5's table: PORT_LEDR drives LEDR7..LEDR0
 		-- and each PORT_HEXn drives one 7-segment display. Port names take the
@@ -332,7 +339,19 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- simulation-only stub notice below, which has to know which writes really are
 	-- discarded now that four of the twelve words are implemented.
 	SIGNAL gpo_cs_w				: STD_LOGIC;
+	SIGNAL timer_cs_w			: STD_LOGIC;	-- Phase 8B: any of the timer's four words
 	SIGNAL sfr_rd_impl_w		: STD_LOGIC;	-- this SFR word answers a read
+
+	-- Phase 8B -- the Basic Timer's read-backs, and its event pulse.
+	-- bt_ifg_set_w is DELIBERATELY UNCONSUMED until Phase 9 latches it into IFG
+	-- under the falsified-A6 rule (request AND enable). Not dead code; same
+	-- posture as div_busy_w in the core. Expect one no-load warning until then.
+	SIGNAL btctl1_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL btctl2_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL btcmpr0_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL btcmpr1_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL btcapr_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL bt_ifg_set_w			: STD_LOGIC;
 
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
@@ -358,9 +377,19 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	CONSTANT RD_HEX4	: integer := 6;		-- 0x200C  PORT_HEX4   read-back
 	CONSTANT RD_HEX5	: integer := 7;		-- 0x200D  PORT_HEX5   read-back
 	CONSTANT RD_PB		: integer := 8;		-- 0x2014  PORT_PB     (Phase 6C)
-	CONSTANT NRD		: integer := 9;
+	-- Phase 8B: the Basic Timer's five readable registers. The first two are
+	-- BYTE registers (indices below NRD_BYTE, zero-extended by WEXT like every
+	-- other byte register -- assumption A11); the last three are the map's only
+	-- WORD-resolution registers and drive all 32 bits directly.
+	CONSTANT RD_BTCTL1	: integer := 9;		-- 0x201C  byte, lane0
+	CONSTANT RD_BTCTL2	: integer := 10;	-- 0x201D  byte, lane1
+	CONSTANT NRD_BYTE	: integer := 11;	-- indices 0..10 are byte-wide
+	CONSTANT RD_BTCMPR0	: integer := 11;	-- 0x2020  word
+	CONSTANT RD_BTCMPR1	: integer := 12;	-- 0x2024  word
+	CONSTANT RD_BTCAPR	: integer := 13;	-- 0x2028  word
+	CONSTANT NRD		: integer := 14;
 
-	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
+	type rd_byte_array_t is array (0 TO NRD_BYTE-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 
 	CONSTANT RD_NONE	: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0) := (OTHERS => '0');
 
@@ -667,6 +696,16 @@ BEGIN
 	rd_en_w(RD_HEX4) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
 	rd_en_w(RD_HEX5) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
 	rd_en_w(RD_PB)   <= sfr_cs_w(CS_PB)    AND dbus_MemRead_w AND lane0_w;
+	-- Phase 8B. BTCTL1/BTCTL2 share word 7 and are split by A0, exactly like a
+	-- HEX pair. The three Word registers own their whole word (A12), so no lane
+	-- term. All five are readable -- assumption A17 for BTCTL2 (one forum row
+	-- read it as read-only; the applications write it, so readable is built and
+	-- the question stands in DOC/05).
+	rd_en_w(RD_BTCTL1)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_BTCTL2)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_BTCMPR0) <= sfr_cs_w(CS_BTCMPR0) AND dbus_MemRead_w;
+	rd_en_w(RD_BTCMPR1) <= sfr_cs_w(CS_BTCMPR1) AND dbus_MemRead_w;
+	rd_en_w(RD_BTCAPR)  <= sfr_cs_w(CS_BTCAPR)  AND dbus_MemRead_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -677,13 +716,21 @@ BEGIN
 	rd_byte_w(RD_HEX4) <= hex_q(4);
 	rd_byte_w(RD_HEX5) <= hex_q(5);
 	rd_byte_w(RD_PB)   <= portpb_w;
+	rd_byte_w(RD_BTCTL1) <= btctl1_rd_w;
+	rd_byte_w(RD_BTCTL2) <= btctl2_rd_w;
 
 	-- Zero-extend each byte register to the full bus width. This IS assumption
-	-- A11, expressed once, in the only place it belongs.
+	-- A11, expressed once, in the only place it belongs. Phase 8B: the range is
+	-- NRD_BYTE, not NRD -- the three Word-resolution registers below drive all
+	-- 32 bits themselves, which is what "Address Resolution: Word" means.
 	WEXT:
-	for i in 0 to NRD-1 generate
+	for i in 0 to NRD_BYTE-1 generate
 		rd_word_w(i) <= ZEROS_BUS(DATA_BUS_WIDTH-1 DOWNTO 8) & rd_byte_w(i);
 	end generate;
+
+	rd_word_w(RD_BTCMPR0) <= btcmpr0_rd_w;
+	rd_word_w(RD_BTCMPR1) <= btcmpr1_rd_w;
+	rd_word_w(RD_BTCAPR)  <= btcapr_rd_w;
 
 	-- The exact complement of the other drivers, by construction: nobody reading
 	-- AND the CPU not writing.
@@ -752,15 +799,53 @@ BEGIN
 			severity warning;
 	end process onehot_check;
 
+	--=======================================
+	-- Basic Timer -- Phase 8B (Figure 7 onto Figure 5's bus)
+	--=======================================
+	-- Clocked from pclk_w like every peripheral (F11: DFFs on SMCLK), reset by
+	-- the lock-gated sys_rst_w, write data taken FROM the shared bidirectional
+	-- bus exactly as the GPO ports take theirs. btcnt_o is left open: BTCNT has
+	-- no MMIO address anywhere in the map -- software cannot poll it, and the
+	-- observation belongs to SignalTap, not to a port bristling out of the top.
+	TIMER : basic_timer
+	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+	PORT MAP (
+		clk_i		=> pclk_w,
+		rst_i		=> sys_rst_w,
+		ctl_cs_i	=> sfr_cs_w(CS_BTCTL),
+		cmpr0_cs_i	=> sfr_cs_w(CS_BTCMPR0),
+		cmpr1_cs_i	=> sfr_cs_w(CS_BTCMPR1),
+		MemWrite_i	=> dbus_MemWrite_w,
+		lane0_i		=> lane0_w,
+		lane1_i		=> lane1_w,
+		data_i		=> data_bus_w,
+		capin1_i	=> CAPIN1_i,
+		capin2_i	=> CAPIN2_i,
+		pwm_o		=> PWM_o,
+		btifg_set_o	=> bt_ifg_set_w,
+		btctl1_o	=> btctl1_rd_w,
+		btctl2_o	=> btctl2_rd_w,
+		btcmpr0_o	=> btcmpr0_rd_w,
+		btcmpr1_o	=> btcmpr1_rd_w,
+		btcapr_o	=> btcapr_rd_w,
+		btcnt_o		=> open
+	);
+
 	-- Which SFR words actually have a peripheral behind them today. Phase 6A
-	-- attached the four GPO words; the other eight are still unimplemented.
-	-- Phases 6C, 8, 9 and 12 extend this term as they attach theirs.
+	-- attached the four GPO words; Phase 8B the timer's four (a write to BTCAPR
+	-- reaches the timer and is IGNORED there by design -- capture hardware owns
+	-- that register -- which is different from a write falling into a stub).
+	-- Phases 9 and 12 extend these terms as they attach theirs.
 	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
 				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
 
-	-- Which SFR words answer a READ today: PORT_SW always, and the four GPO words
-	-- when read-back is enabled.
-	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w);
+	timer_cs_w <= sfr_cs_w(CS_BTCTL)   OR sfr_cs_w(CS_BTCMPR0) OR
+				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
+
+	-- Which SFR words answer a READ today: PORT_SW and PORT_PB always, the four
+	-- GPO words when read-back is enabled, and the timer's four words.
+	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
+					 OR timer_cs_w;
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -784,20 +869,21 @@ BEGIN
 				   and not told_rd_v then
 					told_rd_v := TRUE;
 					report "RV32IMscMCU: an SFR READ reached a word with no readable " &
-						   "register behind it and returned zero. PORT_SW, PORT_PB and the " &
-						   "seven GPO read-backs DO answer; this is one of the others " &
-						   "(USART, Basic Timer, interrupt controller). Once per run."
-						severity note;
+						   "register behind it and returned zero. PORT_SW, PORT_PB, the " &
+						   "seven GPO read-backs and the Basic Timer's five registers DO " &
+						   "answer; this is the USART or the interrupt controller. " &
+						   "Once per run." severity note;
 				end if;
 
 				-- WRITES: only the four GPO words are implemented. A write to any
 				-- other SFR word really is discarded, and that is worth saying.
 				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
-				   and not told_wr_v then
+				   and timer_cs_w = '0' and not told_wr_v then
 					told_wr_v := TRUE;
 					report "RV32IMscMCU: an SFR WRITE reached a word with no peripheral " &
-						   "behind it yet and was discarded. The seven GPO ports of Phase 6A " &
-						   "DO take their writes; this is one of the other eight SFR words. " &
+						   "behind it yet and was discarded. The seven GPO ports and the " &
+						   "Basic Timer DO take their writes; this is the USART or the " &
+						   "interrupt controller. " &
 						   "Note PORT_PB is READ-ONLY, so a write there is discarded by " &
 						   "design, not by omission. Once per run."
 						severity note;
