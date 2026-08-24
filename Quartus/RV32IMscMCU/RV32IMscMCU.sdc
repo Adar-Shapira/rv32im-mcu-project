@@ -66,16 +66,22 @@ derive_clock_uncertainty
 # meant to meet setup/hold, so the analyser must be told not to try; otherwise
 # it reports failures on paths that are correct by design.
 #
-# COMMENTED OUT UNTIL PHASE 7B, on purpose. Today accelclk has no load, so
-# Quartus prunes the ACCELCLK PLL and these get_clocks patterns match nothing --
-# and a set_clock_groups whose collections are empty is a constraint that looks
-# applied and is not. Uncomment it in the same commit that instantiates
-# div_accel, and check the Timing Analyzer's "Clocks" report shows three clocks
-# before believing it.
+# ENABLED BY PHASE 7B2. It was deliberately commented out until then, because
+# until the divider was instantiated accelclk had no load, Quartus pruned the
+# ACCELCLK PLL, and these get_clocks patterns would have matched nothing -- a
+# set_clock_groups whose collections are empty is a constraint that looks applied
+# and is not.
 #
-# set_clock_groups -asynchronous \
-#     -group [get_clocks {*P_MCLK*|altpll_component|*|clk[0]}] \
-#     -group [get_clocks {*P_ACCEL*|altpll_component|*|clk[0]}]
+# ADAR: BEFORE BELIEVING THIS LINE, check the Timing Analyzer's "Clocks" report
+# actually lists THREE clocks. If it lists two, the divider is still being pruned
+# and this constraint is silently doing nothing -- which would hide every real
+# violation on the crossing. If the instance-name patterns below do not match
+# what your Quartus generates, report the actual clock names from that report
+# rather than guessing: the names come from the megafunction's hierarchy and are
+# the one thing here that cannot be derived from the source.
+set_clock_groups -asynchronous \
+    -group [get_clocks {*P_MCLK*|altpll_component|*|clk[0]}] \
+    -group [get_clocks {*P_ACCEL*|altpll_component|*|clk[0]}]
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------

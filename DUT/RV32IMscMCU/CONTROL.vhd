@@ -31,7 +31,19 @@ ENTITY control IS
 		-- Phase 3B (G-309): the access width and signedness of a load or store.
 		-- CONTROL already detected lb/lh/lw/lbu/lhu/sb/sh/sw and then threw the
 		-- width away; this port is what carries it to DMEMORY.
-		MemOp_ctrl_o		: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0)
+		MemOp_ctrl_o		: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0);
+
+		-- Phase 7B2. Figure 3 gives the Control Unit a DIVstart output; these are
+		-- it plus the two qualifiers the division subsystem needs.
+		--   DivStart : any of div / divu / rem / remu is the current instruction.
+		--              A LEVEL, not a pulse -- this is combinational decode, so it
+		--              stays asserted for the whole stall, which is exactly what
+		--              DIV_UNIT's handshake is built to expect.
+		--   DivSigned: div / rem  (as opposed to divu / remu).
+		--   DivRem   : rem / remu (the remainder is wanted, not the quotient).
+		DivStart_ctrl_o		: OUT	STD_LOGIC;
+		DivSigned_ctrl_o	: OUT	STD_LOGIC;
+		DivRem_ctrl_o		: OUT	STD_LOGIC
 	);
 END control;
 
@@ -44,6 +56,13 @@ ARCHITECTURE behavior OF control IS
 	SIGNAL	add_w, addi_w, and_w, andi_w, or_w, ori_w, sll_w, slli_w, sra_w, srai_w				: STD_LOGIC;
 	SIGNAL	srl_w, srli_w, sub_w, xor_w, xori_w, auipc_w, lui_w, slt_w, slti_w, sltu_w, sltiu_w	: STD_LOGIC;
 	SIGNAL	mul_w : STD_LOGIC;	-- M-extension: mul detector
+	-- M-extension division, Phase 7B2. The four encodings were already in
+	-- const_package.vhd and were simply never decoded; they are funct7 = 0000001
+	-- with funct3 = 100/101/110/111 on the R-type opcode, and each mask is
+	-- 0xFE00707F, so funct7 is part of the compare. That matters: div's funct3 of
+	-- 100 is the same as xor's, and only the funct7 bit tells them apart -- with a
+	-- narrower mask a div would decode as a xor and quietly compute one.
+	SIGNAL	div_w, divu_w, rem_w, remu_w, divop_w : STD_LOGIC;
 	SIGNAL  opc_w : STD_LOGIC_VECTOR(6 DOWNTO 0);
 	-- Defect 1 (andi): the as-submitted ALUOp select tests ori_w on the ALU_AND arm, so
 	-- andi never reaches ALU_AND (it falls through to ALU_OR, computing an OR) and the
@@ -134,6 +153,16 @@ BEGIN
 	sltiu_w 	<=	'1' WHEN	(instruction_i and INST_SLTIU_MASK) = INST_SLTIU		ELSE	'0';	-- sltiu
 	
 	mul_w 		<=	'1' WHEN	(instruction_i and INST_MUL_MASK) = INST_MUL			ELSE	'0';	-- mul (M-extension)
+
+	div_w 		<=	'1' WHEN	(instruction_i and INST_DIV_MASK)  = INST_DIV			ELSE	'0';	-- div
+	divu_w 		<=	'1' WHEN	(instruction_i and INST_DIVU_MASK) = INST_DIVU			ELSE	'0';	-- divu
+	rem_w 		<=	'1' WHEN	(instruction_i and INST_REM_MASK)  = INST_REM			ELSE	'0';	-- rem
+	remu_w 		<=	'1' WHEN	(instruction_i and INST_REMU_MASK) = INST_REMU			ELSE	'0';	-- remu
+	divop_w		<=	div_w or divu_w or rem_w or remu_w;
+
+	DivStart_ctrl_o		<=	divop_w;
+	DivSigned_ctrl_o	<=	div_w  or rem_w;
+	DivRem_ctrl_o		<=	rem_w  or remu_w;
 	
 	
 	RegWrite_ctrl_o 	<=  Rtype_w or Itype_w or Utype_w or UJtype_w;

@@ -97,6 +97,7 @@ package aux_package is
 			--Inputs
 			rst_i		 		:IN	STD_LOGIC;
 			clk_i				:IN	STD_LOGIC;
+			divclk_i			:IN	STD_LOGIC := '0';	-- Phase 7B2, Figure 3's divclk
 
 			--Data-bus master interface -- Phase 5B (G-305). Figure 1's boundary
 			--between the RISC-V core and the BUS Interface Logic. Kept separate
@@ -153,7 +154,11 @@ package aux_package is
 		Jalr_ctrl_o 			: OUT 	STD_LOGIC;
 		UpperIm_ctrl_o			: OUT 	STD_LOGIC_VECTOR(1 DOWNTO 0);
 		ALUOp_ctrl_o	 		: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0);
-		MemOp_ctrl_o			: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0)	-- Phase 3B (G-309)
+		MemOp_ctrl_o			: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0);	-- Phase 3B (G-309)
+		-- Phase 7B2: Figure 3's DIVstart, plus the two qualifiers.
+		DivStart_ctrl_o			: OUT	STD_LOGIC;
+		DivSigned_ctrl_o		: OUT	STD_LOGIC;
+		DivRem_ctrl_o			: OUT	STD_LOGIC
 	);
 	end component;
 ---------------------------------------------------------	
@@ -201,6 +206,37 @@ package aux_package is
 			divbusy_o	: OUT	STD_LOGIC;
 			quotient_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
 			residue_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
+	-- Phase 7B1. The division SUBSYSTEM: Figure 9's engine plus the four clock-
+	-- domain crossings, the MCLK-side handshake and the signed div/rem wrapper.
+	-- It presents an MCLK-domain interface so that Phase 7B2's work in the core is
+	-- decode, a stall term and a write-back mux -- and nothing about clock domains.
+	--
+	-- BUILD THE STALL ON done_o, NOT ON busy_o. DIVstart takes two synchroniser
+	-- stages to reach the engine and DIVBUSY two more to come back, so busy_o
+	-- still reads LOW for several MCLK cycles after a div issues. The stall term
+	-- is  PCHold <= DIVstart AND NOT done_o.
+	component div_unit is
+		generic(
+			N	: integer := 32
+		);
+		PORT(
+			--Inputs
+			mclk_i		: IN	STD_LOGIC;
+			divclk_i	: IN	STD_LOGIC;
+			rst_i		: IN	STD_LOGIC;
+			start_i		: IN	STD_LOGIC;
+			signed_i	: IN	STD_LOGIC;
+			dividend_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			divisor_i	: IN	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+
+			--Outputs
+			busy_o		: OUT	STD_LOGIC;
+			done_o		: OUT	STD_LOGIC;
+			quotient_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0);
+			remainder_o	: OUT	STD_LOGIC_VECTOR(N-1 DOWNTO 0)
 		);
 	end component;
 ---------------------------------------------------------
@@ -355,6 +391,9 @@ package aux_package is
 			RegDst_ctrl_i 		: IN 	STD_LOGIC;
 			RegWrite_ctrl_i 	: IN 	STD_LOGIC;
 			MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
+			-- Phase 7B2: Figure 3's widened write-back mux.
+			DivSel_ctrl_i		: IN 	STD_LOGIC := '0';
+			div_result_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 			
 			--Outputs
 			read_data1_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -381,6 +420,7 @@ package aux_package is
 			Jal_ctrl_i			: IN 	STD_LOGIC;
 			Jalr_ctrl_i			: IN 	STD_LOGIC;
 			alu_res_i 			: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+			PCHold_i			: IN	STD_LOGIC := '0';	-- Phase 7B2, Figure 3
 			
 			--Outputs
 			pc_o 				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);

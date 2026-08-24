@@ -51,10 +51,9 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IM_CORE.vhd
 # is no SEARCH_PATH assignment in this project, and Quartus resolves a component
 # only from the file list.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
-# Phase 4A. Not instantiated yet -- the divider (Phase 7), the KEY1-3 edge
-# detectors (Phase 6) and the UART (Phase 12) will use it. Listed now so it is
-# compiled and available; synthesis prunes an uninstantiated entity, so it costs
-# nothing in the resource tables.
+# Phase 4A. Instantiated four times by DIV_UNIT (Phase 7B1) -- its first real
+# use -- and later by the UART. DIV_UNIT is not itself instantiated until 7B2, so
+# for now synthesis still prunes the whole subtree and it costs nothing here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
 # Phase 7A. Figure 9's division accelerator, in the same not-yet-instantiated
 # state as SYNC above and listed for exactly the same reason: so it is analysed,
@@ -77,6 +76,10 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
 # this .qsf for Quartus - and there is no SEARCH_PATH, so a file added to only
 # one of them binds in one tool and fails in the other.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
+# Phase 7B1/7B2. DIV_UNIT wraps DIV_ACCEL with the four clock-domain crossings,
+# the MCLK-side handshake and the signed div/rem wrapper, and RV32IM_CORE now
+# instantiates it -- so this subtree is LIVE and appears in the resource tables.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd
@@ -91,9 +94,11 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
 # generics at all, so three instances of it would give three copies of ONE
 # frequency. PLL.vhd is left byte-identical and the core still instantiates it.
 # CLOCK_TREE.vhd is Figure 1's block: three pll_gen instances, per forum answer
-# F6. Neither is instantiated by the top level yet -- that is Phase 4C -- so like
-# SYNC and DIV_ACCEL they are listed to be analysed and to keep the two file
-# lists in step, and synthesis prunes them.
+# F6. AS OF PHASE 4C BOTH ARE LIVE: RV32IMscMCU instantiates CLOCK_TREE, clk_i
+# reaches it and nothing else, and the core receives mclk. AS OF PHASE 7B2 expect
+# THREE PLLs in the resource report -- the divider gives accelclk a load, so the
+# third instance is no longer pruned. Two would mean the divider is being
+# optimised away.
 #
 # TWO THINGS ONLY THIS TOOL CAN ANSWER, both in PLL_GEN.vhd's header:
 #   1. the family string says "Cyclone II" while FAMILY above is "Cyclone IV E".

@@ -347,7 +347,7 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
-### 8.1a Four tests that need nothing — run them first
+### 8.1a Five tests that need nothing — run them first
 
 No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
 straight after `compile.do`; if any fails, nothing after it is meaningful.
@@ -358,6 +358,7 @@ straight after `compile.do`; if any fails, nothing after it is meaningful.
 | `do run_decode.do` | 5A — address decoder | `VERDICT: PASS`, failures 0, totals **8192 / 29 / 8163** |
 | `do run_clock.do` | 4B — clock tree | `VERDICT: PASS`, failures 0, ~**110** accelclk edges, **10** distinct phases |
 | `do run_div.do` | 7A — division accelerator | `VERDICT: PASS`, failures 0, **N=8 65536 ops**, **N=32 517 ops** |
+| `do run_divunit.do` | 7B1 — division subsystem | `VERDICT: PASS`, failures 0, **55 operations** |
 
 `run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
 not verify the PLLs, and it cannot.** `altpll` is an Altera black box needing `altera_mf`, and the
@@ -605,6 +606,14 @@ waiting:
   count. **Nothing is needed from Quartus for Phase 7A** — `div_accel` is not instantiated yet, so
   synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
   of the plan asked for those two numbers and was wrong to;
+- **Phase 7B2 changed two expected numbers ON PURPOSE, and you should not read them as breakage.**
+  `run_isa.do` now expects **21** mismatches at `G_ISA_REPAIR = FALSE` and **5** at `TRUE`, where it
+  used to say 25 and 9. `div`, `divu`, `rem` and `remu` were four of the mismatches — they were not
+  decoded at all and the core wrote zero — and they now go through the Figure 9 accelerator. They
+  pass at **either** setting, because the divider is not behind that switch. The **5 that remain are
+  all mul-related and all out of scope** by Hanan's own answer, so 5 is the floor. `repair_check.do`
+  is unaffected — it does not touch the divider, and its own "25 failures" signature is a different
+  test's number that happens to share the digits;
 - **Phase 4C is the one that most needs your numbers.** It moved the clock tree from inside the core
   up to `RV32IMscMCU` per Figure 1, removed the core's `mclk_o`, put the peripherals on `smclk`, and
   now holds reset until the PLLs lock. That changed the clocking of **every** test at once. **Re-run
@@ -613,6 +622,12 @@ waiting:
   cycle counter starts when reset releases so holding reset longer shifts the start and the count
   together. If a count **does** move, set `GEN_RESET_ON_LOCK => FALSE` and re-run: that separates the
   reset change from the clock change in one run instead of bisecting the phase;
+- `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
+  clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
+  tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —
+  the likely cause is the clock-ratio constraint in `DIV_UNIT.vhd`'s header. A wrong remainder on
+  negative dividends means the remainder sign is following the quotient instead of the dividend.
+  `-1/0` giving `+1` means the divide-by-zero override is missing;
 - `run_clock.do`'s verdict and its edge counts (Phase 4B) — and, separately, **three Quartus answers
   nobody else can give**: does a `pll_gen` instance compile and fit at all; does Quartus accept the
   inherited `intended_device_family => "Cyclone II"` on a Cyclone IV E part, or must it become

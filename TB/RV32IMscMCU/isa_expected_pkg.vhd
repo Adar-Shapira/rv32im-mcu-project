@@ -12,7 +12,7 @@
 -- at the instruction under test.
 --
 -- Entries marked "DEFECT" are expected to FAIL on the unfixed core. That is the
--- point of the suite: 25 of 56 stores should mismatch today. See
+-- point of the suite: 21 of 56 stores should mismatch today. See
 -- SIM/RV32IMscMCU/isa/listing.txt for the reason attached to each one.
 --
 -- Cross-checked against a reference RV32IM interpreter in the generator, so the
@@ -41,10 +41,10 @@ package isa_expected_pkg is
 	-- drift out of step with the suite.
 	--
 	--   G_ISA_REPAIR = FALSE  the core exactly as LAB5 submitted it
-	constant EXPECTED_DEFECT_COUNT : natural := 25;
+	constant EXPECTED_DEFECT_COUNT : natural := 21;
 	--   G_ISA_REPAIR = TRUE   the seven Phase 3A repairs applied. The remainder are
-	--                         blocked on work outside Phase 3A: G-307, G-308, G-326
-	constant EXPECTED_DEFECT_COUNT_REPAIRED : natural := 9;
+	--                         blocked on work outside Phase 3A: G-308, G-326
+	constant EXPECTED_DEFECT_COUNT_REPAIRED : natural := 5;
 
 	constant EXPECTED : expected_array_t(0 to STORE_COUNT-1) := (
 		(   0, x"0000002A", "addi               "),	--   0       
@@ -92,10 +92,10 @@ package isa_expected_pkg is
 		(  32, x"01234567", "mulh               "),	--  42 DEFECT
 		(  33, x"01234567", "mulhu              "),	--  43 DEFECT
 		(  34, x"01234567", "mulhsu             "),	--  44 DEFECT
-		(  35, x"0000000E", "div                "),	--  45 DEFECT
-		(  36, x"0000000E", "divu               "),	--  46 DEFECT
-		(  37, x"00000002", "rem                "),	--  47 DEFECT
-		(  38, x"00000002", "remu               "),	--  48 DEFECT
+		(  35, x"0000000E", "div                "),	--  45       
+		(  36, x"0000000E", "divu               "),	--  46       
+		(  37, x"00000002", "rem                "),	--  47       
+		(  38, x"00000002", "remu               "),	--  48       
 		(  39, x"0000000A", "beq_taken          "),	--  49       
 		(  40, x"0000000A", "bne_taken          "),	--  50       
 		(  41, x"0000000A", "blt_taken          "),	--  51       

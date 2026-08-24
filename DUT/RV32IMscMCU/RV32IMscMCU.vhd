@@ -488,6 +488,10 @@ BEGIN
 		--Inputs
 		rst_i				=> sys_rst_w,
 		clk_i				=> mclk_w,			-- Phase 4C: from CLKTREE, not the raw pin
+		-- Phase 7B2. This is what finally gives accelclk a load: until now the
+		-- third PLL had no consumer and Quartus pruned it. Expect THREE clocks in
+		-- the Timing Analyzer from this phase on, not two.
+		divclk_i			=> accelclk_w,
 
 		--Data bus (Phase 5B)
 		dbus_addr_o			=> dbus_addr_w,

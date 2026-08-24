@@ -30,6 +30,13 @@ ENTITY RV32IM_CORE IS
 		--Inputs
 		rst_i		 			:IN		STD_LOGIC;
 		clk_i					:IN		STD_LOGIC;
+		-- Phase 7B2. Figure 3 draws the divider accelerator on its own `divclk`.
+		-- The clock tree lives at the MCU level (Phase 4C), so the core receives
+		-- this the same way it receives mclk. Defaulted to '0' so an instantiation
+		-- that predates the divider still elaborates -- with the divider then
+		-- permanently idle, which is safe because no supplied Lab 5 benchmark
+		-- contains a div.
+		divclk_i				:IN		STD_LOGIC := '0';
 
 		--======================================================================
 		-- Data-bus master interface -- Phase 5B (G-305)
@@ -117,6 +124,18 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 	SIGNAL Jal_ctrl_w 			: STD_LOGIC;
 	SIGNAL Jalr_ctrl_w 			: STD_LOGIC;
 	SIGNAL reg_write_w 			: STD_LOGIC;
+	-- Phase 7B2 -- the division subsystem and the stall it produces.
+	SIGNAL div_start_w			: STD_LOGIC;	-- Figure 3's DIVstart, from CONTROL
+	SIGNAL div_signed_w			: STD_LOGIC;
+	SIGNAL div_rem_w			: STD_LOGIC;
+	SIGNAL div_busy_w			: STD_LOGIC;
+	SIGNAL div_done_w			: STD_LOGIC;
+	SIGNAL div_quot_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL div_remd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL div_result_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL pc_hold_w			: STD_LOGIC;	-- Figure 3's PCHold
+	SIGNAL reg_write_gated_w	: STD_LOGIC;
+	SIGNAL mem_write_gated_w	: STD_LOGIC;
 	SIGNAL reg_dst_w 			: STD_LOGIC;
 	SIGNAL brTaken_w 			: STD_LOGIC;
 	SIGNAL mem_write_w 			: STD_LOGIC;
@@ -173,6 +192,7 @@ BEGIN
 		Jal_ctrl_i 			=> Jal_ctrl_w,
 		Jalr_ctrl_i			=> Jalr_ctrl_w,
 		alu_res_i			=> alu_res_w,
+		PCHold_i			=> pc_hold_w,		-- Phase 7B2, Figure 3
 		
 		--Outputs
 		pc_o 				=> pc_w,
@@ -196,7 +216,9 @@ BEGIN
     	dtcm_data_rd_i 		=> dtcm_data_rd_w,
 		alu_res_i 			=> alu_res_w,
 		RegDst_ctrl_i		=> reg_dst_w,
-		RegWrite_ctrl_i 	=> reg_write_w,
+		RegWrite_ctrl_i 	=> reg_write_gated_w,	-- Phase 7B2: off during a stall
+		DivSel_ctrl_i		=> div_start_w,			-- Phase 7B2, Figure 3's WBSrc
+		div_result_i		=> div_result_w,
 		MemtoReg_ctrl_i 	=> MemtoReg_w,
 		
 		--Outputs
@@ -224,7 +246,60 @@ BEGIN
 		Jalr_ctrl_o			=> Jalr_ctrl_w,
 		UpperIm_ctrl_o 		=> upper_im_w,
 		ALUOp_ctrl_o 		=> alu_op_w,
-		MemOp_ctrl_o		=> mem_op_w			-- Phase 3B (G-309): access width
+		MemOp_ctrl_o		=> mem_op_w,		-- Phase 3B (G-309): access width
+		DivStart_ctrl_o		=> div_start_w,		-- Phase 7B2, Figure 3's DIVstart
+		DivSigned_ctrl_o	=> div_signed_w,
+		DivRem_ctrl_o		=> div_rem_w
+	);
+
+	--=======================================
+	-- Division accelerator -- Phase 7B2, Figure 3
+	--=======================================
+	-- THE STALL, AND WHY IT IS BUILT ON done AND NOT ON busy.
+	--   DIVstart has to cross into the DIVCLK domain (two synchroniser stages),
+	--   the engine then raises DIVBUSY, and DIVBUSY has to cross back (two more).
+	--   For several MCLK cycles after a div issues, busy STILL READS LOW. A stall
+	--   written as "hold while busy" would therefore not hold at all: the core
+	--   would run straight past its own divide and write back whatever the
+	--   previous one left behind. done_o means "the result exists", so the stall
+	--   is DIVstart AND NOT done. div_start_w is combinational decode, so it is
+	--   valid in the very first cycle -- which is the cycle the hold must start.
+	pc_hold_w <= div_start_w AND (NOT div_done_w);
+
+	-- Figure 3 feeds both Quotient and Rem into the write-back mux. Choosing
+	-- between them here rather than inside IDECODE keeps that mux one bit wide.
+	div_result_w <= div_remd_w WHEN div_rem_w = '1' ELSE div_quot_w;
+
+	-- WRITE-ENABLE GATING. Without it, RegWrite stays asserted for every cycle of
+	-- the stall -- a div is an R-type instruction -- so the register file would
+	-- take a new (and until the last cycle, meaningless) write on every one of
+	-- them. The last write would still be the right one, so this is not a
+	-- correctness bug on its own; it is gated because a register file written
+	-- fifteen times per divide is indefensible in a report, and because the same
+	-- gate is what a future multi-cycle instruction will need.
+	--   MemWrite is gated for the same reason even though div/rem never assert
+	--   it: one AND gate against a store executing repeatedly during a stall.
+	--   BOTH ARE PROVABLE NO-OPS TODAY: pc_hold_w can only rise on a div, and
+	--   none of the four Lab 5 benchmarks contains one -- their ITCM images decode
+	--   to exactly one mul each and zero div/rem -- so the four cycle counts are
+	--   untouched by this phase.
+	reg_write_gated_w <= reg_write_w AND (NOT pc_hold_w);
+	mem_write_gated_w <= mem_write_w AND (NOT pc_hold_w);
+
+	DIVU : div_unit
+	generic map(N => DATA_BUS_WIDTH)
+	PORT MAP(
+		mclk_i		=> mclk_w,
+		divclk_i	=> divclk_i,
+		rst_i		=> rst_i,
+		start_i		=> div_start_w,
+		signed_i	=> div_signed_w,
+		dividend_i	=> read_data1_w,		-- Figure 10b: Read data1 -> Ain
+		divisor_i	=> read_data2_w,		-- Figure 10b: Read data2 -> Bin
+		busy_o		=> div_busy_w,
+		done_o		=> div_done_w,
+		quotient_o	=> div_quot_w,
+		remainder_o	=> div_remd_w
 	);
 	--=======================================
 	-- EXECUTE module connection
@@ -281,7 +356,7 @@ BEGIN
 		dtcm_addr_i 		=> dtcm_addr_w,
 		dtcm_data_wr_i 		=> read_data2_w,
 		MemRead_ctrl_i 		=> mem_read_w,
-		MemWrite_ctrl_i 	=> mem_write_w,
+		MemWrite_ctrl_i 	=> mem_write_gated_w,	-- Phase 7B2: off during a stall
 		MemOp_ctrl_i		=> mem_op_w,
 		byte_sel_i			=> byte_sel_w,
 		dtcm_cs_i			=> dtcm_cs_i,		-- Phase 5B (G-305): gates wren_a
@@ -318,7 +393,7 @@ BEGIN
 	dbus_addr_o		<= alu_res_w(DATA_ADDR_WIDTH-1 DOWNTO 0);
 	dbus_wdata_o	<= read_data2_w;	-- what a store presents, same source as the DTCM's
 	dbus_MemRead_o	<= mem_read_w;
-	dbus_MemWrite_o	<= mem_write_w;
+	dbus_MemWrite_o	<= mem_write_gated_w;	-- Phase 7B2: no MMIO write during a stall
 	
 	--=======================================
 	-- MCLK counter register connection
@@ -337,8 +412,11 @@ BEGIN
 	pc_o					<=	pc_w;				-- IFETCH output								
   	instruction_o 			<= 	instruction_w;		-- IFETCH output
 	
-	RegWrite_ctrl_o 		<= 	reg_write_w;		-- CONTROL output
-  	MemWrite_ctrl_o 			<= 	mem_write_w;	-- CONTROL output
+	-- Phase 7B2: the GATED values, because these ports exist to show what the
+	-- core actually did. Identical to the raw decode whenever pc_hold_w is '0',
+	-- which is every cycle of every benchmark that contains no div.
+	RegWrite_ctrl_o 		<= 	reg_write_gated_w;	-- CONTROL output, gated
+  	MemWrite_ctrl_o 			<= 	mem_write_gated_w;	-- CONTROL output, gated
 	Branch_ctrl_o 			<= 	branch_w;			-- CONTROL output
 	  
   	read_data1_o 			<= 	read_data1_w;		-- IDECODE output
