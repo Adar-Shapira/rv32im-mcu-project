@@ -341,6 +341,12 @@ wrong — say so.
      store. Also expect ~126 MMIO stores and `DTCM stores seen 0`.
    - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
+   - **Then restage for the last one — this is the only test that wants a different program.**
+     Copy GPIO **`test1`**'s `M9K-intel` `ITCM.hex` and `DTCM.hex` over the same two `app_bin` files,
+     and `do run_gpio_read.do` → **Phase 6B**. Expect `VERDICT: PASS`, and specifically **phase 3
+     writes exactly 0** with ≥ 2 increments and ≥ 2 decrements. That test drives the switches and
+     checks the *program's branches* follow what it read, which is why it is the strongest evidence
+     in the set. **Put `test0`'s images back afterwards** or the two earlier tests will not reproduce.
    - **Notes from the wrapper — corrected 2026-08-24, the earlier wording was wrong.** Since Phase 6A
      the wrapper prints at most two notes, once each: an SFR **read** has no path yet and returns zero
      (that is Phase 6B), and an SFR **write** landed on one of the eight words that still have no
@@ -1561,7 +1567,82 @@ Reading a failure: one HEX of a pair failing while its partner is correct is **c
 chip select** — look at `lane_en_i` on the two `P_HEXn` instances. All six failing together points at
 the low-nibble wiring or `HEX_DECODER.vhd`. P3 alone means the program did not run.
 
-### Phase 6B — the read path  ·  **not started**
+### Phase 6B — the read path  ·  **built, awaiting verification**
+
+Done 2026-08-24. Closes the rest of **G-306**.
+
+| Done | What |
+| --- | --- |
+| ✔ | `DUT/RV32IMscMCU/BIDIRPIN.vhd` — **used as is** from Lab 3, body byte-identical, md5 `ab12d81dcdc85d91071b077359833bbd`. The block Figure 1's "Bi-directional Data BUS (reminder)" link points at |
+| ✔ | `RV32IMscMCU.vhd` — `SW_i[7..0]`, the SW synchroniser, eight tri-state readers, a bus terminator, and the read half of the stub notice retired |
+| ✔ | `GEN_GPO_READBACK` generic — the seven GPO read-back paths of Figure 5, behind a switch because they rest on assumption **A15** |
+| ✔ | `TB/RV32IMscMCU/tb_gpio_read.vhd` + `SIM/RV32IMscMCU/run_gpio_read.do`, `compile.do` and the `.qsf` updated |
+
+**The verification is the best in the project so far, and it is not an assertion on
+the bus.** GPIO test1 *branches* on what it reads, so the program's own control flow
+is the oracle. From the disassembled image, words 4–7 are
+`lui x29,0x2 / lw x29,16(x29) / andi x7,x29,1 / bne x7,x0,+8` — read `PORT_SW`,
+mask bit 0, branch. So:
+
+| `SW_i` | test1 does | observable |
+| --- | --- | --- |
+| `0x01` | takes the SW0 branch, `addi x5,x5,1` | the counter **increases** |
+| `0x02` | takes the SW1 branch, `addi x5,x5,-1` | the counter **decreases** |
+| `0x00` | takes **neither** — `print2all` is never called | **nothing is written at all** |
+
+The third row is the sharp one. An undriven read bus reads `'Z'`, a doubly-driven
+one reads `'X'`, and either sends a branch somewhere — which shows up as writes
+appearing when there should be none. *Exactly zero writes* is very hard to produce
+by accident.
+
+**A terminator whose enable cannot drift.** Inside an FPGA there is no bus keeper,
+so with every tri-state off the bus would be `'Z'` and the core would mux that into
+the register file. One extra driver supplies zeros when nothing else drives, and
+its enable is `rd_en_w = RD_NONE` — derived from the *same vector* that gates the
+readers, so the terminator and the readers cannot disagree. A hand-written
+complement that drifted by one term would give `'X'` (two drivers) or `'Z'` (none),
+and neither is simulatable here. A `process(all)` also asserts the at-most-one-hot
+property, at `warning` severity so a startup metavalue does not abort a run.
+
+**The switches are synchronised, which Figure 5 does not ask for.** A switch is a
+mechanical contact with no clock, so its value can change arbitrarily close to an
+edge — the textbook case for Figures 10a/10b, whose page 10 states the rule
+outright. This is the **first real use of `SYNC.vhd`** from Phase 4A, with
+`GEN_SRC_REG => FALSE` because there is no source domain to launch from. Two
+flip-flops, and Lab 4's own board interface registers its SW inputs too. Two cycles
+of latency on a hand-operated switch is not observable.
+
+**A testbench bug I introduced and caught by tracing the boundary.** When `SW_i`
+changes, the loop iteration already in flight has *already* read the old value and
+completes with the old branch, so exactly one stale store lands in the new phase.
+Scoring it fails a correct design — phase 3 would see "a write with both switches
+clear", which is precisely what P3 exists to catch. Hence `SETTLE_CYCLES = 60`,
+one full 42-instruction iteration plus the synchroniser's two.
+
+**What this does not cover, and it is registered rather than left implicit.** The
+seven GPO read-back tri-states are implemented and **exercised by nothing** — no
+supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn`; the only MMIO reads anywhere
+are three `lw ... PORT_SW`. Gap **G-407**. Closing it needs a small program of ours
+that stores a byte to a GPO port and loads it back — the same shape of gap as G-406.
+
+#### ▸ Adar's results — Phase 6B
+
+**Different staging from every other test: GPIO `test1`, not `test0`.** Then
+`do run_gpio_read.do`. Put test0's images back before re-running `run_mmio.do` or
+`run_gpio.do`.
+
+- phase 1 `SW=0x01`: writes ____ , increments ____ (need ≥ 2)
+- phase 2 `SW=0x02`: writes ____ , decrements ____ (need ≥ 2)
+- phase 3 `SW=0x00`: writes ____ — **must be exactly 0**
+- stores in settle windows: ____ (about 1 per boundary is normal)
+- failures: ____ · **VERDICT line:** ____________________
+
+Reading a failure: phase 3 showing writes means the read path returns something
+non-zero when it should not — check `term_en_w` and look for the one-hot warning.
+P1 and P2 both failing while P3 passes means the bit order or the synchroniser.
+P5 alone means Phase 6A broke, not 6B.
+
+### Phase 6B — original scope note
 
 - **Scope widened by the Phase 6A review.** It is not just `PORT_SW`: Figure 5 draws a
   `MemRead`-enabled tri-state on **every** output-port block too, so a load from `0x2000` or `0x2004`
@@ -1832,6 +1913,7 @@ before/after line pairs.
 | **G-204** | `mem_dump.do` exports 1024 of 2048 DTCM words; the upper half is never checked. |
 | **G-403** | Per-component test plans not written. |
 | **G-404** | `Benchmark Apps/RV32IM/test1/output/RARS/DTCM.hex` is a stale golden — 16 words disagree with `DTCM.h`. Would fail a correct CPU. |
+| **G-407** | **NEW, from Phase 6B.** The seven GPO read-back tri-states of Figure 5 are implemented (behind `GEN_GPO_READBACK`) and exercised by nothing: no supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn` — the only MMIO reads in any suite are three `lw ... PORT_SW`. So only `PORT_SW`'s tri-state is proved. Closing it needs a small program of ours that stores a byte to a GPO port and loads it back. Related: the paths also rest on assumption **A15**, so if Hanan says an output port must not answer a read, the right action is `GEN_GPO_READBACK => FALSE` rather than a test. |
 | **G-406** | **NEW, from the Phase 6A review.** `tb_gpio`'s cross-talk check is one-sided. GPIO test0 writes the *same* value to all seven GPO ports in ascending address order, so a port that wrongly captures an **earlier** store fails, while a port that wrongly captures a **later** store of the same iteration re-captures a value it already holds and is invisible. Concretely: dropping `lane_en_i` on `P_HEX1` is caught, dropping it on `P_HEX0` is not. No supplied benchmark discriminates — test1 and test2 also write one value to all seven — so closing this needs a small program of ours that writes different values to the two ports of a pair. |
 | **G-405** | GPIO suite never writes the DTCM, so no golden-memory comparison is possible. |
 

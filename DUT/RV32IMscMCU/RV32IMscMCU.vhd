@@ -95,6 +95,18 @@ ENTITY RV32IMscMCU IS
 		RST_ACTIVE_LOW		: boolean	:= TRUE;
 		-- FALSE ties the observation ports off so no Signal-Tap pin is assigned (§7).
 		GEN_DEBUG_PORTS		: boolean	:= TRUE;
+		-- Phase 6B. TRUE gives the seven GPO ports the read-back that Figure 5
+		-- draws (a MemRead-enabled tri-state on each output-port block), so a load
+		-- from 0x2000 returns the byte last written there.
+		--
+		-- It is a generic and not simply built in because clause 5's table gives all
+		-- seven a Direction of "GPO", which contradicts the figure unless "GPO"
+		-- names the device rather than forbidding a readable register. That is
+		-- assumption A15 in DOC/02_requirements_traceability.md, and it is the one
+		-- open question this phase rests on. Same idiom as G_ISA_REPAIR: if the
+		-- answer comes back "output ports must not respond to a read", this is one
+		-- word to change and the seven tri-states disappear.
+		GEN_GPO_READBACK	: boolean	:= TRUE;
 
 		-- Passed through to the core unchanged.
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
@@ -111,6 +123,17 @@ ENTITY RV32IMscMCU IS
 		--=== Board pins ===
 		clk_i				:IN		STD_LOGIC;		-- CLOCK_50, PIN_Y2
 		rst_i				:IN		STD_LOGIC;		-- KEY0,     PIN_M23
+
+		--=== GPIO board input — Phase 6B, Figure 5 (clause 5) ===
+		-- PORT_SW at 0x2010 reads SW7..SW0. Clause 5 maps eight of the board's ten
+		-- switches, the same asymmetry as LEDR below.
+		--
+		-- DEFAULTED, and that is load-bearing: the four testbenches written before
+		-- this phase do not associate it, and an unassociated IN port with no
+		-- default is an elaboration error. With the default they keep working and
+		-- read all switches low. Quartus ignores a default on a top-level port --
+		-- the pin drives it.
+		SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
 
 		--=== GPIO board outputs — Phase 6A, Figure 5 (clause 5) ===
 		-- Widths and roles from clause 5's table: PORT_LEDR drives LEDR7..LEDR0
@@ -231,6 +254,7 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- simulation-only stub notice below, which has to know which writes really are
 	-- discarded now that four of the twelve words are implemented.
 	SIGNAL gpo_cs_w				: STD_LOGIC;
+	SIGNAL sfr_rd_impl_w		: STD_LOGIC;	-- this SFR word answers a read
 
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
@@ -241,6 +265,43 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL ledr_q				: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL hex_q				: hex_byte_array_t;		-- what the CPU stored
 	SIGNAL hex_seg_w			: hex_seg_array_t;		-- what the display shows
+
+	--=======================================================================
+	-- SFR read path -- Phase 6B (Figure 5, and Figure 1's bidirectional-bus link)
+	--=======================================================================
+	-- One entry per readable byte register. The index order is arbitrary but fixed,
+	-- and it is what ties an enable to its data and to its tri-state instance.
+	CONSTANT RD_SW		: integer := 0;		-- 0x2010  PORT_SW
+	CONSTANT RD_LEDR	: integer := 1;		-- 0x2000  PORT_LEDR   read-back
+	CONSTANT RD_HEX0	: integer := 2;		-- 0x2004  PORT_HEX0   read-back
+	CONSTANT RD_HEX1	: integer := 3;		-- 0x2005  PORT_HEX1   read-back
+	CONSTANT RD_HEX2	: integer := 4;		-- 0x2008  PORT_HEX2   read-back
+	CONSTANT RD_HEX3	: integer := 5;		-- 0x2009  PORT_HEX3   read-back
+	CONSTANT RD_HEX4	: integer := 6;		-- 0x200C  PORT_HEX4   read-back
+	CONSTANT RD_HEX5	: integer := 7;		-- 0x200D  PORT_HEX5   read-back
+	CONSTANT NRD		: integer := 8;
+
+	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+	CONSTANT RD_NONE	: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0) := (OTHERS => '0');
+	CONSTANT ZEROS8		: STD_LOGIC_VECTOR(7 DOWNTO 0)     := (OTHERS => '0');
+
+	SIGNAL rd_en_w				: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0);
+	SIGNAL rd_byte_w			: rd_byte_array_t;
+	SIGNAL term_en_w			: STD_LOGIC;	-- drives zeros when nothing else drives
+	SIGNAL rdbk_w				: STD_LOGIC;	-- GEN_GPO_READBACK as a signal
+
+	-- SW7..SW0 after synchronisation. A switch is a mechanical contact with no
+	-- clock at all, so its value can change arbitrarily close to a clock edge --
+	-- the textbook case for the settling chain of Figures 10a/10b, which page 10
+	-- states as a rule: "It's fundamental to have a flip-flop to synchronize every
+	-- signal that is driven by combinational logic in domain A before sending it to
+	-- domain B." Figure 5 draws no synchroniser on PORT_SW, so this is an addition,
+	-- not something the figure asks for -- but it costs two flip-flops and Lab 4's
+	-- own board interface registers its SW inputs too
+	-- (Auxilary/Lab4/DUT/fpga_hw_interface.vhd). Two cycles of latency on reading a
+	-- hand-operated switch is not observable.
+	SIGNAL sw_sync_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 
 BEGIN
 	--=======================================
@@ -328,28 +389,135 @@ BEGIN
 	);
 
 	--=======================================
-	-- Read return path
+	-- SFR read return path (Figure 5) — Phase 6B
 	--=======================================
-	-- PHASE 5B PLACEHOLDER — REPLACED IN PHASE 6.
-	--   No peripheral exists yet, so a load from the SFR page has nothing to
-	--   answer it. Zero is the defined answer rather than 'X' or 'Z' for two
-	--   reasons: it keeps the GPIO suites deterministic (test1 and test2 read
-	--   PORT_SW and immediately mask the result, so they simply take the
-	--   SW0 = '0' branch), and it does not poison the register file with
-	--   metavalues that would then flood the transcript from the ALU.
+	-- This replaces the Phase 5B placeholder "dbus_rdata_w <= (OTHERS => '0')".
 	--
-	--   It is NOT silent. The report below fires on the first SFR access of a
-	--   run, so a test cannot pass by quietly reading zeros from a peripheral
-	--   that was never built. Phase 6 replaces this constant with the
-	--   peripherals' tri-state read bus (Figure 5, BidirPin with width => 32)
-	--   and deletes the process.
-	dbus_rdata_w <= (OTHERS => '0');
+	-- STRUCTURE, straight from Figure 5: every readable register drives the shared
+	-- Data<7..0> through a tri-state buffer enabled by its own chip select ANDed
+	-- with MemRead (and with A0 where a pair shares a chip select). The buffer is
+	-- the supplied Lab 3 BidirPin, which is what Figure 1's "Bi-directional Data
+	-- BUS (reminder)" link points at.
+	--
+	-- WHY THERE IS A TERMINATOR, AND WHY ITS ENABLE IS BUILT THIS WAY
+	--   Inside an FPGA there is no bus keeper: with every tri-state off the bus
+	--   would be 'Z', which the core would mux into the register file and turn into
+	--   'X' in the next arithmetic. So one more driver supplies zeros whenever no
+	--   register is selected. Its enable is derived from rd_en_w itself rather than
+	--   re-deriving the condition, so the terminator and the readers CANNOT
+	--   disagree -- a hand-written complement that drifted by one term would give
+	--   either 'X' (two drivers) or 'Z' (none), and neither is simulatable here.
+	--
+	-- BITS 31..8 (assumption A11: an MMIO read returns zero in the upper bits)
+	--   Nothing in the current map drives them: all eight readable registers are
+	--   byte-resolution and Figure 5 draws only Data<7..0>. A plain assignment is
+	--   therefore correct and is one driver. When Phase 8 adds BTCMPR0/BTCMPR1/
+	--   BTCAPR -- Word resolution, so they drive all 32 bits -- this line becomes a
+	--   tri-state too and the terminator grows a second enable.
+	--
+	-- The three MMIO reads in the whole benchmark suite are "lw ... PORT_SW", each
+	-- immediately followed by an andi, so nothing observes the upper bits today.
+	dbus_rdata_w(DATA_BUS_WIDTH-1 DOWNTO 8) <= (OTHERS => '0');
+
+	RDBK:
+	if (GEN_GPO_READBACK) generate
+		rdbk_w <= '1';
+	else generate
+		rdbk_w <= '0';
+	end generate;
+
+	-- SW7..SW0 through the Phase 4A synchroniser. GEN_SRC_REG is FALSE because
+	-- there is no source domain to launch from: a switch is not driven by logic,
+	-- so the launch register of Figure 10a has nothing to register. src_clk_i is
+	-- unused in that configuration and is tied to the destination clock.
+	SWSYNC : sync
+	generic map(
+		DATA_WIDTH	=> 8,
+		STAGES		=> 2,
+		GEN_SRC_REG	=> FALSE
+	)
+	PORT MAP (
+		src_clk_i	=> mclk_w,
+		dst_clk_i	=> mclk_w,
+		rst_i		=> rst_w,
+		d_i			=> SW_i,
+		q_o			=> sw_sync_w
+	);
+
+	-- One enable per readable register. PORT_SW is unconditional; the seven
+	-- read-back paths are gated by rdbk_w so GEN_GPO_READBACK => FALSE removes
+	-- them entirely.
+	rd_en_w(RD_SW)   <= sfr_cs_w(CS_SW)    AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_LEDR) <= sfr_cs_w(CS_LEDR)  AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX0) <= sfr_cs_w(CS_HEX01) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX1) <= sfr_cs_w(CS_HEX01) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_HEX2) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX3) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_HEX4) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX5) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+
+	rd_byte_w(RD_SW)   <= sw_sync_w;
+	rd_byte_w(RD_LEDR) <= ledr_q;
+	rd_byte_w(RD_HEX0) <= hex_q(0);
+	rd_byte_w(RD_HEX1) <= hex_q(1);
+	rd_byte_w(RD_HEX2) <= hex_q(2);
+	rd_byte_w(RD_HEX3) <= hex_q(3);
+	rd_byte_w(RD_HEX4) <= hex_q(4);
+	rd_byte_w(RD_HEX5) <= hex_q(5);
+
+	-- The exact complement, by construction.
+	term_en_w <= '1' WHEN rd_en_w = RD_NONE ELSE '0';
+
+	RDGEN:
+	for i in 0 to NRD-1 generate
+		BP : BidirPin
+		generic map( width => 8 )
+		PORT MAP (
+			Dout	=> rd_byte_w(i),
+			en		=> rd_en_w(i),
+			Din		=> open,
+			IOpin	=> dbus_rdata_w(7 DOWNTO 0)
+		);
+	end generate;
+
+	BP_TERM : BidirPin
+	generic map( width => 8 )
+	PORT MAP (
+		Dout	=> ZEROS8,
+		en		=> term_en_w,
+		Din		=> open,
+		IOpin	=> dbus_rdata_w(7 DOWNTO 0)
+	);
+
+	-- Simulation-only. Two drivers on the same bus give 'X', which would show up
+	-- far from its cause, so the at-most-one property is asserted where it lives.
+	-- Severity is warning, not failure, so a metavalue during the first cycles
+	-- after reset does not abort a run.
+	onehot_check : process(all)
+		variable hot_v : integer;
+	begin
+		hot_v := 0;
+		for i in rd_en_w'range loop
+			if rd_en_w(i) = '1' then
+				hot_v := hot_v + 1;
+			end if;
+		end loop;
+		assert hot_v <= 1
+			report "RV32IMscMCU: " & integer'image(hot_v) & " SFR read enables are " &
+				   "active at once. The read bus will resolve to 'X'. Check the " &
+				   "chip-select and lane terms in rd_en_w."
+			severity warning;
+	end process onehot_check;
 
 	-- Which SFR words actually have a peripheral behind them today. Phase 6A
 	-- attached the four GPO words; the other eight are still unimplemented.
 	-- Phases 6C, 8, 9 and 12 extend this term as they attach theirs.
 	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
 				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
+
+	-- Which SFR words answer a READ today: PORT_SW always, and the four GPO words
+	-- when read-back is enabled.
+	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR (gpo_cs_w AND rdbk_w);
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -366,14 +534,16 @@ BEGIN
 			variable told_wr_v : boolean := FALSE;
 		begin
 			if rising_edge(clk_i) then
-				-- READS: still entirely unimplemented. There is no read path at all
-				-- until Phase 6B, so every SFR read returns the placeholder zero,
-				-- including a read of a GPO port that does hold a value.
-				if dbus_MemRead_w = '1' and dtcm_cs_w = '0' and not told_rd_v then
+				-- READS: implemented for PORT_SW and, when GEN_GPO_READBACK is set,
+				-- for the seven GPO ports. Any other SFR word still reads as zero.
+				-- Updated in Phase 6B, which built the read path.
+				if dbus_MemRead_w = '1' and dtcm_cs_w = '0' and sfr_rd_impl_w = '0'
+				   and not told_rd_v then
 					told_rd_v := TRUE;
-					report "RV32IMscMCU: an SFR READ reached the bus interface. There is " &
-						   "no read path yet (Phase 6B), so it returns zero -- even for a " &
-						   "GPO port that holds a value. Expected at this phase. Once per run."
+					report "RV32IMscMCU: an SFR READ reached a word with no readable " &
+						   "register behind it and returned zero. PORT_SW and the seven " &
+						   "GPO read-backs DO answer; this is one of the others (PORT_PB, " &
+						   "USART, Basic Timer, interrupt controller). Once per run."
 						severity note;
 				end if;
 

@@ -412,6 +412,31 @@ length, not a staging mistake.
 | `do run_mmio.do` | 5B — MMIO aliasing | `VERDICT: PASS`; **`DTCM WRITES ACCEPTED: 0`**; ~126 MMIO stores; `DTCM stores seen 0` |
 | `do run_gpio.do` | 6A — the seven GPO ports | `VERDICT: PASS`; ~**18 writes to each** of the seven ports; ≥ 3 distinct `LEDR` values |
 
+**Then one more, with different images.** `run_gpio_read.do` (Phase 6B) runs GPIO **`test1`**, not
+`test0`. Restage:
+
+```
+copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
+copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
+```
+
+| Script | Phase | Expect |
+| --- | --- | --- |
+| `do run_gpio_read.do` | 6B — the SFR read path | `VERDICT: PASS`; **phase 3 writes exactly 0**; ≥ 2 increments and ≥ 2 decrements |
+
+**Put `test0`'s images back afterwards**, or `run_mmio.do` and `run_gpio.do` will not reproduce.
+
+**Why this is the strongest test in the set.** It does not assert on the read bus; it drives the
+switches and watches what the *program* does, because test1 branches on what it reads. `SW=0x01` must
+make the counter go up, `SW=0x02` down, and `SW=0x00` must produce **no writes at all** — with
+neither switch set, test1 takes neither branch and never calls `print2all`. An undriven read bus reads
+`'Z'`, a doubly-driven one reads `'X'`, and either sends a branch somewhere, which shows up as writes
+appearing where there should be none.
+
+**What it does not prove:** the seven GPO read-back paths. Figure 5 draws a `MemRead` tri-state on
+each output-port block and Phase 6B implements them, but no supplied benchmark reads `PORT_LEDR` or a
+`PORT_HEXn`, so only `PORT_SW`'s is exercised. Gap **G-407**.
+
 **`DTCM WRITES ACCEPTED: 0` is the single line that matters in `run_mmio.do`.** It says the DTCM
 refused every MMIO store, which is the whole point of Phase 5B. The earlier draft of that test
 watched the address decoder's chip select instead and would have printed PASS with the fix deleted.

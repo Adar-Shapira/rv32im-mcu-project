@@ -18,6 +18,7 @@ package aux_package is
 		generic(
 			RST_ACTIVE_LOW		: boolean	:= TRUE;
 			GEN_DEBUG_PORTS		: boolean	:= TRUE;
+			GEN_GPO_READBACK	: boolean	:= TRUE;	-- Phase 6B, assumption A15
 			WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 			MODELSIM			: integer	:= G_MODELSIM;
 			DATA_BUS_WIDTH		: integer	:= 32;
@@ -32,6 +33,10 @@ package aux_package is
 			--Inputs
 			clk_i				:IN		STD_LOGIC;
 			rst_i				:IN		STD_LOGIC;
+
+			--GPIO board input (Phase 6B). Defaulted so the four earlier testbenches,
+			--which do not associate it, still elaborate.
+			SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
 
 			--GPIO board outputs (Phase 6A, Figure 5)
 			LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
@@ -186,6 +191,22 @@ package aux_package is
 			dtcm_cs_o		: OUT	STD_LOGIC;
 			sfr_cs_o		: OUT	STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
 			unmapped_o		: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
+	-- The tri-state buffer of Figure 5, and the block Figure 1's
+	-- "Bi-directional Data BUS (reminder)" link points at (gap G-306). USED AS IS
+	-- from the students' Lab 3 -- the body of DUT/RV32IMscMCU/BIDIRPIN.vhd is
+	-- byte-identical to Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd, md5
+	-- ab12d81dcdc85d91071b077359833bbd, so the port names are that file's.
+	-- Instantiated once per readable SFR register plus one bus terminator.
+	component BidirPin is
+		generic( width : integer := 16 );
+		PORT(
+			Dout	: IN	STD_LOGIC_VECTOR(width-1 DOWNTO 0);
+			en		: IN	STD_LOGIC;
+			Din		: OUT	STD_LOGIC_VECTOR(width-1 DOWNTO 0);
+			IOpin	: INOUT	STD_LOGIC_VECTOR(width-1 DOWNTO 0)
 		);
 	end component;
 ---------------------------------------------------------

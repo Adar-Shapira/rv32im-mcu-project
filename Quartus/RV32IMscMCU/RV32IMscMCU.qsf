@@ -60,6 +60,9 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/HEX_DECODER.vhd
+# Phase 6B. Instantiated nine times by RV32IMscMCU.vhd (eight readable registers
+# plus the bus terminator), so it must be listed.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BIDIRPIN.vhd
 
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/MUL16.vhd
@@ -96,7 +99,8 @@ set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_
 # anywhere and Fmax is the only number wanted.
 #
 # Phase 6A added real board outputs: LEDR_o[7..0] and HEX0_o..HEX5_o[6..0], which
-# is 8 + 42 = 50 pins. Those need locations before anything can be tested on the
+# is 8 + 42 = 50 pins, and Phase 6B added the input SW_i[7..0] for 8 more - 58 in
+# total, plus clk_i and rst_i. Those need locations before anything can be tested on the
 # DE2-115, and:
 #
 #   >>> THE PIN NUMBERS ARE NOT IN ANY FILE THE COURSE SUPPLIED. <<<
