@@ -1,5 +1,10 @@
 # Deliverable C — Open Questions
 
+> **If you only want the list to send Hanan, read `DOC/05_questions_for_hanan.md` instead.** That file
+> holds only what is **still** open after the forum answers, with a one-sentence "Ask" line per item.
+> This file is the long record: what was searched, which file said what, and the full transcription of
+> the forum answers — including the ones that are now closed and must not be re-asked.
+
 Points where the supplied material is ambiguous, incomplete, or self-contradicting. Each carries a
 **provisional decision** so that no question blocks progress; if an answer arrives that differs, the
 affected item is revisited and the decision line is updated.

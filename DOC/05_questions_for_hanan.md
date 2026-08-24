@@ -1,0 +1,256 @@
+# Questions for Hanan — the current list
+
+**Last updated 2026-08-24, after the forum answers.**
+
+This file is the short, sendable list: **only what is still open.** Each item has a one-sentence
+**Ask** line meant to be sent as-is (translate to Hebrew if posting to the forum), followed by what we
+already found and what we are doing meanwhile so that nothing is blocked while we wait.
+
+The long analytical record — what was searched, which file said what, and the full transcription of
+the forum answers — stays in `DOC/03_open_questions.md`. **Do not re-ask anything in section 6
+below**; it is already answered.
+
+| Section | Items | Nature |
+| --- | --- | --- |
+| 1. Blocking | 4 | a phase cannot be finished without the answer |
+| 2. Proceeding under an assumption | 6 | built, but on an interpretation we chose |
+| 3. Peripherals not yet built | 4 | needed before Phases 8, 9 and 12 |
+| 4. Report and submission | 3 | needed before the ZIP |
+| 5. Material we do not have | 1 | a request, not a question |
+| 6. Already answered | — | **do not re-ask** |
+
+---
+
+## 1. Blocking — a phase cannot be finished without these
+
+### B1 — Which FPGA board?
+
+> **Ask:** Is the project to be built for the **DE2-115** or the **DE10-Standard**?
+
+Clause 4 links figures for both, and both links are external and not in the document. Every Lab 5
+file, both SDCs, the device line `EP4CE115F29C7` and our own hardware runs are **DE2-115**. All the
+USART material is **DE10-Standard** (`JP1 connection.md` transcribes that board's Table 3-11). The
+UART bonus menu names `LEDG`, which exists on the DE2-115 and not on the DE10-Standard.
+
+**Why it matters beyond pin numbers:** `PIN_W15`, `PIN_AK2` and `PIN_AK3` are *valid* coordinates on
+the F29 package as well, so a DE10-Standard assignment copied into a DE2-115 project compiles
+cleanly and drives the wrong physical pins.
+
+**Meanwhile:** everything targets the DE2-115. Nothing is blocked except the pinned Quartus revision.
+
+### B2 — `SEC_PERIOD` and `BTSSEL` disagree by a factor of 8
+
+> **Ask:** `test2` and `test3` set `BTCTL1 = 0x18` (`BTSSEL = 11`, ÷8) and then load
+> `SEC_PERIOD = 0x01312D00` commented "1sec". At `SMCLK = 20 MHz` ÷ 8 that is **8 seconds**. Which is
+> correct — the `BTSSEL` value, the constant, or the comment?
+
+Three citations now stand behind this, and they conflict:
+
+1. `Intrrupt-based IO/test{2,3}/asm-code/01_func.s:54-74` — `BTSSEL3 = 0x18`, bits[4:3] = `11`.
+2. The same files' `io_map.s:45` — `SEC_PERIOD = 0x01312D00` = 20,000,000, *"in case of SMCLK=20MHz"*.
+3. The added `Intrrupt-based IO/ReadMe.txt` — *"On every BT interrupt-interval of 1sec (value of
+   0x01312D00 is for SMCLK=20MHz)"*.
+
+Meanwhile `FREQ_5K = 500` at ÷8 gives **exactly** the 5 kHz that test4's PWM needs, so the ÷8 reading
+of `BTSSEL` is right and it is `SEC_PERIOD` or its comment that is off by 8.
+
+**Meanwhile:** Figure 7's divider table is implemented as drawn, and the discrepancy is reported
+rather than silently "fixed". Registered as assumption **A5**.
+
+### B3 — What frequency should `ACCELCLK` / `DIVCLK` be?
+
+> **Ask:** The forum says the three clocks come from three separate PLL instances and that
+> `MCLK = SMCLK` is acceptable for a single-cycle core. What should `ACCELCLK`/`DIVCLK` be — is the
+> raw 50 MHz base acceptable, or is a specific ratio to `MCLK` expected?
+
+The forum settled that `DIVCLK` "needs to be high" so the divider is genuinely an accelerator, and
+that all three come from separate PLLs fed by the 50 MHz base. No number was given. It also said
+`MCLK` must be an integer multiple of `SMCLK` — satisfied trivially at ×1.
+
+**Meanwhile:** Phase 4B will use `MCLK = SMCLK = 20 MHz` and `ACCELCLK = 50 MHz`, and state the
+choice in the report. A wrong guess costs one PLL parameter.
+
+### B4 — `BTINT` is two bits but the text says three options
+
+> **Ask:** `BTCTL1[1:0]` is `BTINT`, two bits, and page 8 says it selects the interrupt source "from
+> three options", while Figure 7's `BTIFG` source mux has four positions fed by `EQU0`, `EQU1` and the
+> capture event. Which code selects which source?
+
+The forum clarified the *behaviour* — in compare mode the core interrupts per `BTINT` on comparison
+with `BTCL0`/`BTCL1`, and the count always restarts at `BTCL0` — but not the **encoding**.
+
+**Meanwhile:** Phase 8 is not started. This must be answered before it is.
+
+---
+
+## 2. Proceeding under an assumption — built, but on an interpretation we chose
+
+Each of these is already implemented, each is behind a generic or a single constant, and each carries
+what would falsify it. They are listed so that a "no" costs one line rather than a rebuild.
+
+### A15 — Are the GPO ports readable?
+
+> **Ask:** Clause 5's table gives `PORT_LEDR` and `PORT_HEX0`–`PORT_HEX5` a Direction of **GPO**, but
+> Figure 5 draws a `MemRead`-enabled tri-state inside **each** output-port block, driving
+> `Data<7..0>`. Should a load from `0x2000` return the byte last written there, or should an output
+> port not respond to a read at all?
+
+**Built as:** readable, behind `GEN_GPO_READBACK` (default `TRUE`). No supplied benchmark reads a GPO
+port, so nothing observable depends on it. **A "no" is one word.**
+
+### A16 — Does `PORT_PB` read `1` for a pressed key?
+
+> **Ask:** You gave the bit order (`KEY1`→bit 0, `KEY2`→bit 1, `KEY3`→bit 2). Should `PORT_PB`
+> present the **raw** active-low pin, or the pressed sense so that a pressed key reads `1`?
+
+Nothing states the polarity, and `PORT_PB` is defined in every `io_map.s` but read by **no** supplied
+program, so the material does not constrain it.
+
+**Built as:** pressed reads `1`, behind `KEY_ACTIVE_LOW` (default `TRUE`), following
+`Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` and this design's own treatment of KEY0.
+
+### A11 — What do the upper 24 bits of a byte-wide MMIO read return?
+
+> **Ask:** Figure 5 drives only `Data<7..0>` from a byte-resolution peripheral. On `lw` from
+> `PORT_SW`, should bits 31..8 read zero?
+
+**Built as:** zero — every bus driver is 32 bits wide and a byte register drives its value
+zero-extended. All three MMIO reads in the benchmarks mask the result immediately, so nothing
+observes it today.
+
+### A12 — Does a Word-resolution register own all four byte lanes of its word?
+
+> **Ask:** `BTCMPR0`, `BTCMPR1` and `BTCAPR` are marked "Word". Should `0x2021` be treated as part of
+> `BTCMPR0`, or as unmapped?
+
+**Built as:** all four lanes belong to the register.
+
+### A13 — What does a GPO port hold after RESET?
+
+> **Ask:** Figure 5 draws no reset on the output latches. Should the LEDs be off and the displays show
+> `0` after KEY0, or should the displays be blank until first written?
+
+**Built as:** zero, so the displays show `0`. "Blank until written" would need a separate
+"not yet written" flag that nothing asks for.
+
+### A17 — Are the Basic Timer's interface registers readable as well as writable?
+
+> **Ask:** The forum answer on this was that the timer's interface registers are readable and
+> writable **except `BTCTL2`**, which is read-only. Could you confirm that reading — we want to be
+> sure we read it correctly, since `BTCTL2` is the capture-mode control register and the applications
+> appear to write to it.
+
+**This is one of two forum rows we could not transcribe with full confidence**, which is why it is
+here rather than in section 6. Phase 8 is not started, so nothing is built on either reading.
+
+---
+
+## 3. Peripherals not yet built — needed before Phases 8, 9 and 12
+
+### P1 — `HEU0`
+
+> **Ask:** Figure 7 labels the latch-enable of the `BTCL0`/`BTCL1` shadow latches `HEU0`. What is it —
+> what drives it and when do the shadow latches load?
+
+Defined nowhere in the document.
+
+### P2 — `RXIFG` serves two `TYPE` values
+
+> **Ask:** `TYPE` `04h` (UART status error) and `08h` (UART RX) share one `RXIFG` flag. When both
+> conditions are true, which `TYPE` should the controller present?
+
+**Non-blocking in practice:** in all four benchmark DTCM images, `04h` and `08h` hold the **same**
+handler address, so the two vector to one routine that distinguishes error from data by reading
+`UCTL`. Verified in `DOC/02` §4.1.
+
+### P3 — `UCTL` or `UTCL`?
+
+> **Ask:** The page 6 memory map row reads `UTCL`; the register bit-field table on page 12 is titled
+> `UCTL`; the benchmarks' `io_map.s` uses `UTCL`. Same register, three spellings — which is intended?
+
+Cosmetic, but it goes in the report and in the RTL identifier.
+
+### P4 — `UxBRx` and `UxMCTL`
+
+> **Ask:** Figure 11 draws a "Prescaler/Divider `UxBRx`" and a "Modulator `UxMCTL`", but neither has an
+> address, a bit-field table, or any prose. Is the baud rate controlled solely by `UCTL` bit 3, or is a
+> separate baud register expected?
+
+Affects the UART bonus (Phase 12) only.
+
+---
+
+## 4. Report and submission
+
+### R1 — Which report filename?
+
+> **Ask:** The DOC table says `Final_report.pdf`; the clause 10 prose says `final.pdf`. Which?
+
+### R2 — The menu names `LEDG`
+
+> **Ask:** UART menu item 1 names `LEDG`, which does not exist on the DE2-115 (item 2 names `LEDR`).
+> Should item 1 drive `LEDR` on that board?
+
+Tied to **B1**.
+
+### R3 — How should we present the ISA-conformance gap?
+
+> **Ask:** Our directed ISA test checks full RV32IM conformance and therefore reports five permanent
+> mismatches — two for `mul` being 16×16 and three for `mulh`/`mulhsu`/`mulhu`. Your answer is that a
+> 16-bit `mul` only is what the project requires. Is it acceptable to present these in the report as
+> "conformance beyond the project's scope, deliberately not implemented", rather than as defects?
+
+We believe the answer is yes and are writing it that way; asking so the report is not surprising.
+
+---
+
+## 5. Material we do not have
+
+### M1 — DE2-115 pin assignments
+
+> **Ask:** Is there a DE2-115 pin-assignment file for the course, or should we take the pin numbers
+> from Terasic's own `DE2_115.qsf`?
+
+The design now has **61 board pins** — `LEDR[7..0]`, `HEX0`–`HEX5[6..0]`, `SW[7..0]`, `KEY[3..1]`,
+plus `clk_i` and `rst_i` — and Phase 8 adds three more on the expansion header for `PWMout`,
+`CAPIN1` and `CAPIN2`, which you have said we choose ourselves.
+
+Checked: five `.qsf` files under `Auxiliary/` do contain `set_location_assignment` lines, but **none
+of them, and no other supplied file, contains a single pin number for `LEDR` or any `HEX`**. The only
+pin note is a 28-line student file covering `clk_i`, `rst_i` and `BPADDR_i[7..0]`.
+
+**Meanwhile:** the performance Quartus revision is deliberately pinless, which is correct for the PPA
+tables. Nothing can be tested on the board until this is resolved. Gap **G-504**.
+
+---
+
+## 6. Already answered — do not re-ask
+
+The forum settled all of these. Wording and cross-checks are in `DOC/03_open_questions.md`, section
+"ANSWERS FROM HANAN'S FORUM".
+
+| Topic | Answer |
+| --- | --- |
+| Which core to start from | Lab 5 part 1, RV32IM single-cycle, **16-bit multiplier only** |
+| `mulh` / `mulhsu` / `mulhu` | **Not required** — "`mul` only (as in Lab 5)" |
+| Divider registers memory-mapped or core-internal | **Core-internal** |
+| `Ain` / `Bin` | `Ain` = Dividend, `Bin` = Divisor |
+| Divide by zero | Result is **all ones** |
+| Divider subtractor | The `-` operator is allowed |
+| Interrupt during `DIV`/`REM` | Finish the instruction — it completes when `BUSY` falls |
+| One PLL or three | **Three separate PLL instances**, each from the 50 MHz base |
+| May `MCLK = SMCLK`? | **Yes**, for a single-cycle core |
+| `SMCLK` frequency | **20 MHz** (stated in the added `ReadMe.txt`) |
+| `PORT_PB` bit order | `KEY1`→bit 0, `KEY2`→bit 1, `KEY3`→bit 2; KEY0 excluded |
+| One HEX per value, or HEX pairs? | **Each HEX stands on its own** |
+| GPIO registers: latch or DFF? | **DFF on `SMCLK`** is preferable |
+| Key debounce in VHDL? | **No** — done in board hardware (74HC245) |
+| Do buttons/switches need a synchroniser? | **No** — they are effectively static |
+| Bidirectional data bus or separate paths? | **Bidirectional is mandatory** |
+| Must `TYPE` be multiplied by 4? | **No** — it already holds multiples of 4 |
+| Byte addresses in the peripheral space? | **Yes** — word alignment applies to the DTCM only |
+| What does RESET clear in the Basic Timer? | **Only the interface registers** — `BTCNT` is not reset |
+| Does `BTCNT` restart in compare mode? | **Yes, always at `BTCL0`** (on `EQU0`) |
+| `IFG` raw or masked? | **Masked** — it depends on request **and** enable, and only rises when `IE = 1` |
+| `PWMout` / `CAPIN1` / `CAPIN2` pins | **Choose three** on the expansion connector yourselves |
+| Were the interrupt benchmarks updated? | **Yes** — and we verified our copies are the updated ones |
