@@ -19,6 +19,14 @@
 -- discriminable in both directions. The program writes different values to the
 -- two halves of each shared chip select, in BOTH orders, and reads both back.
 --
+-- PHASE 6C ADDED TWO CASES
+--   PORT_PB is read with KEY3 and KEY2 pressed and KEY1 released, which must give
+--   0x06 — a value that is NOT symmetric under bit reversal, so a wrong bit order
+--   gives 0x03 and fails. The order itself (KEY1→bit 0, KEY2→bit 1, KEY3→bit 2)
+--   is Hanan's forum answer; the polarity is assumption A16. And a store to
+--   PORT_PB, which is a GPI, must be discarded and must not disturb what it
+--   presents.
+--
 -- HOW IT WORKS
 --   The same scoreboard shape as tb_isa_directed.vhd: snoop every committed
 --   store and compare it against the next entry of a generated expected
@@ -68,8 +76,8 @@ ENTITY tb_gpio_directed IS
 		MA_WIDTH			: integer	:= G_MA_WIDTH;
 		DATA_WORDS_NUM		: integer	:= G_DATA_WORDSNUM;
 		CLK_CNT_WIDTH		: integer	:= 16;
-		-- The program is 304 instructions of straight-line code plus the
-		-- sentinel, and the core is single-cycle, so it retires in ~305 cycles.
+		-- The program is 331 instructions of straight-line code plus the
+		-- sentinel, and the core is single-cycle, so it retires in ~332 cycles.
 		-- The cap is a backstop for a core that never reaches the sentinel.
 		MAX_CYCLES			: integer	:= 1000
 	);
@@ -129,7 +137,8 @@ BEGIN
 	PORT MAP (
 		clk_i				=> clk_i,
 		rst_i				=> rst_i,
-		SW_i				=> SW_VALUE,		-- from the generated package
+		SW_i				=> SW_VALUE,		-- both from the generated package
+		KEY_i				=> KEY_VALUE,		-- raw active-low pins, KEY3..KEY1
 		instruction_o		=> instruction_o,
 		MemWrite_ctrl_o		=> MemWrite_ctrl_o,
 		alu_res_o			=> alu_res_o,
@@ -238,7 +247,8 @@ BEGIN
 						   "each shared chip select was exercised in BOTH write " &
 						   "orders with different values, all seven GPO ports were " &
 						   "read back, PORT_SW read 0x" & to_hstring(SW_VALUE) &
-						   " through the synchroniser, an unmapped read returned " &
+						   ", PORT_PB read the pressed keys in Hanan's bit order and " &
+						   "ignored a write, an unmapped read returned " &
 						   "zero, an unmapped write was discarded, and DTCM word 0 " &
 						   "still held its marker after fourteen MMIO stores."
 						severity note;

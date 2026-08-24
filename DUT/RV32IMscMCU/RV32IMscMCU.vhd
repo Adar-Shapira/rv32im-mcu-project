@@ -118,6 +118,22 @@ ENTITY RV32IMscMCU IS
 		-- of latency on a hand-operated switch, i.e. nothing, and because a marginal
 		-- board would be diagnosed by turning it on.
 		GEN_INPUT_SYNC		: boolean	:= FALSE;
+		-- Phase 6C. TRUE = KEY1..KEY3 arrive from the board's pushbuttons, which
+		-- are active-low, so PORT_PB reads '1' for a PRESSED key.
+		--
+		-- Hanan's forum gave the bit ORDER (see PORT_PB below) but nothing states
+		-- the POLARITY, and no supplied program reads PORT_PB at all -- it is
+		-- defined in every io_map.s and accessed by none, because the interrupt
+		-- tests reach the keys through interrupts rather than by polling. So this
+		-- is an Assumption (A16), and it is a generic for the same reason
+		-- RST_ACTIVE_LOW is one: the same board fact, the same one-word fix.
+		--
+		-- Grounds for "pressed reads 1": the course's own board interface,
+		-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38, does exactly this --
+		-- "Invert KEYs because DE2-115 pushbuttons are normally HIGH, LOW when
+		-- pressed / key_pressed <= NOT KEY" -- and this design already does it for
+		-- KEY0 through RST_ACTIVE_LOW.
+		KEY_ACTIVE_LOW		: boolean	:= TRUE;
 
 		-- Passed through to the core unchanged.
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
@@ -145,6 +161,16 @@ ENTITY RV32IMscMCU IS
 		-- read all switches low. Quartus ignores a default on a top-level port --
 		-- the pin drives it.
 		SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+
+		-- KEY3..KEY1 -- Phase 6C. Indexed 3 DOWNTO 1 so that KEY_i(n) is KEYn on
+		-- the board and no off-by-one is possible at the pin assignment. KEY0 is
+		-- absent because clause 3 makes it the system RESET, and it arrives on
+		-- rst_i above.
+		--
+		-- Defaulted to all '1' -- with KEY_ACTIVE_LOW that is "no key pressed" --
+		-- so the five testbenches written before this phase still elaborate and
+		-- see released keys.
+		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
 		--=== GPIO board outputs — Phase 6A, Figure 5 (clause 5) ===
 		-- Widths and roles from clause 5's table: PORT_LEDR drives LEDR7..LEDR0
@@ -303,7 +329,8 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	CONSTANT RD_HEX3	: integer := 5;		-- 0x2009  PORT_HEX3   read-back
 	CONSTANT RD_HEX4	: integer := 6;		-- 0x200C  PORT_HEX4   read-back
 	CONSTANT RD_HEX5	: integer := 7;		-- 0x200D  PORT_HEX5   read-back
-	CONSTANT NRD		: integer := 8;
+	CONSTANT RD_PB		: integer := 8;		-- 0x2014  PORT_PB     (Phase 6C)
+	CONSTANT NRD		: integer := 9;
 
 	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 
@@ -344,6 +371,10 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- (Auxilary/Lab4/DUT/fpga_hw_interface.vhd). Two cycles of latency on reading a
 	-- hand-operated switch is not observable.
 	SIGNAL sw_sync_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+	-- KEY3..KEY1 conditioned to "pressed = '1'", and the byte PORT_PB presents.
+	SIGNAL key_pressed_w		: STD_LOGIC_VECTOR(3 DOWNTO 1);
+	SIGNAL portpb_w				: STD_LOGIC_VECTOR(7 DOWNTO 0);
 
 BEGIN
 	--=======================================
@@ -508,6 +539,39 @@ BEGIN
 		sw_sync_w <= SW_i;
 	end generate;
 
+	--=======================================
+	-- PORT_PB, 0x2014 (clause 6) — Phase 6C
+	--=======================================
+	-- Board-boundary conditioning, exactly as RSTCOND does it for KEY0 and as
+	-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38 does it for all four keys.
+	KEYCOND:
+	if (KEY_ACTIVE_LOW) generate
+		key_pressed_w <= NOT KEY_i;
+	else generate
+		key_pressed_w <= KEY_i;
+	end generate;
+
+	-- THE BIT ORDER IS HANAN'S, NOT AN ASSUMPTION. Asked whether PORT_PB should
+	-- return three bits with bit 0 unused, or the buttons packed into bits 0-2,
+	-- his forum answer is: "the mapping is in the order KEY1-KEY3 to bits 0-2
+	-- respectively (KEY0 is not included, since it is the system RESET interface)".
+	-- Nothing in any supplied file states this, and no supplied program reads
+	-- PORT_PB, so without that answer it could only have been guessed.
+	--
+	-- Bits 7..3 have no source. They read zero rather than being left undriven,
+	-- for the same reason the bus has a terminator: an undriven bit reads 'Z',
+	-- which arrives as 'X' in the register file.
+	portpb_w(0) <= key_pressed_w(1);		-- KEY1
+	portpb_w(1) <= key_pressed_w(2);		-- KEY2
+	portpb_w(2) <= key_pressed_w(3);		-- KEY3
+	portpb_w(7 DOWNTO 3) <= (OTHERS => '0');
+
+	-- key_pressed_w is also what Phase 9's interrupt edge latches will observe.
+	-- No edge detector is built here: clause 6.i puts the KEY interrupt sources in
+	-- the interrupt controller, and Hanan's forum confirms the board debounces in
+	-- hardware (a 74HC245, Figure 6), so what Phase 9 needs is edge detection on a
+	-- clean signal, not debounce.
+
 	-- One enable per readable register. PORT_SW is unconditional; the seven
 	-- read-back paths are gated by rdbk_w so GEN_GPO_READBACK => FALSE removes
 	-- them entirely.
@@ -519,6 +583,7 @@ BEGIN
 	rd_en_w(RD_HEX3) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
 	rd_en_w(RD_HEX4) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
 	rd_en_w(RD_HEX5) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_PB)   <= sfr_cs_w(CS_PB)    AND dbus_MemRead_w AND lane0_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -528,6 +593,7 @@ BEGIN
 	rd_byte_w(RD_HEX3) <= hex_q(3);
 	rd_byte_w(RD_HEX4) <= hex_q(4);
 	rd_byte_w(RD_HEX5) <= hex_q(5);
+	rd_byte_w(RD_PB)   <= portpb_w;
 
 	-- Zero-extend each byte register to the full bus width. This IS assumption
 	-- A11, expressed once, in the only place it belongs.
@@ -611,7 +677,7 @@ BEGIN
 
 	-- Which SFR words answer a READ today: PORT_SW always, and the four GPO words
 	-- when read-back is enabled.
-	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR (gpo_cs_w AND rdbk_w);
+	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w);
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -635,9 +701,9 @@ BEGIN
 				   and not told_rd_v then
 					told_rd_v := TRUE;
 					report "RV32IMscMCU: an SFR READ reached a word with no readable " &
-						   "register behind it and returned zero. PORT_SW and the seven " &
-						   "GPO read-backs DO answer; this is one of the others (PORT_PB, " &
-						   "USART, Basic Timer, interrupt controller). Once per run."
+						   "register behind it and returned zero. PORT_SW, PORT_PB and the " &
+						   "seven GPO read-backs DO answer; this is one of the others " &
+						   "(USART, Basic Timer, interrupt controller). Once per run."
 						severity note;
 				end if;
 
@@ -648,8 +714,9 @@ BEGIN
 					told_wr_v := TRUE;
 					report "RV32IMscMCU: an SFR WRITE reached a word with no peripheral " &
 						   "behind it yet and was discarded. The seven GPO ports of Phase 6A " &
-						   "DO take their writes; this is one of the other eight SFR words " &
-						   "(PORT_PB, USART, Basic Timer, interrupt controller). Once per run."
+						   "DO take their writes; this is one of the other eight SFR words. " &
+						   "Note PORT_PB is READ-ONLY, so a write there is discarded by " &
+						   "design, not by omission. Once per run."
 						severity note;
 				end if;
 			end if;

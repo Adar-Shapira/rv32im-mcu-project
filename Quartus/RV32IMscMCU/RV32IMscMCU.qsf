@@ -99,8 +99,10 @@ set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_
 # anywhere and Fmax is the only number wanted.
 #
 # Phase 6A added real board outputs: LEDR_o[7..0] and HEX0_o..HEX5_o[6..0], which
-# is 8 + 42 = 50 pins, and Phase 6B added the input SW_i[7..0] for 8 more - 58 in
-# total, plus clk_i and rst_i. Those need locations before anything can be tested on the
+# is 8 + 42 = 50 pins; Phase 6B added the input SW_i[7..0] for 8 more; and Phase 6C
+# added KEY_i[3..1] for 3 - 61 in total, plus clk_i and rst_i (KEY0). Phase 8 will
+# add three more on the expansion header for PWMout, CAPIN1 and CAPIN2, which
+# Hanan's forum confirms you must choose yourself. Those need locations before anything can be tested on the
 # DE2-115, and:
 #
 #   >>> THE PIN NUMBERS ARE NOT IN ANY FILE THE COURSE SUPPLIED. <<<

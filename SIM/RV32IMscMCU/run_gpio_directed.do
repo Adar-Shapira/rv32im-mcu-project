@@ -39,8 +39,14 @@
 # THE 32 STORES ALSO COVER
 #   - assumption A11: reading PORT_LEDR after writing 0xFF must give 0x000000FF,
 #     not 0xFFFFFFFF - so the upper 24 bits really do come back zero
-#   - PORT_SW read through the two-stage synchroniser, value 0x5C (not
-#     bit-symmetric, so a reversed bit order cannot pass)
+#   - PORT_SW read, value 0x5C (not bit-symmetric, so a reversed bit order
+#     cannot pass)
+#   - PORT_PB read with KEY3 and KEY2 pressed and KEY1 released, which must give
+#     0x06. Also not symmetric under bit reversal - a wrong order gives 0x03. The
+#     order is Hanan's forum answer (KEY1 -> bit 0, KEY2 -> bit 1, KEY3 -> bit 2);
+#     the polarity is assumption A16
+#   - a store to PORT_PB, which is a GPI, must be discarded and must not disturb
+#     the value it presents
 #   - an unmapped SFR read (0x2030) must return 0 - proves the bus terminator; a
 #     floating bus would give Z, which arrives as X in the register file
 #   - an unmapped SFR write (0x2034) must be discarded and must not disturb
@@ -66,8 +72,8 @@ vsim -t ns -gMODELSIM=1 work.tb_gpio_directed
 run -all
 
 echo ""
-echo "Read the SUMMARY block above. Expected: VERDICT: PASS, 32 of 32 stores seen,"
-echo "mismatches 0, and about 305 cycles."
+echo "Read the SUMMARY block above. Expected: VERDICT: PASS, 35 of 35 stores seen,"
+echo "mismatches 0, and about 332 cycles."
 echo ""
 echo "If two stores of one pair are swapped, the lane term (lane_en_i) on those"
 echo "two P_HEXn instances is wrong. If every ':rd' entry reads zero, read-back is"

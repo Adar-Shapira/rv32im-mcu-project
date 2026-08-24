@@ -20,6 +20,7 @@ package aux_package is
 			GEN_DEBUG_PORTS		: boolean	:= TRUE;
 			GEN_GPO_READBACK	: boolean	:= TRUE;	-- Phase 6B, assumption A15
 			GEN_INPUT_SYNC		: boolean	:= FALSE;	-- Hanan: switches need no synchroniser
+			KEY_ACTIVE_LOW		: boolean	:= TRUE;	-- Phase 6C, assumption A16
 			WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 			MODELSIM			: integer	:= G_MODELSIM;
 			DATA_BUS_WIDTH		: integer	:= 32;
@@ -38,6 +39,7 @@ package aux_package is
 			--GPIO board input (Phase 6B). Defaulted so the four earlier testbenches,
 			--which do not associate it, still elaborate.
 			SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+			KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
 			--GPIO board outputs (Phase 6A, Figure 5)
 			LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);

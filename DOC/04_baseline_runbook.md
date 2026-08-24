@@ -441,7 +441,7 @@ copy <repo>\SIM\RV32IMscMCU\gpio\DTCM.hex  C:\TestPrograms\Quartus21_1\app_bin\D
 
 | Script | Closes | Expect |
 | --- | --- | --- |
-| `do run_gpio_directed.do` | G-406, G-407 | `VERDICT: PASS`; **32 of 32** stores; **0** mismatches; ~305 cycles |
+| `do run_gpio_directed.do` | G-406, G-407, and Phase 6C | `VERDICT: PASS`; **35 of 35** stores; **0** mismatches; ~332 cycles |
 
 **Zero is the only passing number here**, unlike `run_isa.do`. The program uses only `addi`, `slli`,
 `sw` and `lw`-at-offset-zero plus one `beq` sentinel, so it touches none of the seven ISA defects and
@@ -455,6 +455,9 @@ says in words what that case is for and what its failure means. Quick reading:
 - every `:rd` entry reading zero → read-back is off; check `GEN_GPO_READBACK` and `rdbk_w`
 - the unmapped read non-zero → the bus terminator's enable
 - DTCM word 0 having lost its `0xDEADBEEF` marker → the Phase 5B write gating in `DMEMORY.vhd`
+- `port_pb:rd` reading `0x03` instead of `0x06` → the KEY bit order is reversed
+- `port_pb:rd` reading `0x01` instead of `0x06` → the polarity is inverted, i.e. `KEY_ACTIVE_LOW` is
+  wrong for this board (assumption A16)
 
 The images are committed, so they do not need regenerating. If the map or the cases ever change,
 `python3 tools/gen_gpio_test.py` rebuilds them and refuses to write anything if its two independent
@@ -565,7 +568,7 @@ waiting:
 - `run_mmio.do`'s **`DTCM WRITES ACCEPTED`** figure and `run_gpio.do`'s seven write counts
   (Phases 5B and 6A);
 - `run_gpio_read.do`'s three phase counts (Phase 6B) — phase 3 must be **0**;
-- `run_gpio_directed.do`'s store count and mismatch count (Phase 6D) — **32 of 32, zero
+- `run_gpio_directed.do`'s store count and mismatch count (Phases 6C and 6D) — **35 of 35, zero
   mismatches**;
 - **one Quartus-only answer nobody else can give:** open the In-System Memory Content Editor and
   confirm the `DTCM` instance still appears and can be read and written. Phase 3B added `byteena_a`

@@ -67,6 +67,7 @@ PORT_HEX3 = 0x2009
 PORT_HEX4 = 0x200C
 PORT_HEX5 = 0x200D
 PORT_SW   = 0x2010
+PORT_PB   = 0x2014
 
 # Two SFR words with nothing behind them, used for the aliasing and
 # no-cross-contamination cases. 0x2030 and 0x2034 are inside the SFR page
@@ -78,6 +79,15 @@ SFR_UNMAPPED_WR = 0x2034
 # What the testbench must drive on SW_i. Arbitrary but not symmetric, so a
 # reversed bit order cannot pass: 0x5C = 0101_1100.
 SW_VALUE = 0x5C
+
+# What the testbench must drive on KEY_i, and what PORT_PB must therefore read.
+# KEY_i is the RAW pin, active-low: '0' means pressed. Chosen so that KEY3 and
+# KEY2 are pressed and KEY1 is not, giving PORT_PB = 0b110 = 0x06 -- which is NOT
+# symmetric under bit reversal, so a wrong bit order (0b011 = 0x03) cannot pass.
+# The order itself is Hanan's forum answer: KEY1 -> bit 0, KEY2 -> bit 1,
+# KEY3 -> bit 2.
+KEY_RAW   = 0b001          # (KEY3, KEY2, KEY1) = (0, 0, 1) on the pins
+KEY_VALUE = 0x06           # what PORT_PB must return
 
 # DTCM word 0 is what PORT_LEDR (0x2000) aliased onto before Phase 5B, and it is
 # where the interrupt vector table lives. The marker goes there on purpose.
@@ -99,21 +109,26 @@ class GpioModel:
 
     WRITABLE = {PORT_LEDR, PORT_HEX0, PORT_HEX1, PORT_HEX2,
                 PORT_HEX3, PORT_HEX4, PORT_HEX5}
-    READABLE = WRITABLE | {PORT_SW}
+    READABLE = WRITABLE | {PORT_SW, PORT_PB}
 
-    def __init__(self, sw_value):
+    def __init__(self, sw_value, pb_value):
         self.reg = {a: 0 for a in self.WRITABLE}
         self.sw = sw_value & 0xFF
+        self.pb = pb_value & 0xFF          # PORT_PB is read-only (GPI)
 
     def store(self, addr, value):
         """Figure 5: the latch takes Data<7..0> unconditionally."""
         if addr in self.WRITABLE:
             self.reg[addr] = value & 0xFF
         # An unmapped SFR write is discarded, and must touch nothing else.
+        # PORT_PB is deliberately absent from WRITABLE: it is a GPI, so a store
+        # there must change nothing -- which the port_pb_readonly case checks.
 
     def load(self, addr):
         if addr == PORT_SW:
             return self.sw
+        if addr == PORT_PB:
+            return self.pb
         if addr in self.reg:
             return self.reg[addr]
         return 0                      # the bus terminator's zero
@@ -204,6 +219,22 @@ CASES = [
     ], "A write to an unmapped SFR word must be discarded and must not disturb "
        "any implemented port. PORT_LEDR still holds FF from the earlier case."),
 
+    ("port_pb", [
+        ("rd", PORT_PB, f"must be {KEY_VALUE:08X}"),
+    ], "PORT_PB at 0x2014 reads KEY3-KEY1. The testbench drives the raw pins with "
+       "KEY3 and KEY2 pressed and KEY1 released; with active-low buttons that must "
+       "read 0b110 = 0x06. The value is NOT symmetric under bit reversal, so a "
+       "wrong bit order gives 0x03 and fails. The order -- KEY1 to bit 0, KEY2 to "
+       "bit 1, KEY3 to bit 2 -- is Hanan's forum answer; the polarity is "
+       "assumption A16."),
+
+    ("port_pb_readonly", [
+        ("wr", PORT_PB, 0x00),
+        ("rd", PORT_PB, f"must STILL be {KEY_VALUE:08X}"),
+    ], "PORT_PB is a GPI. A store to it must be discarded and must not disturb the "
+       "value it presents. Writing 0x00 and reading 0x06 back proves the write "
+       "path does not reach it."),
+
     ("alias_marker_check", [
         ("drd", ALIAS_WORD, f"must still be {MARKER:08X}"),
     ], "The Phase 5B property, at program level: after fourteen MMIO stores, DTCM "
@@ -217,7 +248,7 @@ def build():
     prog = []                 # list of (mnemonic, args...)
     seq = []                  # list of (idx, byte_addr, value, name, note)
     listing = []
-    model = GpioModel(SW_VALUE)
+    model = GpioModel(SW_VALUE, KEY_VALUE)
     dtcm = {}
     slot = SCRATCH0
 
@@ -283,7 +314,7 @@ def build():
 
 
 # ─────────────────────────────────────── an independent second derivation ────
-def interpret(words, sw_value):
+def interpret(words, sw_value, pb_value):
     """Run the program on a plain RV32I interpreter with the GPIO model attached.
 
     This is the cross-check: build() derives the expected sequence while
@@ -293,7 +324,7 @@ def interpret(words, sw_value):
     """
     reg = [0] * 32
     mem = {}
-    model = GpioModel(sw_value)
+    model = GpioModel(sw_value, pb_value)
     stores = []
     pc = 0
     steps = 0
@@ -351,7 +382,7 @@ def main():
     prog, words, seq, listing = build()
 
     # ---- the cross-check ----
-    executed = interpret(words, SW_VALUE)
+    executed = interpret(words, SW_VALUE, KEY_VALUE)
     emitted = [(a, v) for _, a, v, _, _ in seq]
     if executed != emitted:
         print("CROSS-CHECK FAILED: the emitted and executed store sequences differ.",
@@ -417,6 +448,11 @@ package gpio_expected_pkg is
 \t-- 0x{SW_VALUE:02X} is deliberately not bit-symmetric.
 \tconstant SW_VALUE : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"{SW_VALUE:02X}";
 
+\t-- What the testbench must drive on KEY_i -- the RAW, active-low pins, indexed
+\t-- 3 DOWNTO 1. (KEY3, KEY2, KEY1) = ({KEY_RAW:03b}), i.e. KEY3 and KEY2 pressed,
+\t-- KEY1 released, so PORT_PB must read 0x{KEY_VALUE:02X}.
+\tconstant KEY_VALUE : STD_LOGIC_VECTOR(3 DOWNTO 1) := "{KEY_RAW:03b}";
+
 \tconstant EXPECTED : expected_array_t(0 to STORE_COUNT-1) := (
 {chr(10).join(rows)}
 \t);
@@ -427,7 +463,8 @@ end package gpio_expected_pkg;
     L = ["Directed GPIO test — generated listing",
          "GENERATED by tools/gen_gpio_test.py. Do not edit by hand.",
          "",
-         f"{len(words)} instructions, {len(seq)} stores, SW_i = 0x{SW_VALUE:02X}",
+         f"{len(words)} instructions, {len(seq)} stores, SW_i = 0x{SW_VALUE:02X}, "
+         f"KEY_i = {KEY_RAW:03b} -> PORT_PB = 0x{KEY_VALUE:02X}",
          "",
          "Runs at either G_ISA_REPAIR setting: the program uses only addi, slli,",
          "sw and lw-at-offset-zero, so it touches none of the seven ISA defects.",
@@ -453,6 +490,7 @@ end package gpio_expected_pkg;
     print(f"stores       : {len(seq)}")
     print(f"cross-check  : emitted and executed sequences agree on all {len(seq)}")
     print(f"SW_i         : 0x{SW_VALUE:02X}")
+    print(f"KEY_i        : {KEY_RAW:03b} (raw pins) -> PORT_PB = 0x{KEY_VALUE:02X}")
     print(f"wrote        : {out}/ITCM.hex, DTCM.hex, listing.txt")
     print(f"               TB/RV32IMscMCU/gpio_expected_pkg.vhd")
 

@@ -39,11 +39,16 @@ package gpio_expected_pkg is
 
 	type expected_array_t is array (natural range <>) of expected_t;
 
-	constant STORE_COUNT : natural := 32;
+	constant STORE_COUNT : natural := 35;
 
 	-- What the testbench must drive on SW_i for the port_sw case to pass.
 	-- 0x5C is deliberately not bit-symmetric.
 	constant SW_VALUE : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"5C";
+
+	-- What the testbench must drive on KEY_i -- the RAW, active-low pins, indexed
+	-- 3 DOWNTO 1. (KEY3, KEY2, KEY1) = (001), i.e. KEY3 and KEY2 pressed,
+	-- KEY1 released, so PORT_PB must read 0x06.
+	constant KEY_VALUE : STD_LOGIC_VECTOR(3 DOWNTO 1) := "001";
 
 	constant EXPECTED : expected_array_t(0 to STORE_COUNT-1) := (
 		(16#0000#, x"DEADBEEF", "alias_marker:dwr             "),	--  0 dtcm store
@@ -77,7 +82,10 @@ package gpio_expected_pkg is
 		(16#0358#, x"00000000", "unmapped_read:rd             "),	-- 28 must be 0
 		(16#2034#, x"000000AA", "unmapped_write_then_reread:wr"),	-- 29 mmio store
 		(16#035C#, x"000000FF", "unmapped_write_then_reread:rd"),	-- 30 must still be 000000FF
-		(16#0360#, x"DEADBEEF", "alias_marker_check:drd       ")	-- 31 must still be DEADBEEF
+		(16#0360#, x"00000006", "port_pb:rd                   "),	-- 31 must be 00000006
+		(16#2014#, x"00000000", "port_pb_readonly:wr          "),	-- 32 mmio store
+		(16#0364#, x"00000006", "port_pb_readonly:rd          "),	-- 33 must STILL be 00000006
+		(16#0368#, x"DEADBEEF", "alias_marker_check:drd       ")	-- 34 must still be DEADBEEF
 	);
 
 end package gpio_expected_pkg;

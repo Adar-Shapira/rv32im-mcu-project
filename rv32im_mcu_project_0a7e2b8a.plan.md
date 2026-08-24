@@ -343,8 +343,9 @@ wrong — say so.
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
    - **`do run_gpio_directed.do`** → **Phase 6D**, the directed GPIO test. Stage the *generated*
      images from `SIM\RV32IMscMCU\gpio\` instead of a benchmark. **This one does not care what
-     `G_ISA_REPAIR` is**, so it can also be run outside this step entirely. Expect 32 of 32 stores and
-     **zero** mismatches — there is no expected-failure count here.
+     `G_ISA_REPAIR` is**, so it can also be run outside this step entirely. Expect **35 of 35** stores
+     and **zero** mismatches — there is no expected-failure count here. It also carries Phase 6C's two
+     `PORT_PB` cases.
    - **Then restage for the last one — this is the only test that wants a different program.**
      Copy GPIO **`test1`**'s `M9K-intel` `ITCM.hex` and `DTCM.hex` over the same two `app_bin` files,
      and `do run_gpio_read.do` → **Phase 6B**. Expect `VERDICT: PASS`, and specifically **phase 3
@@ -1849,7 +1850,55 @@ state `G_ISA_REPAIR` happens to be in.
 Every mismatch names its case; look it up in `SIM\RV32IMscMCU\gpio\listing.txt`,
 which says in words what that case is for.
 
-### Phase 6C — `PORT_PB` and the KEY inputs  ·  **blocked**
+### Phase 6C — `PORT_PB` and the KEY inputs  ·  **built, awaiting verification**
+
+Done 2026-08-24, unblocked by Hanan's forum. **Closes G-306 entirely.**
+
+| Done | What |
+| --- | --- |
+| ✔ | `KEY_i[3..1]` board input, `KEY_ACTIVE_LOW` generic, `key_pressed_w` conditioning |
+| ✔ | `PORT_PB` at `0x2014` assembled and attached to the read bus as its ninth reader |
+| ✔ | `tools/gen_gpio_test.py` extended with two cases; the suite is now **35 stores** |
+| ✔ | `tb_gpio_directed.vhd` drives `KEY_i`; `aux_package`, `run_gpio_directed.do`, the `.qsf` updated |
+
+**The bit order is Hanan's, and it could only have been guessed otherwise.** Asked whether `PORT_PB`
+returns three bits with bit 0 unused or the buttons packed into bits 0–2: *"the mapping is in the
+order KEY1–KEY3 to bits 0–2 respectively (KEY0 is not included, since it is the system RESET
+interface)"*. **No supplied file states this**, and — checked — `PORT_PB` is defined in every
+`io_map.s` and **read by no supplied program**: the interrupt tests reach the keys through interrupts,
+not by polling.
+
+**The polarity is not his, so it is an Assumption with a generic.** Nothing states whether `PORT_PB`
+presents the raw active-low pin or the pressed sense. `KEY_ACTIVE_LOW` defaults to `TRUE` — pressed
+reads `'1'` — because `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly that for all four
+keys (*"Invert KEYs because DE2-115 pushbuttons are normally HIGH, LOW when pressed"*) and this design
+already does it for KEY0 through `RST_ACTIVE_LOW`. Registered as **A16**; one word to flip.
+
+**`KEY_i` is indexed `3 DOWNTO 1`**, so `KEY_i(n)` is `KEYn` on the board and no off-by-one is
+possible at pin assignment. KEY0 is absent because clause 3 makes it the system RESET, and it arrives
+on `rst_i`. Bits 7..3 of `PORT_PB` read zero rather than being left undriven — same reason the bus has
+a terminator.
+
+**Two new directed cases, and the value was chosen to discriminate.** `KEY3` and `KEY2` pressed,
+`KEY1` released → `PORT_PB` must read **`0x06`**. That is **not symmetric under bit reversal**, so a
+wrong order gives `0x03` and fails. And a store to `PORT_PB` — a GPI — must be discarded and must not
+disturb what it presents, which the second case checks by writing `0x00` and reading `0x06` back.
+
+**No edge detector is built here.** Clause 6.i puts the KEY interrupt sources in the interrupt
+controller, and Hanan's forum confirms the board debounces in hardware (a 74HC245, Figure 6), so what
+Phase 9 needs is edge detection on an already-clean signal. `key_pressed_w` is what it will observe.
+
+#### ▸ Adar's results — Phase 6C
+
+Part of `run_gpio_directed.do` — same staging, still no `G_ISA_REPAIR` dependency.
+
+- stores seen: ____ of **35** · mismatches: ____ (**zero is the only pass**)
+- **VERDICT line:** ____________________
+
+A `port_pb:rd` mismatch reading `0x03` instead of `0x06` is a reversed bit order; reading `0x01`
+instead of `0x06` is inverted polarity, i.e. `KEY_ACTIVE_LOW` is wrong for this board.
+
+### Phase 6C — original scope note
 
 - `PORT_PB` at `0x2014` reads KEY3-1. KEY0 is reset only, handled at the board boundary.
 - KEY1-3 also feed the interrupt edge latches (Phase 9), and need synchronising into `mclk` first —
@@ -1859,7 +1908,7 @@ which says in words what that case is for.
   `io_map.s` constrain the *interrupt* bits, not `PORT_PB`'s own layout. This is the open question to
   send Hanan.
 
-Gaps: G-306 (output half closed by 6A). 6C blocked on the `PORT_PB` layout question.
+Gaps: **G-306 CLOSED** by 6A (outputs), 6B (read path) and 6C (`PORT_PB`).
 
 ## Phase 7 — Division accelerator  ·  Yehonatan writes · Adar verifies
 
@@ -2056,7 +2105,7 @@ Gaps: G-501…G-505.
 | **G-303** | Interrupt controller | p13–p14 |
 | **G-304** | CPU interrupt entry FSM | p15 |
 | **G-305** | MMIO address decoder. **CLOSED 2026-08-24** (Phases 5A + 5B) — `ADDR_DECODER.vhd` with an exhaustive 16384-address testbench, the map as data in `const_package.vhd`, `dmemory`'s write enable gated by the chip select, and the decoder instantiated where Figure 1 puts the `BUS Interface Logic`. The twenty registers occupy exactly twelve consecutive words, so the chip-select index *is* `addr(5 DOWNTO 2)`. **The aliasing was hidden by defect 2**: at `G_ISA_REPAIR = FALSE`, `lui` writes zero, so the GPIO benchmarks never formed an SFR address at all. | Figure 5, p5 |
-| **G-306** | GPIO buffer registers | §5, §6 |
+| ~~G-306~~ | GPIO buffer registers. **CLOSED 2026-08-24** across 6A (the seven output ports and the 7-segment path), 6B (the read path, one bidirectional bus) and 6C (`PORT_PB`). Verified by a 35-store directed suite that needs no benchmark and no switch flip, plus `tb_gpio` and `tb_gpio_read` on the supplied GPIO test0 and test1. | §5, §6 |
 | **G-307** | `div`/`divu`/`rem`/`remu` decode — masks exist, hardware does not | §2 |
 | ~~G-308~~ | `mulh`/`mulhsu`/`mulhu` — **CLOSED 2026-08-24, NOT REQUIRED.** Hanan's forum: *"`mul` only (as in Lab 5)"*, and the base task is *"extend the RV32I single-cycle to RV32IM … including support for a 16-bit multiplier only"*. Nothing to build. | §2 |
 | **G-309** | Byte enables and sub-word load/store. `altsyncram` had no `byteena_a`; `CONTROL` detected `lb`/`lh`/`sb`/`sh` then discarded the width. **Built in Phase 3B**, awaiting verification. | §2 |
