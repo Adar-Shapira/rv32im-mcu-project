@@ -66,10 +66,18 @@
 --   OUTPUT ports of Figure 5 -- PORT_LEDR and PORT_HEX0..PORT_HEX5 -- onto four of
 --   sfr_cs_w's twelve bits.
 --
---   Still to attach here: the SFR read path (Phase 6B, which also gives the GPO
---   ports the read-back Figure 5 draws and deletes the stub notice below),
---   PORT_PB (6C), the clock tree (4B, which also removes the core's mclk_o), and
---   the Basic Timer, interrupt controller, divider and USART from Phase 7 on.
+--   Phases 6B, 6C and 6D then added the SFR read path (with the read-back
+--   Figure 5 draws on each output port), PORT_PB, and the directed GPIO test.
+--
+--   PHASE 4C completed the clocking. clk_i -- the 50 MHz board oscillator --
+--   now enters CLOCK_TREE at this level and nowhere else, exactly as Figure 1
+--   draws it; the core RECEIVES mclk instead of generating it from an internal
+--   PLL, its transitional mclk_o port is gone, the peripherals are on smclk, and
+--   reset is held until the PLLs report lock. accelclk is generated and waits
+--   for Phase 7B.
+--
+--   Still to attach here: the Basic Timer, the interrupt controller, the
+--   division accelerator (built as a leaf in 7A, wired in 7B) and the USART.
 --
 -- SIGNAL-TAP PORTS
 --   §7: "Location pins used for the validation phase (Signal-Tap) need to be
@@ -95,6 +103,20 @@ ENTITY RV32IMscMCU IS
 		RST_ACTIVE_LOW		: boolean	:= TRUE;
 		-- FALSE ties the observation ports off so no Signal-Tap pin is assigned (§7).
 		GEN_DEBUG_PORTS		: boolean	:= TRUE;
+		-- Phase 4C. TRUE holds the core and the peripherals in reset until the
+		-- clock tree's PLLs report lock. Before lock a PLL output is not a valid
+		-- clock -- it can be stopped, at the wrong frequency, or glitching -- so
+		-- releasing reset into it is how a design comes up differently on
+		-- different power-ons. Lab 4's board top captures pll_locked and then
+		-- leaves it unused (PROJECT_EXPLANATION.md §9.3 records this), so this is
+		-- a deliberate improvement over the reference and the report should say so.
+		--
+		-- It is a generic because holding reset longer moves WHEN the program
+		-- starts, and none of this has run on real tooling yet: if the four
+		-- benchmark counts move, FALSE isolates whether this is the cause in one
+		-- run rather than by bisecting the phase. They should NOT move -- see the
+		-- reasoning at the RSTLOCK generate below.
+		GEN_RESET_ON_LOCK	: boolean	:= TRUE;
 		-- Phase 6B. TRUE gives the seven GPO ports the read-back that Figure 5
 		-- draws (a MemRead-enabled tri-state on each output-port block), so a load
 		-- from 0x2000 returns the byte last written there.
@@ -229,6 +251,10 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 
 	-- Internal active-high reset presented to everything below this level.
 	SIGNAL rst_w				: STD_LOGIC;
+	-- rst_w conditioned by PLL lock -- Phase 4C. This is what the core and every
+	-- peripheral actually use; rst_w alone still drives the clock tree's areset,
+	-- because a PLL held in reset by its own lock signal would never lock.
+	SIGNAL sys_rst_w			: STD_LOGIC;
 
 	-- Core observation taps, exported or tied off by the GEN_DEBUG_PORTS generate.
 	SIGNAL pc_w					: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -274,24 +300,26 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	--=======================================================================
 	-- GPIO — Phase 6A
 	--=======================================================================
-	-- The clock every peripheral here must use: the core's mclk, not clk_i. At
-	-- MODELSIM = 0 the core runs on its internal PLL and clk_i is still the raw
-	-- board clock, so clocking a peripheral from clk_i would sample core signals
-	-- at the wrong rate. Phase 4B moves the clock tree to this level and this
-	-- becomes a CLKTREE output instead of a core output.
-	SIGNAL mclk_w				: STD_LOGIC;
+	-- PHASE 4C: THE THREE CLOCKS NOW COME FROM CLOCK_TREE AT THIS LEVEL, which is
+	-- where Figure 1 draws them -- baseclk50MHz -> Clock Tree -> mclk, accelclk,
+	-- smclk. Until 4C, mclk came out of the core's own internal PLL and was
+	-- exported through a transitional mclk_o port; that port is gone and the core
+	-- now RECEIVES mclk on its clk_i.
+	SIGNAL mclk_w				: STD_LOGIC;	-- to the core
+	SIGNAL smclk_w				: STD_LOGIC;	-- to the peripherals
+	SIGNAL accelclk_w			: STD_LOGIC;	-- to the divider -- Phase 7B
+	SIGNAL pll_locked_w			: STD_LOGIC;
 
 	-- THE PERIPHERAL CLOCK. Hanan's forum: the other modules' registers "are DFF
 	-- based on SMCLK, and that is preferable for the GPIO register too" -- so the
-	-- peripherals belong on SMCLK, not on the core's MCLK.
+	-- peripherals belong on SMCLK, and as of 4C that is literally what they get.
+	-- Every peripheral below is clocked from pclk_w, never mclk_w.
 	--
-	-- Today it is driven from mclk_w, and that is CORRECT rather than a shortcut,
-	-- because the same forum permits the two to be equal: "since you are working
-	-- with a single-cycle base CPU (not a pipeline) running at a low frequency ...
-	-- your values may be identical, i.e. MCLK = SMCLK". The signal exists under its
-	-- own name so that Phase 4B, which now knows the clock tree is THREE separate
-	-- PLL instances each fed from the 50 MHz base, changes one line here and
-	-- nothing else. Every peripheral below is clocked from pclk_w, never mclk_w.
+	-- Note that with SMCLK_SHARES_MCLK => TRUE (the default, assumption A19) this
+	-- is the SAME NET as mclk_w rather than a second 20 MHz clock. That is the
+	-- point: the core drives a synchronous parallel bus into these registers, and
+	-- two independent PLLs at one frequency would make that capture
+	-- un-analysable. See CLOCK_TREE.vhd's header.
 	SIGNAL pclk_w				: STD_LOGIC;
 
 	-- Byte-lane qualification, the A0 term of Figure 5. lane0 selects the register
@@ -389,11 +417,61 @@ BEGIN
 	end generate;
 
 	--=======================================
+	-- Clock tree — Figure 1, Phase 4B/4C
+	--=======================================
+	-- clk_i (the 50 MHz board oscillator) enters here and nowhere else. The core
+	-- receives mclk; the peripherals receive smclk; accelclk waits for Phase 7B.
+	--
+	-- accelclk_w has NO LOAD until 7B wires the divider in, so Quartus will prune
+	-- the ACCELCLK PLL from this build. That is expected, not a fault -- but it
+	-- does mean this build's resource report shows two PLLs, not three.
+	CLKTREE : clock_tree
+	generic map(
+		MODELSIM			=> MODELSIM
+	)
+	PORT MAP(
+		clk_i		=> clk_i,
+		rst_i		=> rst_w,
+		mclk_o		=> mclk_w,
+		smclk_o		=> smclk_w,
+		accelclk_o	=> accelclk_w,
+		locked_o	=> pll_locked_w
+	);
+
+	--=======================================
+	-- Reset release on PLL lock — Phase 4C
+	--=======================================
+	-- Precedent and the reason this is an improvement rather than a flourish:
+	-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd captures pll_locked but
+	-- PROJECT_EXPLANATION.md §9.3 records that the reference leaves it UNUSED,
+	-- and that a production design would hold reset until the PLL has locked.
+	-- Before lock, a PLL output is not a valid clock: it can be stopped, running
+	-- at the wrong frequency, or glitching, and every register clocked by it is
+	-- in an undefined state. Releasing reset into that is how a design comes up
+	-- differently on different power-ons.
+	--
+	-- WHY IT IS A GENERIC. Holding reset longer moves WHEN the program starts,
+	-- and nothing in this tree has been verified on real tooling yet. If the four
+	-- benchmark counts move after this phase, setting GEN_RESET_ON_LOCK => FALSE
+	-- isolates whether this is the cause in one run instead of by bisecting the
+	-- whole phase.
+	--
+	-- WHY THE COUNTS SHOULD NOT MOVE ANYWAY, so that a change is a real finding
+	-- and not an expected side effect: mclk_cnt_q is held at zero by reset and
+	-- starts counting when reset releases, and the program starts executing at
+	-- that same moment. Holding reset for longer shifts both together, so the
+	-- count when the benchmark reaches its self-jump is the same number. What
+	-- changes is only the wall-clock time at which the simulation ends.
+	RSTLOCK:
+	if (GEN_RESET_ON_LOCK) generate
+		sys_rst_w <= rst_w OR (NOT pll_locked_w);
+	else generate
+		sys_rst_w <= rst_w;
+	end generate RSTLOCK;
+
+	--=======================================
 	-- RV32IM core
 	--=======================================
-	-- Phase 1: the core still contains its own PLL and DTCM. The clock tree and
-	-- the bus interface move up to this level in Phases 4 and 5, at which point
-	-- clk_i feeds CLKTREE and the core receives mclk instead.
 	CORE : RV32IM_CORE
 	generic map(
 		WORD_GRANULARITY	=> WORD_GRANULARITY,
@@ -408,8 +486,8 @@ BEGIN
 	)
 	PORT MAP (
 		--Inputs
-		rst_i				=> rst_w,
-		clk_i				=> clk_i,
+		rst_i				=> sys_rst_w,
+		clk_i				=> mclk_w,			-- Phase 4C: from CLKTREE, not the raw pin
 
 		--Data bus (Phase 5B)
 		dbus_addr_o			=> dbus_addr_w,
@@ -439,7 +517,6 @@ BEGIN
 		dtcm_data_rd_o		=> dtcm_data_rd_w,
 		dtcm_wren_o			=> dtcm_wren_w,
 
-		mclk_o				=> mclk_w,			-- Phase 6A: source of pclk_w until 4B
 		mclk_cnt_o			=> mclk_cnt_w
 	);
 
@@ -531,7 +608,7 @@ BEGIN
 		PORT MAP (						-- register to register
 			src_clk_i	=> pclk_w,
 			dst_clk_i	=> pclk_w,
-			rst_i		=> rst_w,
+			rst_i		=> sys_rst_w,
 			d_i			=> SW_i,
 			q_o			=> sw_sync_w
 		);
@@ -724,7 +801,7 @@ BEGIN
 	end generate;
 
 	-- Phase 4B replaces this with the SMCLK PLL instance's output.
-	pclk_w <= mclk_w;
+	pclk_w <= smclk_w;					-- Phase 4C: the peripherals are on SMCLK
 
 	--=======================================
 	-- GPIO output ports (Figure 5, clause 5) -- Phase 6A
@@ -749,7 +826,7 @@ BEGIN
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
 		clk_i		=> pclk_w,
-		rst_i		=> rst_w,
+		rst_i		=> sys_rst_w,
 		cs_i		=> sfr_cs_w(CS_LEDR),
 		MemWrite_i	=> dbus_MemWrite_w,
 		lane_en_i	=> lane0_w,
@@ -763,42 +840,42 @@ BEGIN
 	P_HEX0 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(0)			-- 0x2004
 	);
 	P_HEX1 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(1)			-- 0x2005
 	);
 	P_HEX2 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(2)			-- 0x2008
 	);
 	P_HEX3 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(3)			-- 0x2009
 	);
 	P_HEX4 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(4)			-- 0x200C
 	);
 	P_HEX5 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => pclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => sys_rst_w,
 		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
 		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(5)			-- 0x200D
 	);

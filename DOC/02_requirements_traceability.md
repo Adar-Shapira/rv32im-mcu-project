@@ -713,6 +713,47 @@ through every phase of the slow one — the same argument as `tb_sync.vhd`'s 70/
 Phase 7B's crossing needs in order to be exercised at all. It does **not** reproduce the real 5:2
 ratio and is not trying to.
 
+### 6.2 What Phase 4C did with it
+
+**[CODE, ours]** `RV32IMscMCU.vhd`, `RV32IM_CORE.vhd`, `aux_package.vhd` and
+`Quartus/RV32IMscMCU/RV32IMscMCU.sdc`. No new files.
+
+`clk_i` — the 50 MHz board oscillator — now enters `CLOCK_TREE` **and nowhere else**, which is what
+Figure 1 draws. The core receives `mclk` on its `clk_i`; the internal PLL generate is gone and the
+transitional `mclk_o` port that Phase 6A added is removed. The peripherals move to `smclk_w` (the
+same net as `mclk_w` under A19's default). `PLL.vhd` is now instantiated by nothing — it stays
+compiled and byte-identical, because its provenance is worth more than a tidy file list.
+
+**[DEC] Reset is held until the PLLs report lock**, behind `GEN_RESET_ON_LOCK` (default `TRUE`).
+Before lock a PLL output is not a valid clock — it can be stopped, at the wrong frequency, or
+glitching — so releasing reset into it is how a design comes up differently on different power-ons.
+`Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked` and `PROJECT_EXPLANATION.md` §9.3
+records that it then leaves it **unused**, so this is a deliberate improvement over the reference and
+the report should present it as one. The clock tree's own `areset` keeps the *unconditioned* reset: a
+PLL held in reset by its own lock signal would never lock.
+
+**[DEC] Why the four benchmark counts must not move, stated so that a change is a finding.** In
+simulation `CLOCK_TREE`'s `mclk_o` **is** `clk_i` — the same tie the core previously made for itself
+at `MODELSIM = 1` — so the clock is bit-identical. And `mclk_cnt_q` is held at zero by reset and
+starts counting when reset releases, while the program starts executing at that same moment: holding
+reset until the modelled 200 ns lock shifts both together, so the count at the benchmark's self-jump
+is unchanged. Only the wall-clock time at which the simulation ends moves. `GEN_RESET_ON_LOCK =>
+FALSE` isolates the reset change from the clock change in one run if a count does move.
+
+**[CODE] The SDC was rewritten and the old one was wrong twice over** — it named `RV32IM_CORE` as the
+top (untrue since Phase 1) and documented a single 25 MHz PLL output (untrue since 4B). It now
+constrains the one real clock and lets `derive_pll_clocks` produce the rest, and it writes out two
+conditionals rather than leaving them to be rediscovered: what must be added if `SMCLK_SHARES_MCLK`
+is ever set `FALSE`, and the ACCELCLK clock-group statement — **deliberately commented out** until
+Phase 7B, because `accelclk` has no load today, Quartus prunes that PLL, and a `set_clock_groups`
+whose collections match nothing is a constraint that looks applied and is not.
+
+**Modelling limitation, recorded rather than discovered later:** the simulated `locked` is one-shot
+and ignores `rst_i`. A real PLL drops lock when its `areset` is asserted; this one rises once at
+`SIM_LOCK_DELAY_NS` and stays high. No current testbench asserts reset twice — all six drive it high
+from 0 ns and low at 80 ns — so the simplification is acceptable, but a reset-recovery test written
+against this model would prove nothing.
+
 **What none of this verifies: the PLLs themselves.** `altpll` is a black box needing `altera_mf`, and
 the course's own idiom is not to instantiate it in simulation. Whether three `pll_gen` instances lock
 at the right frequencies on a Cyclone IV E is a Quartus question, on Adar's list. Two specific

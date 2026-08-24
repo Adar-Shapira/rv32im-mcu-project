@@ -18,6 +18,7 @@ package aux_package is
 		generic(
 			RST_ACTIVE_LOW		: boolean	:= TRUE;
 			GEN_DEBUG_PORTS		: boolean	:= TRUE;
+			GEN_RESET_ON_LOCK	: boolean	:= TRUE;	-- Phase 4C, hold reset until the PLLs lock
 			GEN_GPO_READBACK	: boolean	:= TRUE;	-- Phase 6B, assumption A15
 			GEN_INPUT_SYNC		: boolean	:= FALSE;	-- Hanan: switches need no synchroniser
 			KEY_ACTIVE_LOW		: boolean	:= TRUE;	-- Phase 6C, assumption A16
@@ -127,8 +128,10 @@ package aux_package is
 			dtcm_data_wr_o		:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_data_rd_o		:OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_wren_o			:OUT	STD_LOGIC;		-- Phase 5B, observation
-			mclk_o				:OUT	STD_LOGIC;		-- Phase 6A, transitional: clocks the peripherals
-			
+			-- mclk_o REMOVED by Phase 4C: the clock tree moved up to RV32IMscMCU
+			-- per Figure 1, so the core receives mclk on clk_i instead of making
+			-- and exporting it.
+
 			mclk_cnt_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 		);		
 	end component;

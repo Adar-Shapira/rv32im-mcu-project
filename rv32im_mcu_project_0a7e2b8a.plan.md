@@ -422,7 +422,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4A CDC synchronizer | Yehonatan ✔ | **Adar** | ready to run — frequency-independent |
 | **4B Clock tree** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_clock.do`.** Three Quartus items too; only `ACCELCLK`'s value is open (**B3**) |
-| 4C Reset-on-lock + SDC | Yehonatan | Adar | waits on 4B |
+| **4C Wire in + reset-on-lock + SDC** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2; the four counts must not move** |
 | 5A/5B Bus interface + DTCM | Yehonatan ✔ | **Adar** | ready to run |
 | 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
 | **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
@@ -1348,22 +1348,60 @@ that `locked` starts low and rises, and that **both** branches of every generate
 
 Gaps: **G-311 closed.** New assumption **A19**. `ACCELCLK`'s value is still **B3**.
 
-### Phase 4C — reset release on PLL lock, and the SDC  ·  **waits on 4B**
+### Phase 4C — wire the tree in, reset on lock, and the SDC  ·  **built, awaiting verification**
 
-- Synchronise PLL `locked` into reset release in the top wrapper. Precedent:
-  `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked`. Note
-  `PROJECT_EXPLANATION.md` §9.3 says the reference leaves `locked` **unused** and that a production
-  design would hold reset until lock — so this is an improvement over the reference, and the report
-  should say so.
-- Constrain all three clocks and every crossing in the SDC, starting from
-  `Auxilary/RV32I/QUARTUS/SDC/RISCV_simple.sdc`. Needs the frequencies, so it needs Q2.
+**Files:** `RV32IMscMCU.vhd`, `RV32IM_CORE.vhd`, `aux_package.vhd`,
+`Quartus/RV32IMscMCU/RV32IMscMCU.sdc` — all changed, none new.
+
+- **`clk_i` now enters `CLOCK_TREE` and nowhere else**, exactly as Figure 1 draws it. The core
+  RECEIVES `mclk` on its `clk_i`; its internal PLL generate is gone and the transitional `mclk_o`
+  port added by Phase 6A is **removed**. The peripherals move from `mclk_w` to `smclk_w` — which,
+  under A19's default, is the same net. `accelclk_w` is generated and waits for 7B.
+- **`PLL.vhd` is now instantiated by nothing.** It stays compiled and byte-identical; `PLL_GEN` is
+  what the tree uses. Do not delete it — its provenance is worth more than the file list is tidy.
+- **Reset is held until the PLLs report lock**, behind `GEN_RESET_ON_LOCK` (default `TRUE`).
+  Precedent `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked`; `PROJECT_EXPLANATION.md`
+  §9.3 records that the reference then leaves it **unused** and that a production design would hold
+  reset until lock. So this is a deliberate improvement over the reference and **the report should
+  say so.** Note the clock tree's own `areset` keeps the unconditioned `rst_w` — a PLL held in reset
+  by its own lock signal would never lock.
+- **SDC rewritten.** The old one named `RV32IM_CORE` as the top (untrue since Phase 1) and documented
+  a single 25 MHz PLL output (untrue since 4B). It now constrains the one real clock and lets
+  `derive_pll_clocks` produce the rest, and it carries two written-out conditionals: what must be
+  added if `SMCLK_SHARES_MCLK` is ever set `FALSE`, and the ACCELCLK clock-group statement, which is
+  **commented out on purpose** until 7B — today `accelclk` has no load, Quartus prunes that PLL, and
+  a `set_clock_groups` whose collections match nothing is a constraint that looks applied and is not.
 - **Do not** mistake `IFETCH.vhd:73-82` for a synchroniser — verified again: it is
   `IF rst_i='1' THEN rst_q<='1' ELSIF rising_edge THEN rst_q<=rst_i`, a single flop with an async
   preset.
-- **Exit:** measured 20 MHz `smclk`, deterministic reset, no unconstrained cross-domain path.
 
-Gaps: **G-310 closed by 4A, G-311 closed by 4B.** 4C is the remaining piece: it needs the
-frequencies for the SDC, and `ACCELCLK`'s value is question **B3**.
+**THE ONE THING THAT MATTERS IN VERIFYING THIS PHASE.** 4C changes the clocking of every existing
+test at once, and nothing in this tree has run on real tooling yet. **Re-run Run 2 in full. The four
+counts must still be 134 / 1514 / 2725 / 2735.**
+
+They *should* be, and here is why, so that a change is a real finding rather than an expected side
+effect: in simulation `CLOCK_TREE`'s `mclk_o` **is** `clk_i`, the same tie the core used to make
+itself at `MODELSIM = 1`, so the clock is bit-identical. And `mclk_cnt_q` is held at zero by reset and
+starts counting when reset releases, while the program starts executing at that same moment —
+so holding reset until the modelled 200 ns lock shifts both together and the count at the
+benchmark's self-jump is the same number. What changes is only the wall-clock time at which the
+simulation ends.
+
+**If a count does move**, set `GEN_RESET_ON_LOCK => FALSE` and re-run. That isolates the reset change
+from the clock change in one run instead of bisecting the whole phase.
+
+**Adar's results — Phase 4C**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| Run 2 four counts, `G_ISA_REPAIR = FALSE` | 134 / 1514 / 2725 / 2735 — **unchanged** | |
+| `run_isa.do` mismatches | unchanged from before 4C | |
+| `run_mmio.do`, `run_gpio*.do` | unchanged | |
+| Quartus: three clocks in the Timing Analyzer? | **two** today — `accelclk` has no load until 7B, so its PLL is pruned | |
+| Quartus: `f_MCLK` after the fitter | a number — this is the PPA table's `f_sysclk` | |
+
+Gaps: **G-310 closed by 4A, G-311 by 4B.** `ACCELCLK`'s value is still question **B3**, and the
+`MCLK`/`SMCLK` net question is **A19**.
 
 ## Phase 5 — Bus interface and DTCM  ·  Yehonatan writes · Adar verifies
 
@@ -2365,12 +2403,14 @@ before/after line pairs.
    saying the opposite.)* `MCLK = SMCLK = 20 MHz` is permitted (F7); only `ACCELCLK` is open, and that
    is **B3**. 4B also removes the transitional `mclk_o` port Phase 6A added to the core — that removal
    is part of 4B, not a separate cleanup.
-6. **Next: Phase 4C** — wire the tree into `RV32IMscMCU`, release reset on lock, write the SDC, and
-   remove the transitional `mclk_o` port. Read `CLOCK_TREE.vhd`'s header first: MCLK in simulation is
-   `clk_i` precisely so the four benchmark counts do not move, but `locked` is low for 200 ns and the
-   simulation clock processes are free-running — both have consequences for the existing testbenches.
-7. **Then Phase 7B** (the divider into the core — needs 4B's `DIVCLK`) **or Phase 8** (Basic Timer,
-   which still waits on **B2** and **B4**).
+6. ~~Phase 4C~~ — **done**: the tree is wired in, `clk_i` reaches `CLOCK_TREE` and nowhere else, the
+   core's `mclk_o` is gone, the peripherals are on `smclk`, reset is held until lock, and the SDC is
+   rewritten. **This is the phase that most needs Adar's numbers**, because it changed the clocking of
+   every existing test at once.
+7. **Next: Phase 7B** (the divider into the core — 4B now provides `DIVCLK`, and `accelclk_w` is
+   already generated and waiting at the top level) **or Phase 8** (Basic Timer, still blocked on
+   **B2** and **B4**). 7B is the better next step: it is unblocked, and it is what gives `accelclk`
+   a load so the third PLL stops being pruned.
 
 ## The gate between us
 

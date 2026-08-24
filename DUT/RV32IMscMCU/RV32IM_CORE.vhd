@@ -86,22 +86,16 @@ ENTITY RV32IM_CORE IS
 		-- header of DMEMORY.vhd for why this is a port and not an internal signal.
 		dtcm_wren_o				:OUT	STD_LOGIC;
 
-		-- TRANSITIONAL, PHASE 6A -- to be removed by Phase 4B.
-		--   The core generates its own mclk from its internal PLL (the G0 generate
-		--   below), so at MODELSIM = 0 the core runs at the PLL frequency while
-		--   clk_i is still the 50 MHz board clock. Any peripheral the MCU level
-		--   attaches must be clocked by the SAME clock as the core, or it samples
-		--   a MemWrite pulse that belongs to a different clock rate and can
-		--   capture twice or miss entirely. Exporting mclk is the smallest correct
-		--   fix available now.
-		--   Phase 4B moves the clock tree up to RV32IMscMCU per Figure 1, at which
-		--   point the core RECEIVES mclk instead of generating and exporting it,
-		--   and this port disappears. It is deliberately not load-bearing for
-		--   anything but peripheral clocking.
-		mclk_o					:OUT	STD_LOGIC;
+		-- REMOVED BY PHASE 4C: mclk_o.
+		--   Phase 6A added it because the core generated its own mclk from an
+		--   internal PLL, which meant the MCU level had no other way to clock a
+		--   peripheral at the same rate as the core. Figure 1 puts the Clock Tree
+		--   at the MCU level, not inside the core, so as of Phase 4C the core
+		--   RECEIVES mclk on clk_i and the internal PLL generate is gone. Nothing
+		--   else depended on the port -- it was deliberately not load-bearing.
 
 		mclk_cnt_o				:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
-	);		
+	);
 END RV32IM_CORE;
 --============================================================================
 ARCHITECTURE structure OF RV32IM_CORE IS
@@ -141,18 +135,23 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 BEGIN
 	
 	--=======================================
-	-- PLL module connection
+	-- Clock
 	--=======================================
-	G0:
-	if (MODELSIM = 0) generate
-	  MCLK: PLL
-		PORT MAP (
-			inclk0 	=> clk_i,
-			c0 		=> mclk_w
-		);
-	else generate
-		mclk_w 	<= clk_i;
-	end generate;
+	-- PHASE 4C: THE CORE NO LONGER MAKES ITS OWN CLOCK.
+	--   This used to be a MODELSIM-conditioned generate that instantiated PLL at
+	--   MODELSIM = 0 and tied mclk_w to clk_i otherwise. Figure 1 puts the Clock
+	--   Tree at the MCU level -- baseclk50MHz -> Clock Tree -> mclk, accelclk,
+	--   smclk -- so the core is a consumer of mclk, not a producer of it.
+	--   RV32IMscMCU now instantiates CLOCK_TREE and drives this port with its
+	--   mclk_o. The PLL component and PLL.vhd are untouched and still compiled;
+	--   nothing instantiates PLL any more, and PLL_GEN is what the tree uses.
+	--
+	--   mclk_w is kept as a name rather than replacing it with clk_i throughout,
+	--   because every submodule below maps `clk_i => mclk_w` and renaming that
+	--   would be a large diff for no behavioural change -- and because the name
+	--   still says which clock this is, which is worth more now that there are
+	--   three of them.
+	mclk_w 	<= clk_i;
 	--===========================================
 	-- IFETCH (including ITCM) module connection
 	--===========================================
@@ -357,7 +356,6 @@ BEGIN
 													-- region mux, so on an SFR load it
 													-- shows the bus data, not the DTCM word.
 	
-	mclk_o					<=	mclk_w;				-- Phase 6A, transitional -- see the entity
 	mclk_cnt_o				<=	mclk_cnt_q;			-- TOP output
 	
 ---------------------------------------------------------------------------------------

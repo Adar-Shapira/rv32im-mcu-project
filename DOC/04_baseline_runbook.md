@@ -605,6 +605,14 @@ waiting:
   count. **Nothing is needed from Quartus for Phase 7A** — `div_accel` is not instantiated yet, so
   synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
   of the plan asked for those two numbers and was wrong to;
+- **Phase 4C is the one that most needs your numbers.** It moved the clock tree from inside the core
+  up to `RV32IMscMCU` per Figure 1, removed the core's `mclk_o`, put the peripherals on `smclk`, and
+  now holds reset until the PLLs lock. That changed the clocking of **every** test at once. **Re-run
+  Run 2 in full: the four counts must still be 134 / 1514 / 2725 / 2735.** They should be — in
+  simulation the tree's `mclk_o` *is* `clk_i`, the same tie the core used to make itself, and the
+  cycle counter starts when reset releases so holding reset longer shifts the start and the count
+  together. If a count **does** move, set `GEN_RESET_ON_LOCK => FALSE` and re-run: that separates the
+  reset change from the clock change in one run instead of bisecting the phase;
 - `run_clock.do`'s verdict and its edge counts (Phase 4B) — and, separately, **three Quartus answers
   nobody else can give**: does a `pll_gen` instance compile and fit at all; does Quartus accept the
   inherited `intended_device_family => "Cyclone II"` on a Cyclone IV E part, or must it become

@@ -301,6 +301,16 @@ BEGIN
 
 		-- A modelled lock delay. Not a model of PLL physics -- just enough for
 		-- Phase 4C's reset-on-lock to have something to wait for.
+		--
+		-- LIMITATION, STATED SO NOBODY RELIES ON WHAT THIS DOES NOT DO: the
+		-- modelled lock is ONE-SHOT and ignores rst_i. A real PLL drops lock when
+		-- its areset is asserted and re-acquires it afterwards; this one goes high
+		-- once, at SIM_LOCK_DELAY_NS from time zero, and stays there. So a
+		-- testbench that asserts reset again mid-run will NOT see the core held
+		-- off a second time, and a reset-recovery test written against this model
+		-- would prove nothing. No current testbench does that -- all six drive
+		-- reset once, high from 0 ns and low at 80 ns -- which is why the
+		-- simplification is acceptable rather than merely convenient.
 		sim_lock : process
 		begin
 			locked_w <= '0';
