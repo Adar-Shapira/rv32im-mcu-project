@@ -22,9 +22,11 @@ package const_package is
 --------------------------------------------------------------------
 	constant RTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0110011";
 	constant ITYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010011";
+	constant LOAD_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0000011";
 	constant STYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0100011";
 	constant SBTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "1100011";
-	constant UTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111" and "0110111";	--Upper immediate 
+	constant AUIPC_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0010111";
+	constant LUI_OPC		:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0110111";
 	constant UJTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "1101111";
 --------------------------------------------------------------------
 -- ALU Operations

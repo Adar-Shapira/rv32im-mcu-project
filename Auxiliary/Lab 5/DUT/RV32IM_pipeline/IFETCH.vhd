@@ -35,6 +35,7 @@ ENTITY Ifetch IS
 
 		--Outputs
 		if_pc_o 			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- IF-stage PC (breakpoint/Signal-Tap)
+		if_instruction_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- instruction currently fetched in IF
 		pc_o 				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- IF/ID: PC of the ID-stage instruction
 		pc_plus4_o 			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- IF/ID: PC+4 of the ID-stage instruction
 		instruction_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)	-- IF/ID: ID-stage instruction
@@ -162,10 +163,11 @@ END PROCESS;
 		itcm_addr_w <= next_pc_w;
 	end generate;
 ---------------------------------------------------------------------------------------
-	if_pc_o		<=	pc_q;					-- IF-stage PC (breakpoint compare)
-	pc_o 		<= 	if_id_pc_q;				-- ID-stage view
-	pc_plus4_o	<= 	if_id_pc_plus4_q;
-	instruction_o	<=	if_id_instruction_q;
+	if_pc_o			<=	pc_q;					-- IF-stage PC (breakpoint compare)
+	if_instruction_o	<=	itcm_data_w;			-- IF-stage instruction
+	pc_o 				<= 	if_id_pc_q;				-- ID-stage view
+	pc_plus4_o		<= 	if_id_pc_plus4_q;
+	instruction_o		<=	if_id_instruction_q;
 ---------------------------------------------------------------------------------------
 	
 END behavior;

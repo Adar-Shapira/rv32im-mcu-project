@@ -2,8 +2,8 @@
 -- Copyright 2026 Hananya Ribo 
 -- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
 -- Top Level Structural Model for Pipelined RISC-V RV32IM Core (Figure 8)
--- Instantiates the 5 pipeline stages (IF | ID | EX | MEM | WB slice lives in
--- IDECODE's write-back mux) plus HAZARD_UNIT and FORWARD_UNIT, and generates
+-- Instantiates the 5 pipeline stages (IF | ID | EX | MEM | WB) plus
+-- HAZARD_UNIT and FORWARD_UNIT, and generates
 -- the two global pipeline-control signals:
 --   * stall_w - from HAZARD_UNIT (load-use interlock): freezes PC + IF/ID
 --     and bubbles ID/EX
@@ -15,7 +15,7 @@
 -- Debug additions per Figure 8 (vs the single-cycle top): CLKCNT_o clock
 -- counter, STCNT_o stall counter, FHCNT_o flush counter, and the BPADDR_i
 -- breakpoint register compared against the IF-stage PC (word granularity)
--- to produce the Signal-Tap trigger BPTRIGGER_o.
+-- to produce the SignalTap trigger STRIGGER_o.
 --============================================================================ 
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
@@ -36,8 +36,8 @@ ENTITY RV32IM_PIPE_CORE IS
 			MA_WIDTH 			: integer 	:= G_MA_WIDTH;
 			DATA_WORDS_NUM 		: integer 	:= G_DATA_WORDSNUM;
 			CLK_CNT_WIDTH 		: integer 	:= 16;
-			STCNT_WIDTH 		: integer 	:= 8;
-			FHCNT_WIDTH 		: integer 	:= 8;
+			STCNT_WIDTH 		: integer 	:= 16;
+			FHCNT_WIDTH 		: integer 	:= 16;
 			BP_ADDR_WIDTH 		: integer 	:= 8
 	);
 	PORT(	
@@ -46,46 +46,35 @@ ENTITY RV32IM_PIPE_CORE IS
 		clk_i					:IN		STD_LOGIC;
 		BPADDR_i				:IN		STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);	-- breakpoint word address (SW7-SW0)
 		
-		--Outputs (used also for Signal-Tap auxiliary pins)
-		pc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- IF-stage PC
-		instruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- ID-stage instruction
-		
-		RegWrite_ctrl_o			:OUT 	STD_LOGIC;										-- WB stage (RF write enable)
-		MemWrite_ctrl_o			:OUT 	STD_LOGIC;										-- MEM stage
-		Branch_ctrl_o			:OUT 	STD_LOGIC;										-- MEM stage
-		
-		read_data1_o 			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- EX stage (ID/EX register)
-		read_data2_o 			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- EX stage (ID/EX register)
-		write_data_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB stage (write-back mux)
-		
-		alu_res_o 				:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- MEM stage (EX/MEM register)
-		brTaken_o				:OUT 	STD_LOGIC; 										-- MEM stage
-		
-		dtcm_addr_o				:OUT 	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
-		dtcm_data_wr_o			:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		dtcm_data_rd_o			:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		
-		stall_o					:OUT	STD_LOGIC;										-- HAZARD_UNIT interlock
-		flush_o					:OUT	STD_LOGIC;										-- MEM-stage redirect
-		BPTRIGGER_o				:OUT	STD_LOGIC;										-- Signal-Tap trigger: IF PC == BPADDR_i
-		
-		CLKCNT_o				:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);	-- clock counter
-		STCNT_o					:OUT	STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0);		-- stall counter
-		FHCNT_o					:OUT	STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0)		-- flush counter
+		-- Figure 8 SignalTap observation interface
+		CLKCNT_o				:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
+		IFpc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		IFinstruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		IDpc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		IDinstruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		EXpc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		EXinstruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		MEMpc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		MEMinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		WBpc_o					:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		WBinstruction_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		STRIGGER_o				:OUT	STD_LOGIC;
+		FHCNT_o					:OUT	STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0);
+		STCNT_o					:OUT	STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0)
 	);		
 END RV32IM_PIPE_CORE;
 --============================================================================
 ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	-- clock
 	SIGNAL mclk_w 				: STD_LOGIC;
-	-- internal active-high reset (see RSTPOL generate below)
-	SIGNAL rst_w 				: STD_LOGIC;
+	SIGNAL rst_w					: STD_LOGIC;
 	-- global pipeline control
 	SIGNAL stall_w 				: STD_LOGIC;
 	SIGNAL flush_w 				: STD_LOGIC;
 	SIGNAL redirect_addr_w		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	-- IF stage / IF-ID register outputs
 	SIGNAL if_pc_w 				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL if_instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL id_pc_w 				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL id_pc_plus4_w 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL id_instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -108,6 +97,7 @@ ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	-- ID/EX register outputs (EX-stage view)
 	SIGNAL ex_pc_w 				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL ex_pc_plus4_w 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL ex_instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL ex_read_data1_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL ex_read_data2_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL ex_sign_ext_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -126,12 +116,19 @@ ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	SIGNAL ex_RegWrite_w 		: STD_LOGIC;
 	SIGNAL ex_MemtoReg_w 		: STD_LOGIC;
 	-- EX/MEM register outputs (MEM-stage view)
+	SIGNAL mem_pc_w 				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_pc_plus4_w 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_instruction_w	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_alu_res_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_write_data_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_addr_gen_w 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_brTaken_w 		: STD_LOGIC;
 	SIGNAL mem_rd_w 			: STD_LOGIC_VECTOR(4 DOWNTO 0);
+	SIGNAL mem_mul_p0_w			: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL mem_mul_p1_w			: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL mem_mul_p2_w			: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL mem_mul_p3_w			: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL mem_Mul_w			: STD_LOGIC;
 	SIGNAL mem_Branch_w 		: STD_LOGIC;
 	SIGNAL mem_Jal_w 			: STD_LOGIC;
 	SIGNAL mem_Jalr_w 			: STD_LOGIC;
@@ -142,9 +139,11 @@ ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	SIGNAL mem_MemtoReg_w 		: STD_LOGIC;
 	-- MEM stage
 	SIGNAL dtcm_addr_w 			: STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);
-	SIGNAL dtcm_data_rd_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_forward_data_w	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	-- MEM/WB register outputs (WB-stage view)
+	SIGNAL wb_pc_w 				: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL wb_pc_plus4_w 		: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL wb_instruction_w		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL wb_alu_res_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL wb_dtcm_data_rd_w	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL wb_rd_w 				: STD_LOGIC_VECTOR(4 DOWNTO 0);
@@ -161,6 +160,9 @@ ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	SIGNAL bpaddr_q				: STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);	-- BPADDR breakpoint register
 
 BEGIN
+	-- ModelSim drives an active-high reset. On the DE2-115, KEY0 is
+	-- active-low, so invert the top-level pin only in FPGA mode.
+	rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i;
 	
 	--=======================================
 	-- PLL module connection
@@ -175,22 +177,6 @@ BEGIN
 	else generate
 		mclk_w 	<= clk_i;
 	end generate;
-
-	--=======================================
-	-- Reset polarity
-	--=======================================
-	-- In simulation the testbench drives rst_i active-high directly, so
-	-- rst_w must equal rst_i unchanged. On hardware rst_i is wired to
-	-- KEY0, which the DE2-115 drives active-low (idle='1', pressed='0');
-	-- inverting it here gives the intuitive "press KEY0 briefly to reset,
-	-- release to run" behavior while every internal process still only
-	-- ever checks an active-high reset (rst_w).
-	RSTPOL:
-	if (MODELSIM = 1) generate
-		rst_w	<= rst_i;
-	else generate
-		rst_w	<= not rst_i;
-	end generate;
 	
 	--=================================================
 	-- Global pipeline control: flush / redirect (MEM)
@@ -201,7 +187,7 @@ BEGIN
 	
 	-- redirect target: jalr jumps to rs1+imm (ALU result), branch/jal to
 	-- PC+offset (branch address adder), both from the EX/MEM register
-	redirect_addr_w	<=	mem_alu_res_w(PC_WIDTH-1 DOWNTO 0)	WHEN mem_Jalr_w = '1' ELSE
+	redirect_addr_w	<=	mem_alu_res_w(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN mem_Jalr_w = '1' ELSE
 						mem_addr_gen_w;
 	
 	--===========================================
@@ -218,13 +204,14 @@ BEGIN
 	PORT MAP (
 		--Inputs
 		clk_i 				=> mclk_w,  
-		rst_i 				=> rst_w, 
+		rst_i 				=> rst_w,
 		stall_i 			=> stall_w,
 		flush_i 			=> flush_w,
 		redirect_addr_i		=> redirect_addr_w,
 		
 		--Outputs
 		if_pc_o 			=> if_pc_w,
+		if_instruction_o	=> if_instruction_w,
 		pc_o 				=> id_pc_w,
 		pc_plus4_o	 		=> id_pc_plus4_w,
 		instruction_o 		=> id_instruction_w    
@@ -278,20 +265,16 @@ BEGIN
 		ALUSrc_ctrl_i 		=> alu_src_w,
 		UpperIm_ctrl_i 		=> upper_im_w,
 		ALUOp_ctrl_i 		=> alu_op_w,
-		wb_RegDst_ctrl_i 	=> wb_RegDst_w,
 		wb_RegWrite_ctrl_i 	=> wb_RegWrite_w,
-		wb_MemtoReg_ctrl_i 	=> wb_MemtoReg_w,
 		wb_rd_i 			=> wb_rd_w,
-		wb_pc_plus4_i 		=> wb_pc_plus4_w,
-		wb_alu_res_i 		=> wb_alu_res_w,
-		wb_dtcm_data_rd_i 	=> wb_dtcm_data_rd_w,
+		wb_write_data_i 	=> wb_write_data_w,
 		
 		--Outputs
 		id_rs1_o 			=> id_rs1_w,
 		id_rs2_o 			=> id_rs2_w,
-		wb_write_data_o 	=> wb_write_data_w,
 		ex_pc_o 			=> ex_pc_w,
 		ex_pc_plus4_o 		=> ex_pc_plus4_w,
+		ex_instruction_o	=> ex_instruction_w,
 		ex_read_data1_o 	=> ex_read_data1_w,
     	ex_read_data2_o 	=> ex_read_data2_w,
 		ex_sign_ext_o 		=> ex_sign_ext_w,
@@ -325,6 +308,7 @@ BEGIN
 		flush_i 			=> flush_w,
 		pc_i				=> ex_pc_w,
 		pc_plus4_i 			=> ex_pc_plus4_w,
+		instruction_i		=> ex_instruction_w,
 		read_data1_i 		=> ex_read_data1_w,
     	read_data2_i 		=> ex_read_data2_w,
 		sign_extend_i 		=> ex_sign_ext_w,
@@ -342,15 +326,23 @@ BEGIN
 		MemtoReg_ctrl_i 	=> ex_MemtoReg_w,
 		forward_a_i 		=> forward_a_w,
 		forward_b_i 		=> forward_b_w,
+		mem_forward_data_i	=> mem_forward_data_w,
 		wb_write_data_i 	=> wb_write_data_w,
 		
 		--Outputs
+		mem_pc_o 			=> mem_pc_w,
 		mem_pc_plus4_o 		=> mem_pc_plus4_w,
+		mem_instruction_o	=> mem_instruction_w,
 		mem_alu_res_o 		=> mem_alu_res_w,
 		mem_write_data_o 	=> mem_write_data_w,
 		mem_addr_gen_o 		=> mem_addr_gen_w,
 		mem_brTaken_o 		=> mem_brTaken_w,
 		mem_rd_o 			=> mem_rd_w,
+		mem_mul_p0_o		=> mem_mul_p0_w,
+		mem_mul_p1_o		=> mem_mul_p1_w,
+		mem_mul_p2_o		=> mem_mul_p2_w,
+		mem_mul_p3_o		=> mem_mul_p3_w,
+		mem_Mul_ctrl_o		=> mem_Mul_w,
 		mem_Branch_ctrl_o 	=> mem_Branch_w,
 		mem_Jal_ctrl_o 		=> mem_Jal_w,
 		mem_Jalr_ctrl_o 	=> mem_Jalr_w,
@@ -385,23 +377,49 @@ BEGIN
 		dtcm_data_wr_i 		=> mem_write_data_w,
 		MemRead_ctrl_i 		=> mem_MemRead_w, 
 		MemWrite_ctrl_i 	=> mem_MemWrite_w,
+		pc_i 				=> mem_pc_w,
 		pc_plus4_i 			=> mem_pc_plus4_w,
+		instruction_i		=> mem_instruction_w,
 		alu_res_i 			=> mem_alu_res_w,
 		rd_i 				=> mem_rd_w,
+		mul_p0_i			=> mem_mul_p0_w,
+		mul_p1_i			=> mem_mul_p1_w,
+		mul_p2_i			=> mem_mul_p2_w,
+		mul_p3_i			=> mem_mul_p3_w,
+		Mul_ctrl_i			=> mem_Mul_w,
 		RegDst_ctrl_i 		=> mem_RegDst_w,
 		RegWrite_ctrl_i 	=> mem_RegWrite_w,
 		MemtoReg_ctrl_i 	=> mem_MemtoReg_w,
 				
 		--Outputs
-		dtcm_data_rd_o 		=> dtcm_data_rd_w,
+		dtcm_data_rd_o 		=> OPEN,
+		mem_forward_data_o	=> mem_forward_data_w,
+		wb_pc_o 			=> wb_pc_w,
 		wb_pc_plus4_o 		=> wb_pc_plus4_w,
+		wb_instruction_o	=> wb_instruction_w,
 		wb_alu_res_o 		=> wb_alu_res_w,
 		wb_dtcm_data_rd_o 	=> wb_dtcm_data_rd_w,
 		wb_rd_o 			=> wb_rd_w,
 		wb_RegDst_ctrl_o 	=> wb_RegDst_w,
 		wb_RegWrite_ctrl_o 	=> wb_RegWrite_w,
 		wb_MemtoReg_ctrl_o 	=> wb_MemtoReg_w
-	);	
+	);
+	--=================================================
+	-- WRITEBACK mux (WB stage)
+	--=================================================
+	WB: writeback
+	generic map(
+		DATA_BUS_WIDTH		=>	DATA_BUS_WIDTH,
+		PC_WIDTH			=>	PC_WIDTH
+	)
+	PORT MAP (
+		alu_res_i			=> wb_alu_res_w,
+		dtcm_data_rd_i		=> wb_dtcm_data_rd_w,
+		pc_plus4_i			=> wb_pc_plus4_w,
+		MemtoReg_ctrl_i		=> wb_MemtoReg_w,
+		RegDst_ctrl_i		=> wb_RegDst_w,
+		write_data_o		=> wb_write_data_w
+	);
 	--=======================================
 	-- HAZARD_UNIT connection (interlock)
 	--=======================================
@@ -495,35 +513,24 @@ BEGIN
 	-- SignalTap_trigger = (IF_PC == BPADDR_i): the byte-addressed IF-stage
 	-- PC is converted to a word address (drop the 2 LSBs); the unsigned
 	-- compare zero-extends the shorter operand
-	BPTRIGGER_o	<=	'1' WHEN (if_pc_w(PC_WIDTH-1 DOWNTO 2) = bpaddr_q) ELSE '0';
 	
 ---------------------------------------------------------------------------------------
--- Copying out important signals only for Verification and FPGA Validation (Signal-TAP)
+-- Figure 8 verification and FPGA SignalTap outputs
 ---------------------------------------------------------------------------------------
-	pc_o					<=	if_pc_w;			-- IFETCH output (IF-stage PC)
-  	instruction_o 			<= 	id_instruction_w;	-- IFETCH output (IF/ID register)
-	
-	RegWrite_ctrl_o 		<= 	wb_RegWrite_w;		-- WB stage (RF write enable)
-  	MemWrite_ctrl_o 		<= 	mem_MemWrite_w;		-- MEM stage
-	Branch_ctrl_o 			<= 	mem_Branch_w;		-- MEM stage
-	  
-  	read_data1_o 			<= 	ex_read_data1_w;	-- IDECODE output (ID/EX register)
-  	read_data2_o 			<= 	ex_read_data2_w;	-- IDECODE output (ID/EX register)
-  	write_data_o  			<= 	wb_write_data_w;	-- IDECODE write-back mux (WB stage)
-												
-  	alu_res_o 				<= 	mem_alu_res_w;		-- EXECUTE output (EX/MEM register)			
-  	brTaken_o 				<= 	mem_brTaken_w;		-- EXECUTE output (EX/MEM register)
-  
-	dtcm_addr_o 			<= 	dtcm_addr_w;		-- DMEMORY input
-	dtcm_data_wr_o 			<= 	mem_write_data_w;	-- DMEMORY input
-	dtcm_data_rd_o			<=	dtcm_data_rd_w;		-- DMEMORY output
-	
-	stall_o					<=	stall_w;			-- HAZARD_UNIT output
-	flush_o					<=	flush_w;			-- TOP (MEM-stage redirect)
-	
-	CLKCNT_o				<=	mclk_cnt_q;			-- TOP output (clock counter)
-	STCNT_o					<=	stcnt_q;			-- TOP output (stall counter)
-	FHCNT_o					<=	fhcnt_q;			-- TOP output (flush counter)
+	CLKCNT_o				<=	mclk_cnt_q;
+	IFpc_o					<=	if_pc_w;
+	IFinstruction_o		<=	if_instruction_w;
+	IDpc_o					<=	id_pc_w;
+	IDinstruction_o		<=	id_instruction_w;
+	EXpc_o					<=	ex_pc_w;
+	EXinstruction_o		<=	ex_instruction_w;
+	MEMpc_o					<=	mem_pc_w;
+	MEMinstruction_o		<=	mem_instruction_w;
+	WBpc_o					<=	wb_pc_w;
+	WBinstruction_o			<=	wb_instruction_w;
+	STRIGGER_o				<=	'1' WHEN (if_pc_w(PC_WIDTH-1 DOWNTO 2) = bpaddr_q) ELSE '0';
+	FHCNT_o					<=	fhcnt_q;
+	STCNT_o					<=	stcnt_q;
 	
 ---------------------------------------------------------------------------------------
 
