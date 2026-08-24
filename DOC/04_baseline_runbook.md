@@ -416,13 +416,30 @@ length, not a staging mistake.
 refused every MMIO store, which is the whole point of Phase 5B. The earlier draft of that test
 watched the address decoder's chip select instead and would have printed PASS with the fix deleted.
 
-**One `note` in each is expected and is not a failure:** the wrapper reports once that an SFR access
-reached the bus interface while no peripheral exists behind it yet. Phase 6B replaces that stub.
+**Notes from the wrapper — this guidance was corrected on 2026-08-24; the earlier version was
+wrong.** Since Phase 6A the wrapper prints at most two notes, once each: an SFR **read** has no path
+yet and returns zero (Phase 6B), and an SFR **write** landed on one of the eight words that still
+have no peripheral behind it. GPIO test0 writes only the four GPO words — which **do** take their
+writes — and reads nothing on the SFR page, so **on these two tests you should see neither note.** If
+the write note appears, a store went somewhere unexpected: read it, do not dismiss it.
+
+*Why it changed, because it is a useful lesson:* the note used to say that every SFR access was
+discarded. Phase 6A made that false for exactly the accesses these tests make — it fired on test0's
+store to `PORT_LEDR`, a store `PORT_LEDR` now latches, and announced that the write had been
+discarded immediately before `tb_gpio` printed that all seven ports held what the program stored. A
+diagnostic that contradicts the test running alongside it is worse than no diagnostic.
 
 **Reading a `run_gpio.do` failure:** one HEX of a pair failing while its partner is correct is
 cross-talk on a shared chip select — `PORT_HEX0` and `PORT_HEX1` share one, separated only by `A0` —
 so look at `lane_en_i` on the two `P_HEXn` instances. All six failing together points at the
 low-nibble wiring or `HEX_DECODER.vhd`. A P3 failure alone means the program did not run.
+
+**And know what a `run_gpio.do` PASS does not prove.** test0 writes the *same* value to all seven
+ports in ascending address order, so the cross-talk check is one-sided: a port that wrongly captures
+an **earlier** store fails, but a port that wrongly captures a **later** store of the same iteration
+re-captures the value it already holds and is invisible. Closing that needs a program writing
+different values to the two ports of a pair, which no supplied benchmark does — GPIO test1 and test2
+also write one value to all seven. Recorded as gap **G-406**.
 
 **GPIO test1 and test2 cannot be run yet.** Both branch on `PORT_SW`, and the read path is Phase 6B.
 test0 is the only GPIO benchmark that is purely output.

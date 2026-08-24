@@ -39,6 +39,15 @@
 #   display would show the right digit anyway. Only a model that knows which port
 #   was addressed can see it.
 #
+#   BUT P4 IS ONE-SIDED, AND THAT IS WORTH KNOWING BEFORE YOU TRUST A PASS.
+#   Because test0 writes the same value to every port in ascending address order,
+#   a port that wrongly captures an EARLIER store fails (its pins move to a value
+#   the model does not expect), while a port that wrongly captures a LATER store
+#   of the same iteration re-captures the value it already holds and is invisible.
+#   So a PASS here proves the lane decode in one direction only. Gap G-406 records
+#   it; closing it needs a program that writes different values to the two ports
+#   of a pair, which no supplied benchmark does.
+#
 # EXPECTED NUMBERS
 #   test0's loop is 32 instructions and writes each of the seven ports once per
 #   iteration, so in 600 cycles expect about 18 writes to each of the seven and
@@ -49,6 +58,21 @@
 #   Phase 6A is the output side only. GPIO test1 and test2 both branch on
 #   PORT_SW, so they cannot be used until 6B lands; test0 is the only GPIO
 #   benchmark that is purely output.
+#
+#   READ-BACK OF THE GPO PORTS ITSELF. Figure 5 draws a MemRead-enabled tri-state
+#   on each output-port block, so a load from 0x2000 or 0x2004 should return the
+#   byte the port last stored. Phase 6A's ports are write-only and such a load
+#   returns zero. Nothing in any supplied benchmark reads a GPO port, so nothing
+#   is blocked; it is scheduled with the rest of the read path in 6B and recorded
+#   in DOC/02 because clause 5's table calls all seven "GPO", which is in tension
+#   with the figure.
+#
+# NOTES YOU MAY SEE, AND WHAT THEY MEAN
+#   RV32IMscMCU prints at most two notes per run, once each: an SFR READ has no
+#   path yet and returns zero, and an SFR WRITE landed on one of the eight words
+#   that still have no peripheral. GPIO test0 writes only the four GPO words and
+#   reads nothing on the SFR page, so on this test you should see NEITHER. A write
+#   note here means a store went somewhere unexpected - read it.
 #
 # ON THE BOARD, LATER
 #   The pin assignments for LEDR and HEX0-HEX5 are NOT yet in

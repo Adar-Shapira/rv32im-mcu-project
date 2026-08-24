@@ -44,6 +44,18 @@
 --   P4  NO CROSS-TALK. A port may change only on the edge following a store to
 --                  its own byte address. This is the one a waveform cannot show.
 --
+--   P4's LIMIT, STATED RATHER THAN LEFT TO BE DISCOVERED. test0 writes the SAME
+--   value to all seven ports in a fixed ascending order, so P4 catches cross-talk
+--   in one direction only: a port capturing an EARLIER store than its own moves
+--   its pins to a value the model does not expect and fails. A port capturing a
+--   LATER store of the same iteration re-captures a value it already holds, its
+--   pins never move, and nothing here can see it. Concretely: dropping
+--   lane_en_i on P_HEX1 (which would make it take 0x2004's store) IS caught;
+--   dropping it on P_HEX0 (which would make it also take 0x2005's store) is NOT.
+--   Discriminating that direction needs a program that writes DIFFERENT values to
+--   the two ports of a pair, which no supplied benchmark does -- GPIO test1 and
+--   test2 also write one value to all seven. Recorded as gap G-406.
+--
 -- REQUIRES G_ISA_REPAIR = TRUE, for the same reason tb_mmio_alias does: at FALSE
 -- the lui defect keeps every store below 0x2000 and no GPIO port is ever
 -- addressed. The guard below reports NOT APPLICABLE rather than failing.

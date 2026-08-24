@@ -341,8 +341,16 @@ wrong — say so.
      store. Also expect ~126 MMIO stores and `DTCM stores seen 0`.
    - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
-   - One `note` in each is **expected and is not a failure**: the wrapper reports once that an SFR
-     access reached the bus interface while there is no peripheral behind it yet.
+   - **Notes from the wrapper — corrected 2026-08-24, the earlier wording was wrong.** Since Phase 6A
+     the wrapper prints at most two notes, once each: an SFR **read** has no path yet and returns zero
+     (that is Phase 6B), and an SFR **write** landed on one of the eight words that still have no
+     peripheral. GPIO test0 writes only the four GPO words — which **do** take their writes — and
+     reads nothing on the SFR page, so **on these two tests you should see neither note.** A write
+     note here means a store went somewhere unexpected and is worth reading.
+     *Why this changed:* the note used to say every SFR access was discarded. After Phase 6A that was
+     false for exactly the accesses these tests make — it fired on test0's store to `PORT_LEDR`, a
+     store `PORT_LEDR` now latches, and said the write was discarded immediately before `tb_gpio`
+     printed that all seven ports held what was stored. Found by review.
 
 6. **Now** set `G_ISA_REPAIR` back to `FALSE` before committing, unless we have agreed to flip the
    default.
@@ -1449,8 +1457,7 @@ testbenches omit only the three new `OUT` ports, which is legal.
 - failures: ____
 - **VERDICT line:** ____________________
 
-Expect one `note` that is **not** a failure: the wrapper reports once that an SFR access reached the
-bus interface while Phase 5B has no peripherals. Phase 6 replaces that stub.
+
 
 Then re-run **Run 2** in full. The four benchmark counts and `run_isa.do` must be unchanged from what
 you recorded before this phase — that, not `run_mmio.do`, is what proves the DTCM still works.
@@ -1505,13 +1512,21 @@ for the same reason: otherwise a store to `0x2001` would be flagged by `unmapped
 in `PORT_LEDR`, and having the report disagree with the hardware is worse than being stricter than the
 figure. No supplied benchmark writes any of these addresses off-lane.
 
-**A real bug found by tracing timing, recorded so it is not re-introduced.** `gpo_port` was written
-with a *synchronous* reset. Every testbench in this project drives reset high from 0 ns and low at
-80 ns, and the first rising clock edge is at **100 ns** — so a synchronous reset never sees an active
-edge, and the register would leave reset holding its power-up value. In simulation that is `'U'`
-propagating to a board pin. It is asynchronous now, which is also what every other clocked element in
-this design does. The signal additionally carries an initial value, following
-`fpga_hw_interface.vhd`'s own `:= (OTHERS => '0')`.
+**The reset, and a correction to how this was first recorded.** `gpo_port` was written with a
+*synchronous* reset and no initial value. The four testbenches that instantiate this design drive
+reset high from 0 ns and low at 80 ns with the first rising clock edge at **100 ns**, so a
+synchronous reset never sees an active edge at all — the register would have left reset holding `'U'`,
+straight onto a board pin. Both were changed in one edit: the reset is asynchronous *and* `q_q`
+carries an initial value, following `fpga_hw_interface.vhd`'s own `:= (OTHERS => '0')`.
+
+**This was first written up as "a real bug found by tracing timing", and that overstated it.** With
+the initial value present, a synchronous reset would leave `"0…0"`, not `'U'` — so the symptom
+described cannot occur in the delivered code. The `'U'` hazard was real in the first draft and was
+fixed twice over. The honest statement: the reset is asynchronous for **consistency** — every other
+clocked element in this design resets asynchronously, and an asynchronous reset does not depend on a
+power-up value being right — and the 80 ns/100 ns argument is a good reason not to use a synchronous
+reset here, but not a live-bug argument. Caught by review; the corrected reasoning is in
+`GPO_PORT.vhd`.
 
 **`mclk_o` — transitional, and it is a correctness fix, not tidiness.** The core generates its own
 `mclk` from its internal PLL, so at `MODELSIM = 0` the core runs at the PLL rate while `clk_i` is
@@ -1548,6 +1563,15 @@ the low-nibble wiring or `HEX_DECODER.vhd`. P3 alone means the program did not r
 
 ### Phase 6B — the read path  ·  **not started**
 
+- **Scope widened by the Phase 6A review.** It is not just `PORT_SW`: Figure 5 draws a
+  `MemRead`-enabled tri-state on **every** output-port block too, so a load from `0x2000` or `0x2004`
+  should return the byte that port last stored. Phase 6A's ports are write-only. Nothing is blocked —
+  no supplied benchmark reads a GPO port — but it is real specified behaviour and 6B is where the
+  tri-state bus it needs gets built, so it belongs here rather than being left implicit.
+  **Note the tension to resolve first:** clause 5's table gives all seven a Direction of `GPO`, which
+  the figure's read-back contradicts unless "GPO" describes the *device* rather than forbidding a
+  readable register. That is the ordinary MMIO reading and it matches the figure, but it is an
+  interpretation — recorded in `DOC/02_requirements_traceability.md` §2.1 rather than assumed.
 - `PORT_SW` at `0x2010`, and the tri-state read return this phase finally has a driver for:
   `Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd` with `width => 32`, which Figure 1 links to
   explicitly and Figure 5 draws as the buffer on `CS7 · MemRead`.
@@ -1808,6 +1832,7 @@ before/after line pairs.
 | **G-204** | `mem_dump.do` exports 1024 of 2048 DTCM words; the upper half is never checked. |
 | **G-403** | Per-component test plans not written. |
 | **G-404** | `Benchmark Apps/RV32IM/test1/output/RARS/DTCM.hex` is a stale golden — 16 words disagree with `DTCM.h`. Would fail a correct CPU. |
+| **G-406** | **NEW, from the Phase 6A review.** `tb_gpio`'s cross-talk check is one-sided. GPIO test0 writes the *same* value to all seven GPO ports in ascending address order, so a port that wrongly captures an **earlier** store fails, while a port that wrongly captures a **later** store of the same iteration re-captures a value it already holds and is invisible. Concretely: dropping `lane_en_i` on `P_HEX1` is caught, dropping it on `P_HEX0` is not. No supplied benchmark discriminates — test1 and test2 also write one value to all seven — so closing this needs a small program of ours that writes different values to the two ports of a pair. |
 | **G-405** | GPIO suite never writes the DTCM, so no golden-memory comparison is possible. |
 
 ## Documentation and submission

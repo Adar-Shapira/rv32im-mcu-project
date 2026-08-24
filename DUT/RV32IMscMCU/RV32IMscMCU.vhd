@@ -26,7 +26,7 @@
 --        the clock source AND starts inverting the reset, and the core never
 --        leaves reset. RST_ACTIVE_LOW below is an independent generic.
 --
--- SCOPE, AS OF PHASE 5B
+-- SCOPE, AS OF PHASE 6A
 --   Phase 1 made this level deliberately thin: instantiate RV32IM_CORE, condition
 --   reset, and be behaviourally transparent so the Lab 5 baseline cycle counts
 --   (134 / 1514 / 2725 / 2735) reproduce through it unchanged.
@@ -62,9 +62,14 @@
 --   Adar's four cycle counts staying at 134 / 1514 / 2725 / 2735. If they move,
 --   this phase broke something.
 --
---   Still to attach here: the clock tree (mclk/smclk/accelclk, Figure 1) in
---   Phase 4B, and the GPIO / Basic Timer / interrupt controller / divider /
---   USART peripherals from Phase 6 onward, all onto sfr_cs_w.
+--   Phase 6A then attached the first peripherals: the seven general-purpose
+--   OUTPUT ports of Figure 5 -- PORT_LEDR and PORT_HEX0..PORT_HEX5 -- onto four of
+--   sfr_cs_w's twelve bits.
+--
+--   Still to attach here: the SFR read path (Phase 6B, which also gives the GPO
+--   ports the read-back Figure 5 draws and deletes the stub notice below),
+--   PORT_PB (6C), the clock tree (4B, which also removes the core's mclk_o), and
+--   the Basic Timer, interrupt controller, divider and USART from Phase 7 on.
 --
 -- SIGNAL-TAP PORTS
 --   §7: "Location pins used for the validation phase (Signal-Tap) need to be
@@ -194,10 +199,16 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL unmapped_w			: STD_LOGIC;
 	SIGNAL dtcm_wren_w			: STD_LOGIC;
 
-	-- One bit per mapped SFR word, indexed by the CS_* constants in
-	-- const_package. Phase 5B has no peripherals yet, so this has a driver and
-	-- no load and synthesis will report it as unused -- that is expected, not a
-	-- mistake. Phases 6 to 9 and 12 attach to it.
+	-- One bit per mapped SFR word, indexed by the CS_* constants in const_package.
+	--
+	-- UPDATED IN PHASE 6A. Bits CS_LEDR, CS_HEX01, CS_HEX23 and CS_HEX45 now have
+	-- loads -- the seven GPO ports below. The other eight (CS_SW, CS_PB, CS_UART,
+	-- CS_BTCTL, CS_BTCMPR0, CS_BTCMPR1, CS_BTCAPR, CS_INTC) are still driven and
+	-- unread, so expect Quartus to report those EIGHT as unused, not the whole
+	-- vector. That distinction matters: a report that the whole vector is unused
+	-- would now mean the Phase 6A ports and their decode had been optimised away,
+	-- which is a real failure and not the expected message it used to be.
+	-- Phases 6B/6C, 8, 9 and 12 attach the rest.
 	SIGNAL sfr_cs_w				: STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
 
 	--=======================================================================
@@ -215,6 +226,11 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- figure separates PORT_HEX0 from PORT_HEX1 on a shared chip select.
 	SIGNAL lane0_w				: STD_LOGIC;
 	SIGNAL lane1_w				: STD_LOGIC;
+
+	-- '1' when the addressed SFR word has a peripheral behind it. Used only by the
+	-- simulation-only stub notice below, which has to know which writes really are
+	-- discarded now that four of the twelve words are implemented.
+	SIGNAL gpo_cs_w				: STD_LOGIC;
 
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
@@ -329,22 +345,51 @@ BEGIN
 	--   and deletes the process.
 	dbus_rdata_w <= (OTHERS => '0');
 
+	-- Which SFR words actually have a peripheral behind them today. Phase 6A
+	-- attached the four GPO words; the other eight are still unimplemented.
+	-- Phases 6C, 8, 9 and 12 extend this term as they attach theirs.
+	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
+				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
+
 	SFRSTUB:
 	if (MODELSIM = 1) generate
-		sfr_read_notice : process(clk_i)
-			variable told_v : boolean := FALSE;
+		-- CORRECTED IN PHASE 6A. This process previously reported that *any* SFR
+		-- access was discarded because no peripheral existed. After Phase 6A that
+		-- was false for exactly the accesses the GPIO test makes: it fired on
+		-- test0's store to PORT_LEDR -- a store PORT_LEDR now latches -- and said
+		-- the write had been discarded, immediately before tb_gpio printed
+		-- "all seven GPO ports held exactly what the program stored". A diagnostic
+		-- that contradicts the test it runs alongside is worse than no diagnostic,
+		-- so the condition is now precise about which half is still a stub.
+		sfr_stub_notice : process(clk_i)
+			variable told_rd_v : boolean := FALSE;
+			variable told_wr_v : boolean := FALSE;
 		begin
 			if rising_edge(clk_i) then
-				if (dbus_MemRead_w = '1' or dbus_MemWrite_w = '1')
-				   and dtcm_cs_w = '0' and not told_v then
-					told_v := TRUE;
-					report "RV32IMscMCU: an SFR access reached the bus interface, but " &
-						   "Phase 5B has no peripherals -- reads return zero and writes " &
-						   "are discarded. Expected at this phase. Reported once per run."
+				-- READS: still entirely unimplemented. There is no read path at all
+				-- until Phase 6B, so every SFR read returns the placeholder zero,
+				-- including a read of a GPO port that does hold a value.
+				if dbus_MemRead_w = '1' and dtcm_cs_w = '0' and not told_rd_v then
+					told_rd_v := TRUE;
+					report "RV32IMscMCU: an SFR READ reached the bus interface. There is " &
+						   "no read path yet (Phase 6B), so it returns zero -- even for a " &
+						   "GPO port that holds a value. Expected at this phase. Once per run."
+						severity note;
+				end if;
+
+				-- WRITES: only the four GPO words are implemented. A write to any
+				-- other SFR word really is discarded, and that is worth saying.
+				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
+				   and not told_wr_v then
+					told_wr_v := TRUE;
+					report "RV32IMscMCU: an SFR WRITE reached a word with no peripheral " &
+						   "behind it yet and was discarded. The seven GPO ports of Phase 6A " &
+						   "DO take their writes; this is one of the other eight SFR words " &
+						   "(PORT_PB, USART, Basic Timer, interrupt controller). Once per run."
 						severity note;
 				end if;
 			end if;
-		end process sfr_read_notice;
+		end process sfr_stub_notice;
 	end generate;
 
 	--=======================================

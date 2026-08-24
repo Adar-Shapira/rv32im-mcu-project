@@ -152,6 +152,24 @@ report is only meaningful under a full decode. Cost is a 7-input zero-compare. I
 decoder on the critical path, dropping `A12..A6` is the cheapest concession — `A13` must never be
 dropped, as that is the DTCM/SFR split itself.
 
+**[REQ p5] vs [REQ p5, Figure 5] — the GPO ports: output-only, or readable?** Clause 5's table gives
+`PORT_LEDR` and `PORT_HEX0`…`PORT_HEX5` a Direction of **GPO**. Figure 5, however, draws inside *each*
+of the three output-port interface blocks it shows a tri-state buffer labelled with `MemRead` and that
+block's chip select (plus `A0` / `Ā0` for the pair), driving `Data<7..0>` — i.e. a **read-back** path,
+so a load from `0x2000` or `0x2004` should return the byte the port last stored.
+
+**Assumption (A15):** the two are reconcilable — "GPO" describes the *device* (an output device)
+rather than forbidding a readable register, and a read-back register is the ordinary
+memory-mapped-I/O arrangement. Read-back is therefore treated as required and scheduled with the rest
+of the read path in Phase 6B. **Nothing is blocked either way:** no supplied benchmark reads a GPO
+port — the only MMIO reads anywhere in the benchmark suites are three `lw` from `PORT_SW`.
+**Falsified by** course staff saying the seven output ports must not respond to a read at all, in
+which case Phase 6B omits the read-back and `unmapped_o`'s meaning there needs deciding.
+
+**Phase 6A implements the write side only**, and records that omission as the second of its two
+deviations from Figure 5 — see the header of `DUT/RV32IMscMCU/GPO_PORT.vhd`. It was found by an
+adversarial review of the phase, not by design.
+
 **[DEC] Naming deviation, recorded.** Figure 5 labels its chip selects `CS1`, `CS6` and `CS7` for
 `PORT_LEDR`, the `PORT_HEX0`/`PORT_HEX1` pair and `PORT_SW`. No arithmetic relation to the addresses
 reproduces those three numbers, so the figure's numbering is treated as **illustrative** and the
@@ -645,11 +663,14 @@ Everything in this document that is not cited to a source.
 | A11 | The upper 24 bits of an MMIO read return zero | Figure 5 drives only `Data<7..0>` from the `PORT_SW` tri-state; all three MMIO reads in the benchmarks `andi` the result immediately | A program that uses the upper bits of an MMIO read |
 | A12 | A Word-resolution register owns all four lanes of its word | §6's table gives `BTCMPR0`/`BTCMPR1`/`BTCAPR` Address Resolution "Word", and `io_map.s` marks them "define a Word address" | A byte-resolution use of any of those three |
 | A13 | A GPO port holds zero after reset — LEDs off, every HEX showing `0` | Nothing states a reset value and Figure 5 draws no reset on the latch at all; zero needs no extra state, whereas "blank until first written" needs a flag nothing asks for | Any statement that the displays should be dark after KEY0 |
+| A15 | The seven GPO ports are readable (Figure 5's `MemRead` tri-state), despite clause 5's Direction column saying `GPO` | Figure 5 draws the buffer inside every output-port block; a read-back register is the ordinary MMIO arrangement, and "GPO" plausibly describes the device | Course staff saying an output port must not respond to a read |
 | A14 | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 | Figure 5 draws `D0..D7` into the latch and a 7-segment encoder after it; `Intrrupt-based IO/test1/asm-code/01_func.s:17-20` masks and `srli`s the digit into bits 3..0 before storing | A program that expects the upper nibble to affect the display |
 
-Fourteen assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
+Fifteen assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of
 Phase 5A and are both exercised by `TB/RV32IMscMCU/tb_addr_decoder.vhd`, so if either is wrong the
 change is one line in `const_package.vhd` and the exhaustive sweep re-proves the whole map. A13 and
 A14 came out of Phase 6A; both are one line in `GPO_PORT.vhd` or in the `SEGGEN` generate of
-`RV32IMscMCU.vhd`, and `tb_gpio.vhd` re-proves the display path either way.
+`RV32IMscMCU.vhd`, and `tb_gpio.vhd` re-proves the display path either way. **A15 is the one to send
+Hanan** — it is a genuine contradiction between clause 5's table and Figure 5, not an ambiguity, and
+it decides whether Phase 6B builds seven read-back paths or none.

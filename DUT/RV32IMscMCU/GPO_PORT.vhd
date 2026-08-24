@@ -10,12 +10,33 @@
 -- RV32IMscMCU.vhd. The 7-segment encoder that follows it on the HEX ports is a
 -- separate entity (hex_decoder), exactly as the figure separates them.
 ---------------------------------------------------------------------------------------------
--- WHAT FIGURE 5 SPECIFIES, AND THE ONE PLACE THIS DEVIATES
+-- WHAT FIGURE 5 SPECIFIES, AND THE TWO PLACES THIS DEVIATES
 --   Specified and implemented: D0..D7 in, Q0..Q7 out, one enable formed as
 --   CS_x . MemWrite (. A0 where a pair shares a chip select), a 7-segment
 --   encoder after the register on the HEX ports.
 --
---   DEVIATION: the figure draws a level-sensitive "D-Latch ... En". This entity
+--   DEVIATION 2, AND IT IS A WHOLE PORT -- READ-BACK IS MISSING.
+--   Look again at Figure 5 (p5): each of the three output-port interface blocks
+--   it draws -- PORT_HEX1, PORT_HEX0 and PORT_LEDR -- carries a tri-state buffer
+--   at the top, labelled with MemRead and the block's own chip select (and A0 /
+--   /A0 for the pair), driving Data<7..0>. That is a read-back path: a load from
+--   0x2000 or 0x2004 should return the byte the port last stored. This entity has
+--   no such output, so all seven ports are write-only and a load from any of them
+--   returns the Phase 5B placeholder zero.
+--
+--   Not implemented yet, and deliberately not invented either, because clause 5's
+--   own table gives all seven a Direction of "GPO" -- output. The table and the
+--   figure are in tension: "GPO" plausibly describes the device rather than
+--   forbidding a readable register, which is the ordinary memory-mapped-I/O
+--   reading and matches the figure. But that is an interpretation, so it is
+--   recorded rather than assumed. See DOC/02_requirements_traceability.md.
+--
+--   Nothing is blocked: no supplied benchmark reads a GPO port -- the only MMIO
+--   reads in any benchmark suite are three "lw ... PORT_SW". The read-back is
+--   scheduled with the rest of the read path in Phase 6B, which is where the
+--   tri-state bus it needs gets built.
+--
+--   DEVIATION 1: the figure draws a level-sensitive "D-Latch ... En". This entity
 --   is an edge-triggered register with an enable instead. Three reasons, in
 --   order of weight:
 --     1. Hanan's own material is explicit that an inferred latch is not what to
@@ -76,7 +97,7 @@ ENTITY gpo_port IS
 	PORT(
 		--Inputs
 		clk_i		: IN	STD_LOGIC;
-		rst_i		: IN	STD_LOGIC;						-- active high, synchronous below
+		rst_i		: IN	STD_LOGIC;						-- active high, ASYNCHRONOUS -- see below
 		cs_i		: IN	STD_LOGIC;						-- CS_x from the address decoder
 		MemWrite_i	: IN	STD_LOGIC;
 		-- The A0 (and A1) qualification of Figure 5, for the ports that share a
@@ -106,18 +127,29 @@ BEGIN
 	-- Pure synchronous. One clock, one enable, one reset -- no combinational
 	-- element inside the process, so this is not a Mixed PROCESS.
 	--
-	-- RESET IS ASYNCHRONOUS, and that is not a stylistic choice.
-	--   Every clocked element in this design resets asynchronously --
-	--   RV32IM_CORE.vhd's cycle counter and IFETCH's PC both test rst_i outside
-	--   rising_edge -- and every testbench in the project drives reset the same
-	--   way: high from 0 ns, low at 80 ns, with the first rising clock edge at
-	--   100 ns. A SYNCHRONOUS reset would therefore never see an active edge:
-	--   reset is already gone by the time the first edge arrives, so the register
-	--   would leave reset holding whatever it powered up with. In simulation that
-	--   is 'U' propagating straight to a board pin.
+	-- RESET IS ASYNCHRONOUS. Two reasons, and the honest weight of each:
 	--
-	--   This was written synchronous first and the timing traced afterwards, which
-	--   is how it was found. Noted so nobody "tidies" it back.
+	--   1. CONSISTENCY, which is the real reason. Every clocked element in this
+	--      design resets asynchronously -- RV32IM_CORE.vhd's cycle counter and
+	--      IFETCH's PC both test rst_i outside rising_edge -- and an asynchronous
+	--      reset does not depend on a power-up value being right.
+	--
+	--   2. The four testbenches that instantiate this design drive reset high from
+	--      0 ns and low at 80 ns, with the first rising clock edge at 100 ns
+	--      (tb_RV32IMscMCU.vhd:136, tb_isa_directed.vhd:170,
+	--      tb_mmio_alias.vhd:233, tb_gpio.vhd:240). A SYNCHRONOUS reset would
+	--      therefore never see an active edge at all: reset is gone before the
+	--      first edge arrives.
+	--
+	--   CORRECTION TO AN EARLIER VERSION OF THIS COMMENT, kept because the record
+	--   matters more than looking right. It claimed that a synchronous reset would
+	--   leave 'U' on a board pin. With the initial value on q_q above that is
+	--   FALSE: the register reads "0...0" from 0 ns whether or not any reset edge
+	--   ever arrives. The 'U' hazard was real in the first draft of this file,
+	--   which had a synchronous reset and NO initial value; the two were fixed in
+	--   the same edit and the note then described a state that no longer existed.
+	--   So point 2 is a genuine argument against a synchronous reset here, but it
+	--   is not a live-bug argument -- point 1 is why it stays asynchronous.
 	reg : PROCESS(clk_i, rst_i)
 	BEGIN
 		IF rst_i = '1' THEN
