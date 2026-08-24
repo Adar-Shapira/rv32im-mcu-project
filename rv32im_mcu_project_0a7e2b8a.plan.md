@@ -484,7 +484,62 @@ Anchor every decision here, in this order. Never skip a level silently.
 5. **`Auxilary/Lab3/`, `Auxilary/Lab4/`** — their own completed earlier labs. The richest source of
    reusable leaf modules.
 6. **`Auxiliary/Benchmark Apps/`** — `io_map.s` is the executable MMIO contract.
-7. General RISC-V / FPGA knowledge — only after the above, and stated as such.
+7. **`Auxiliary/hanan/` — Hanan's own lecture material for THIS lab.** Added 2026-08-24. 24 of the
+   51 files carry his copyright and are authoritative for *method*: VHDL style, naming, verification
+   technique, timing and power analysis. They are not a source of project requirements — the PDF in
+   level 1 is — but where they state a rule, that rule binds our code.
+8. **`Auxiliary/hanan/*_G.md` — Dr Guy Tel-Zur's material for course 361-1-4201.** A **different
+   course**, and per the syllabus our **prerequisite**. 17 files: `The_Big_Picture`,
+   `Single_Cycle_ Microarchitecture`, `Multi-Cycle`, `Pipelining_I`/`II`, `Branch_Prediction_I`/`II`,
+   `Out-of-Order_Execution`, `Precise-Exceptions`, `ISA_Tradeoffs` ×3, `simd-architecture`,
+   `DDCArv_Ch6`, `Admin`, `simulators`, `DatapathAndControlUnit`, `PipelineDesign`.
+   **Legitimate as background, never as a requirement.** It is assumed knowledge for this lab, so
+   citing it to explain *why* a design works is fine; citing it as "the course requires X" is not,
+   because it is not this course.
+9. General RISC-V / FPGA knowledge — only after the above, and stated as such.
+
+## 2.1 What Hanan's own material settles
+
+Read 2026-08-24. These are rules, not preferences, and the code has been checked against them.
+
+| Rule | Source | Our state |
+| --- | --- | --- |
+| `_i`/`_o` ports; `_w` wire; `_q` **synchronous** register; `_r` **asynchronous/combinational** register; `_v` variable | `Useful name extensions.md` | Design files conform. **Testbench variables do not use `_v`** — a tidy-up, not a defect |
+| **"Don't write Mixed PROCESS, is non synthesizable (ieee-1076.6 standard)."** A mixed process combines combinational and synchronous elements | `Sequential Code part7` | Conforms. `SYNC.vhd`'s two processes are pure synchronous; `DMEMORY.vhd`'s `misalign_check` is pure combinational and contains only a `report` |
+| "Each Entity element in our design must be written in a separate `entity_name.vhd` file" | `Concurrent Code - Structural modeling` | Conforms |
+| Assertions belong in one of three places: concurrent in the architecture, sequential in a process, or in the entity's passive part. Severities: note / warning / error / failure / fatal, and **failure is the default exit level** | `Advanced Design Verification.md` | Conforms — static asserts use `failure`, test failures use `error` |
+| A PACKAGE needs a body **only** if it declares a FUNCTION or PROCEDURE | `Package (sub-library).md` | Conforms — all three packages declare only components/constants, so none has a body |
+| `f_max` from the setup condition: `T_clk ≥ t_cq + max(t_pd(CL_i)) + t_su`. Hold: `t_cd(FF) + t_cd(CL) ≥ t_hold`. Positive clock skew *raises* `f_max`, negative lowers it | `Digital Logic Circuits - Timing Analysis.md` | The vocabulary and formulas for the Phase 14 PPA write-up. **"we strive in our design for balanced CL paths"** is the pipeline argument |
+| `P_dynamic = f_CLK · N · C · V_DD²`, `P_static = I_leakage · V_DD` | `Digital Logic Circuits - Power Analysis.md` | Explains the reference's own numbers: +46.8% registers → +38.7% dynamic power |
+| **`STD_LOGIC_ARITH` / `STD_LOGIC_SIGNED` / `STD_LOGIC_UNSIGNED` are "non-standard"**; VHDL-2008 provides `numeric_std_unsigned` / `numeric_std_signed` instead | `Enhancements in VHDL-2008.md` | Not a licence to change the reference's imports, but it *is* the explanation for defect 5 and belongs in the report |
+| Local declarations inside a `generate` branch are explicitly legal and do not clash across branches | `Enhancements in VHDL-2008.md` | Validates `SYNC.vhd`'s per-branch `launch_q` |
+
+**And one fact about the project itself, from the syllabus:** the summary project is worth **45% of
+the course grade** (`CPUuarc_and_HWaccelerators_lab_syllabus_36114693_sem2026B.md`). Lecturer contact
+`revoh@post.bgu.ac.il`. The VHDL conventions above trace to Pedroni, *Circuit Design with VHDL*,
+which the syllabus lists as a course source.
+
+## 2.2 ISMCE — the on-board validation loop, and a risk it creates
+
+`Auxiliary/hanan/Validation using ISMCE.md` documents the hardware validation flow the assignment
+requires (§8), and it changes the priority of something Phase 3B left as a footnote.
+
+1. Load the `.sof` to the FPGA — **once per design cycle**.
+2. Per application, recurring: import `ITCM.hex` and write it into the **physical** ITCM; same for
+   `DTCM.hex`; **press KEY0 to run**; then export the physical DTCM to a `.hex`.
+3. Run the same application in RARS to its endpoint, export a `DTCM.hex` from RARS, and compare the
+   two files with **`TextDiff.exe`**.
+
+**What makes that possible is `ENABLE_RUNTIME_MOD = YES` in the DTCM's `lpm_hint`** — and
+`INSTANCE_NAME = DTCM` is the name ISMCE lists it under. Neither may be removed or renamed. Phase 3B
+added `byteena_a` to that same `altsyncram`, and whether byte-enable mode and runtime modification
+coexist cleanly is the one thing in 3B that could not be checked without the tool.
+
+> **Adar, one check after the first Quartus compile of Phase 3B:** open ISMCE and confirm the `DTCM`
+> instance still appears and can still be read and written. If it has gone, **say so before changing
+> anything** — sub-word MMIO access and ISMCE validation are both mandatory, so a conflict between
+> them is a question for Hanan, not something to work around quietly. Noted in
+> `DUT/RV32IMscMCU/DMEMORY.vhd` at the `lpm_hint` line.
 
 **Note on the local copies.** `Auxiliary/Lab 5/` is HEAD (has `RSTPOL`).
 `Auxiliary/Lab 5 - as submitted/` is commit **`c1e9e64`**, not the final commit — its `RV32IM_CORE.vhd`

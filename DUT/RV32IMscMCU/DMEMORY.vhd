@@ -171,6 +171,25 @@ BEGIN
 		numwords_a 				=> WORDS_NUM,
 		byte_size				=> 8,			-- Phase 3B: one enable per 8 bits
 		width_byteena_a			=> NBYTES,		-- Phase 3B: 4 lanes on a 32-bit word
+		-- DO NOT REMOVE OR RENAME EITHER HALF OF THIS HINT.
+		--   ENABLE_RUNTIME_MOD = YES is what exposes this memory to Quartus's
+		--   In-System Memory Content Editor, and ISMCE is how the design is
+		--   validated on the board: load the .sof once, then per application
+		--   import ITCM.hex and DTCM.hex into the physical memories, press KEY0
+		--   to run, export the physical DTCM, and TextDiff it against the RARS
+		--   golden. Source: Auxiliary/hanan/Validation using ISMCE.md, and the
+		--   assignment requires it (§8).
+		--   INSTANCE_NAME = DTCM is the name the editor lists it under.
+		--
+		-- >>> ADAR, ONE CHECK AFTER THE FIRST QUARTUS COMPILE OF PHASE 3B:
+		-- >>> open ISMCE and confirm the DTCM instance still appears and can
+		-- >>> still be read and written. byteena_a was added to this same
+		-- >>> instantiation, and whether byte-enable mode and runtime
+		-- >>> modification coexist cleanly is the one thing here that could not
+		-- >>> be verified without the tool. If ISMCE loses the instance, say so
+		-- >>> before changing anything: sub-word MMIO access and ISMCE
+		-- >>> validation are both mandatory, so a conflict between them is a
+		-- >>> question for Hanan, not something to quietly work around.
 		lpm_hint 				=> "ENABLE_RUNTIME_MOD = YES,INSTANCE_NAME = DTCM",
 		lpm_type 				=> "altsyncram",
 		outdata_reg_a 			=> "UNREGISTERED",
