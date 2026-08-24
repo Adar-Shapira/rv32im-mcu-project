@@ -43,12 +43,12 @@ vcom -2008 ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
-# byte-identical to Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd, md5
+# byte-identical to Auxiliary/Lab4/DUT/hex_decoder.vhd, md5
 # 56f2f16645e9bb4643c3a113c36e49c4. Only a provenance header was added.
 vcom -2008 ../../DUT/RV32IMscMCU/HEX_DECODER.vhd
 vcom -2008 ../../DUT/RV32IMscMCU/GPO_PORT.vhd
 # Phase 6B. BIDIRPIN.vhd is the students' Lab 3 file used as is - its body is
-# byte-identical to Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd, md5
+# byte-identical to Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd (since deleted from the tree), md5
 # ab12d81dcdc85d91071b077359833bbd. It is the block Figure 1's bidirectional-bus
 # link points at, and Figure 5 draws it as the buffer on CS.MemRead.
 vcom -2008 ../../DUT/RV32IMscMCU/BIDIRPIN.vhd

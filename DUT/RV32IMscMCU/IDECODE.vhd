@@ -115,7 +115,7 @@ BEGIN
 	-- ("0010111" and "0110111") = "0010111" = auipc's opcode, so auipc matches and lui
 	-- never does -- lui's immediate is 0, and since CONTROL forces ALU input A to zero for
 	-- lui, lui writes 0. Repair reference, both defects:
-	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/IDECODE.vhd:178,181,182
+	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/IDECODE.vhd:178,181,182
 	-- which splits UTYPE_OPC into AUIPC_OPC/LUI_OPC and adds the LOAD_OPC arm.
 	-- AUIPC_OPC = UTYPE_OPC's effective value, so the auipc path is unchanged either way.
 	load_imm_w	<=	SignExt_Iimm_w								WHEN G_ISA_REPAIR ELSE (others => '0');

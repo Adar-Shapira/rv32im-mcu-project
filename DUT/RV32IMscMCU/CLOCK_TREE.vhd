@@ -21,7 +21,7 @@
 --
 --   WHAT LAB 5 AND LAB 4 ALREADY HAD, so the new part is only the new part:
 --   the students' own Lab 4 board top,
---   Auxiliary/Lab 5/Auxilary/Lab4/DUT/fpga_hw_interface.vhd, already
+--   Auxiliary/Lab4/DUT/fpga_hw_interface.vhd, already
 --   instantiates a PLL at BOARD level (not inside the logic) and already
 --   captures its locked output -- which is the structural pattern this entity
 --   follows, and the precedent Phase 4C's reset-on-lock builds on.

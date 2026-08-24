@@ -140,7 +140,7 @@ set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_
 # This revision has NO set_location_assignment at all. That was fine while the
 # design's only ports were clk_i and rst_i plus Signal-Tap taps: it is the
 # "performance" revision of the two-revision pattern (clause 6's PPA tables and
-# Auxilary/Lab4/Quartus/Lab4_perf.sdc), where Quartus is free to place I/O
+# Auxiliary/Lab4/Quartus/Lab4_perf.sdc), where Quartus is free to place I/O
 # anywhere and Fmax is the only number wanted.
 #
 # Phase 6A added real board outputs: LEDR_o[7..0] and HEX0_o..HEX5_o[6..0], which
@@ -156,7 +156,7 @@ set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_
 # over-broad: five .qsf files under Auxiliary/ DO contain set_location_assignment
 # lines (the two Lab 5 Quartus projects in each of the two Lab 5 copies, and the
 # USART option1 example). What none of them contains -- and what
-# Auxilary/QUARTUS/pinPlanner/DE2-115_pinLocation.txt, a 28-line student note
+# Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/pinPlanner/DE2-115_pinLocation.txt, a 28-line student note
 # covering clk_i, rst_i and BPADDR_i[7..0], also does not contain -- is a single
 # pin number for LEDR or any HEX display. Checked with
 #   grep -rn "set_location_assignment.*\(LEDR\|HEX\)" Auxiliary/

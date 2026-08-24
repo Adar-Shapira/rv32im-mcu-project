@@ -29,7 +29,7 @@ package const_package is
 -- Three opcode constants the single-cycle const_package never declared. Values and names
 -- taken verbatim from the pipelined core of the same LAB5 submission, which needs them for
 -- the same three selected-assignment arms:
---   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/const_package.vhd:25,28,29
+--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/const_package.vhd:25,28,29
 -- UTYPE_OPC above is kept because CONTROL.vhd:51 still uses it, where the bitwise AND
 -- happens to give the correct answer for both lui and auipc; only IDECODE's exact-match
 -- select was broken by it (defect 2).
@@ -42,8 +42,8 @@ package const_package is
 -- These are the RISC-V funct3 encodings of the load and store instructions,
 -- not an encoding of ours: RV32I load funct3 is 000=lb 001=lh 010=lw 100=lbu
 -- 101=lhu, and store funct3 is 000=sb 001=sh 010=sw. Source:
---   Auxiliary/Lab 5 - as submitted/Auxilary/RV32I - Instruction Formats.pdf
---   Auxiliary/Lab 5 - as submitted/Auxilary/RISC-V Instruction Set Manual (Unprivileged ISA).pdf
+--   Auxiliary/Lab 5/Auxilary/RV32I - Instruction Formats.pdf
+--   Auxiliary/Lab 5/Auxilary/RISC-V Instruction Set Manual (Unprivileged ISA).pdf
 -- CONTROL builds the code from its own mask detectors rather than slicing
 -- instruction(14 DOWNTO 12), so an encoding RV32I does not define (011/110/111,
 -- and RV64's lwu) resolves to MEM_W instead of to an undefined width.

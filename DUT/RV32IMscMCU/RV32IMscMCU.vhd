@@ -10,7 +10,7 @@
 --   MCU block of Figure 1 (p3) lives here: clock tree, RISC-V core, bus
 --   interface logic and peripherals. The core itself stays a pure CPU.
 --
---   Reference for the pattern: Auxilary/Lab4/DUT/fpga_hw_interface.vhd, the
+--   Reference for the pattern: Auxiliary/Lab4/DUT/fpga_hw_interface.vhd, the
 --   board-level structural top of Lab 4, which conditions its KEY/SW inputs
 --   and instantiates the PLL above the logic it drives.
 --
@@ -39,7 +39,7 @@
 --   THE PHASE 1 CRITERION STILL HOLDS, and it was checked rather than assumed.
 --   None of the four Lab 5 benchmarks can form a data address at or above 0x2000.
 --   Derived from the shipped images under
---   Auxiliary/Lab 5 - as submitted/Auxilary/Benchmarks/test*/RV32IM/man_compiled/
+--   Auxiliary/Lab 5/Auxilary/Benchmarks/test*/RV32IM/man_compiled/
 --   bin/M9K-intel/ITCM.hex: none of the four contains a single lui, and their only
 --   large-base instruction is auipc, whose immediate is 0 in all 31 occurrences
 --   across the four. So every base is a PC value, the programs are 29 to 62
@@ -151,7 +151,7 @@ ENTITY RV32IMscMCU IS
 		-- RST_ACTIVE_LOW is one: the same board fact, the same one-word fix.
 		--
 		-- Grounds for "pressed reads 1": the course's own board interface,
-		-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38, does exactly this --
+		-- Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:37-38, does exactly this --
 		-- "Invert KEYs because DE2-115 pushbuttons are normally HIGH, LOW when
 		-- pressed / key_pressed <= NOT KEY" -- and this design already does it for
 		-- KEY0 through RST_ACTIVE_LOW.
@@ -396,7 +396,7 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- domain B." Figure 5 draws no synchroniser on PORT_SW, so this is an addition,
 	-- not something the figure asks for -- but it costs two flip-flops and Lab 4's
 	-- own board interface registers its SW inputs too
-	-- (Auxilary/Lab4/DUT/fpga_hw_interface.vhd). Two cycles of latency on reading a
+	-- (Auxiliary/Lab4/DUT/fpga_hw_interface.vhd). Two cycles of latency on reading a
 	-- hand-operated switch is not observable.
 	SIGNAL sw_sync_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 
@@ -444,7 +444,7 @@ BEGIN
 	-- Reset release on PLL lock — Phase 4C
 	--=======================================
 	-- Precedent and the reason this is an improvement rather than a flourish:
-	-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd captures pll_locked but
+	-- Auxiliary/Lab4/DUT/fpga_hw_interface.vhd captures pll_locked but
 	-- PROJECT_EXPLANATION.md §9.3 records that the reference leaves it UNUSED,
 	-- and that a production design would hold reset until the PLL has locked.
 	-- Before lock, a PLL output is not a valid clock: it can be stopped, running
@@ -626,7 +626,7 @@ BEGIN
 	-- PORT_PB, 0x2014 (clause 6) — Phase 6C
 	--=======================================
 	-- Board-boundary conditioning, exactly as RSTCOND does it for KEY0 and as
-	-- Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38 does it for all four keys.
+	-- Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:38 does it for all four keys.
 	KEYCOND:
 	if (KEY_ACTIVE_LOW) generate
 		key_pressed_w <= NOT KEY_i;

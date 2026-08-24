@@ -67,7 +67,7 @@ ARCHITECTURE behavior OF control IS
 	-- Defect 1 (andi): the as-submitted ALUOp select tests ori_w on the ALU_AND arm, so
 	-- andi never reaches ALU_AND (it falls through to ALU_OR, computing an OR) and the
 	-- ALU_OR arm fires for both andi and ori. Repair reference:
-	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/CONTROL.vhd:147
+	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/CONTROL.vhd:147
 	--     ALU_AND WHEN and_w or andi_w ELSE
 	SIGNAL	andi_sel_w : STD_LOGIC;
 

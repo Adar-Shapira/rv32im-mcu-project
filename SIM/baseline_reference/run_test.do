@@ -12,8 +12,8 @@
 # THE EXPECTED NUMBERS, AND WHERE THEY COME FROM
 #   Two independent written sources in the reference itself, which is better
 #   evidence than the scripts that were deleted:
-#     Auxiliary/Lab 5 - as submitted/PROJECT_EXPLANATION.md      §7.1-7.4
-#     Auxiliary/Lab 5 - as submitted/DOC/HANDOVER_Report_lab5.md §5.3
+#     Auxiliary/Lab 5/PROJECT_EXPLANATION.md      §7.1-7.4
+#     Auxiliary/Lab 5/DOC/HANDOVER_Report_lab5.md §5.3
 #
 #     test1  mclk_cnt_o = 134   at  13.4 us   terminal pc_o = 0x0070
 #     test2  mclk_cnt_o = 1514  at 151.4 us   terminal pc_o = 0x0070

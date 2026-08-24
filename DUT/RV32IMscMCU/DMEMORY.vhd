@@ -19,7 +19,7 @@
 --   -- verified by grep over every .vhd in the tree; there are 10 altsyncram
 --   instantiations and not one uses byteena_a, byte_size or width_byteena_a.
 --   The reference *pipeline* does not implement sub-word access either
---   (Auxiliary/Lab 5 - as submitted/PROJECT_EXPLANATION.md §4.4 states this
+--   (Auxiliary/Lab 5/PROJECT_EXPLANATION.md §4.4 states this
 --   outright). So this is our design, and the three altsyncram identifiers
 --   below come from Intel's altsyncram megafunction interface -- general
 --   knowledge, NOT from anything supplied in the course.

@@ -74,7 +74,7 @@ BEGIN
 -- which is why all four still match their golden DTCM; it is latent, not benign.
 -- (The "<< 2" in the original comment was wrong too: the code shifts by one, correctly.)
 -- Repair reference:
---   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd:181
+--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/EXECUTE.vhd:181
 --     addr_gen_w <= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');
 --------------------------------------------------------------------------------------------------------
 addr_gen_o	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0')	WHEN G_ISA_REPAIR ELSE
@@ -97,7 +97,7 @@ sub_res_w			<= ain_w - bin_w;
 -- Defect 5 (unsigned compares are signed). This file opens IEEE.STD_LOGIC_SIGNED, so the
 -- bare "<" is a signed comparison and sltu / sltiu / bltu / bgeu all compare signed --
 -- every operand with bit 31 set is treated as negative. Repair reference:
---   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd:196-197
+--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/EXECUTE.vhd:196-197
 -- Prefixing a '0' widens both operands to 33 bits with a clear sign bit, which makes the
 -- signed-package comparison give the unsigned answer -- so the fix needs no library change
 -- and cannot disturb the genuinely signed slt / blt / bge paths.
@@ -226,7 +226,7 @@ BEGIN
 			-- brl_shr_pad_r(31 DOWNTO 16), which stay '0'. The arithmetic pad is therefore
 			-- always zero and sra / srai are indistinguishable from srl / srli.
 			-- Repair reference:
-			--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/EXECUTE.vhd
+			--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/EXECUTE.vhd
 			--     brl_shr_pad_r <= (others => '1');
 			if (ain_w(31) = '1' and (ALUOp_ctrl_i = ALU_SHIFTR_ARITH)) then
 				if G_ISA_REPAIR then

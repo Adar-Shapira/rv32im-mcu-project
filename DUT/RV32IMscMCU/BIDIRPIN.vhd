@@ -5,7 +5,9 @@
 -- BidirPin -- the tri-state buffer of Figure 5, and the block Figure 1 points at.
 --
 -- USED AS IS. Copied from the students' own Lab 3:
---     Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd
+--     Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd (DELETED FROM THE TREE by the
+-- 2026-08-25 Auxiliary restructure -- our copy below is now the only surviving
+-- instance; the md5 is recorded so the match can still be argued)
 -- Everything below this header is BYTE-IDENTICAL to that file, md5
 -- ab12d81dcdc85d91071b077359833bbd. Only this header was added and the filename
 -- capitalised to match DUT/RV32IMscMCU's convention. Entity and port names are

@@ -264,7 +264,7 @@ package aux_package is
 	-- The tri-state buffer of Figure 5, and the block Figure 1's
 	-- "Bi-directional Data BUS (reminder)" link points at (gap G-306). USED AS IS
 	-- from the students' Lab 3 -- the body of DUT/RV32IMscMCU/BIDIRPIN.vhd is
-	-- byte-identical to Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd, md5
+	-- byte-identical to Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd (since deleted from the tree), md5
 	-- ab12d81dcdc85d91071b077359833bbd, so the port names are that file's.
 	-- Instantiated once per readable SFR register plus one bus terminator.
 	component BidirPin is
@@ -300,7 +300,7 @@ package aux_package is
 ---------------------------------------------------------
 	-- The "7-segment encoder" of Figure 5. USED AS IS from the students' Lab 4 --
 	-- the body of DUT/RV32IMscMCU/HEX_DECODER.vhd is byte-identical to
-	-- Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd (md5 56f2f166...), so the
+	-- Auxiliary/Lab4/DUT/hex_decoder.vhd (md5 56f2f166...), so the
 	-- port names here are that file's, not this project's _i/_o convention.
 	component hex_decoder is
 		PORT(

@@ -69,7 +69,7 @@ package cond_compilation_package is
 --   TRUE  : repaired. Each of the seven repairs is transcribed from the *pipelined* core
 --           of the same LAB5 submission, which already fixes all seven and passed all four
 --           benchmarks against the RARS golden DTCM:
---             Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/
+--             Auxiliary/Lab 5/DUT/RV32IM_pipeline/
 --
 -- The switch exists so that both measurements come from one build tree and the before/after
 -- comparison cannot drift. It is not a permanent design feature: once the repaired core is

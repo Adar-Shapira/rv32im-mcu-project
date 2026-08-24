@@ -6,7 +6,7 @@
 -- TB/RV32IMscMCU/tb_RV32IMscMCU.vhd.
 --
 -- REFERENCE
---   Auxiliary/Lab 5 - as submitted/TB/RV32IM_sc/tb_RV32IM_sc.vhd, itself based
+--   Auxiliary/Lab 5/TB/RV32IM_sc/tb_RV32IM_sc.vhd, itself based
 --   on Hanan's Auxilary/TB/tb_RV32I.vhd.
 --
 -- CHANGES FROM THE REFERENCE, AND WHY EACH ONE IS NECESSARY

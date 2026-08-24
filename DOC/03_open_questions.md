@@ -105,7 +105,7 @@ Q9 (`BTINT`'s three-of-four encoding), Q11/Q12 (`UCTL` spelling, `UxBRx`/`UxMCTL
 
 **Found.** All Lab 5 material targets **DE2-115 / Cyclone IV E / EP4CE115F29C7**: the `.qsf` device
 line, both SDC files, and the pin note. The students' own Lab 5 was compiled, programmed and
-examined on a physical DE2-115. `Auxilary/Lab4/DUT/hex_decoder.vhd:13` comments "DE2-115 7-segment
+examined on a physical DE2-115. `Auxiliary/Lab4/DUT/hex_decoder.vhd:13` comments "DE2-115 7-segment
 displays are active-low".
 
 All USART material targets a **DE10-Standard / Cyclone V SoC**: `Auxiliary/USART Material/JP1
@@ -122,7 +122,7 @@ coordinates on the F29 package too. Copying DE10-Standard pin assignments into a
 compiles with no error and silently mis-routes the UART.
 
 **Also missing either way.** There is no DE2-115 expansion-header pin table anywhere in the
-material. `Auxilary/QUARTUS/pinPlanner/DE2-115_pinLocation.txt` is a 28-line student note covering
+material. `Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/pinPlanner/DE2-115_pinLocation.txt` is a 28-line student note covering
 only `clk_i`, `rst_i` and `BPADDR_i[7:0]` — no GPIO header, no HEX, no LEDR. We will need the
 DE2-115 User Manual Table 3-x for the UART TX/RX/GND pins.
 
@@ -361,7 +361,7 @@ lower half-words. So `mul` is correct only when both operands fit in 16 bits, an
 `mulh`/`mulhsu`/`mulhu`/`div`/`divu`/`rem`/`remu` are not decoded at all despite their masks existing
 in `const_package.vhd`.
 
-`Auxiliary/Lab 5 - as submitted/PROJECT_EXPLANATION.md` §1 describes the submitted design, in its own
+`Auxiliary/Lab 5/PROJECT_EXPLANATION.md` §1 describes the submitted design, in its own
 words, as "an RV32I-oriented teaching core extended with a tested 16-bit `mul` datapath", and it was
 accepted that way. LAB5 calls the scope "MULDIV **partial**".
 

@@ -690,7 +690,7 @@ the subtraction operator"*, with the advice to check what Quartus synthesises). 
 unit sits on the **fast** clock, so its 32-bit carry path is the accelerator's critical path, and an
 inferred subtractor maps onto the Cyclone IV carry chain while a hand-built ripple of discrete gates
 may not. The structural alternative is real and already in the material —
-`Auxiliary/Lab 5/Auxilary/Lab4/DUT/AdderSub.vhd`, generic n-bit, built from `Lab4/DUT/FA.vhd` — and
+`Auxiliary/Lab4/DUT/AdderSub.vhd`, generic n-bit, built from `Lab4/DUT/FA.vhd` — and
 its mapping is exact: `x => divisor`, `y => the shifted upper half`, `sub_cont => "001"`,
 `s => Y-X`, **`cout` => the Non-negative Result flag** (for `sub_cont = "001"` it forms
 `y + not(x) + 1`, whose carry-out is precisely `y >= x`). Written down so the PPA comparison is a
@@ -717,7 +717,7 @@ inside the Figure 1 image. Verified by searching the whole document.
 **[CODE]** `cond_compilation_package.vhd:58-59` sets `G_PLL_DIV = 2`, `G_PLL_MUL = 1`, giving
 50 ÷ 2 = **25 MHz**, and both Lab 5 SDC files document 25 MHz.
 
-**[CODE]** `Auxilary/QUARTUS/SDC/RISCV_simple.sdc` constrains the *input port* at 50 MHz —
+**[CODE]** `Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/SDC/RISCV_simple.sdc` constrains the *input port* at 50 MHz —
 `create_clock -name clk -period 20 [get_ports {clk_i}]` — and then `derive_pll_clocks
 -create_base_clocks`, letting the tool derive the PLL outputs.
 
@@ -813,7 +813,7 @@ compiled and byte-identical, because its provenance is worth more than a tidy fi
 **[DEC] Reset is held until the PLLs report lock**, behind `GEN_RESET_ON_LOCK` (default `TRUE`).
 Before lock a PLL output is not a valid clock — it can be stopped, at the wrong frequency, or
 glitching — so releasing reset into it is how a design comes up differently on different power-ons.
-`Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked` and `PROJECT_EXPLANATION.md` §9.3
+`Auxiliary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked` and `PROJECT_EXPLANATION.md` §9.3
 records that it then leaves it **unused**, so this is a deliberate improvement over the reference and
 the report should present it as one. The clock tree's own `areset` keeps the *unconditioned* reset: a
 PLL held in reset by its own lock signal would never lock.
@@ -870,7 +870,7 @@ breakpoint address of **word granularity**, cleared on reset, fed by SW7–SW0.
 
 > **The submitted design deliberately exceeds this width, and it had to.** The revised pipeline
 > declares `STCNT_WIDTH` and `FHCNT_WIDTH` as **16**
-> (`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd`), because test3 and
+> (`Auxiliary/Lab 5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd`), because test3 and
 > test4 produce roughly 298 and 304 flushes — an 8-bit counter wraps at 255 and the IPC equation
 > would then be computed from a wrapped value. `DOC/HANDOVER_Report_lab5.md` §4.3 records the change.
 >
@@ -955,7 +955,7 @@ Everything in this document that is not cited to a source.
 | A11 | The upper 24 bits of an MMIO read return zero | Figure 5 drives only `Data<7..0>` from the `PORT_SW` tri-state; all three MMIO reads in the benchmarks `andi` the result immediately | A program that uses the upper bits of an MMIO read |
 | A12 | A Word-resolution register owns all four lanes of its word | §6's table gives `BTCMPR0`/`BTCMPR1`/`BTCAPR` Address Resolution "Word", and `io_map.s` marks them "define a Word address" | A byte-resolution use of any of those three |
 | A13 | A GPO port holds zero after reset — LEDs off, every HEX showing `0` | Nothing states a reset value and Figure 5 draws no reset on the latch at all; zero needs no extra state, whereas "blank until first written" needs a flag nothing asks for | Any statement that the displays should be dark after KEY0 |
-| A16 | `PORT_PB` reads `'1'` for a **pressed** key — i.e. the active-low pushbuttons are inverted at the board boundary | The bit **order** is Hanan's forum answer and is not assumed; the **polarity** is stated nowhere, and no supplied program reads `PORT_PB` at all. Grounds: `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly this for all four keys, and this design already does it for KEY0 via `RST_ACTIVE_LOW` | Course staff saying `PORT_PB` presents the raw pin. One word: `KEY_ACTIVE_LOW => FALSE` |
+| A16 | `PORT_PB` reads `'1'` for a **pressed** key — i.e. the active-low pushbuttons are inverted at the board boundary | The bit **order** is Hanan's forum answer and is not assumed; the **polarity** is stated nowhere, and no supplied program reads `PORT_PB` at all. Grounds: `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly this for all four keys, and this design already does it for KEY0 via `RST_ACTIVE_LOW` | Course staff saying `PORT_PB` presents the raw pin. One word: `KEY_ACTIVE_LOW => FALSE` |
 | A15 | The seven GPO ports are readable (Figure 5's `MemRead` tri-state), despite clause 5's Direction column saying `GPO` | Figure 5 draws the buffer inside every output-port block; a read-back register is the ordinary MMIO arrangement, and "GPO" plausibly describes the device | Course staff saying an output port must not respond to a read |
 | ~~A14~~ | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 — **CONFIRMED 2026-08-24.** Hanan, asked whether HEX0 and HEX1 are needed together to show one value: *"each HEX stands on its own"* | — | — |
 | A17 | All five Basic Timer interface registers are readable as well as writable, `BTCTL2` included | One of the two forum lines that could not be transcribed with full confidence appeared to make `BTCTL2` read-only, but `BTCTL2` is the capture-control register and the applications do write to it. Asked rather than assumed — `DOC/05` §2 | Course staff confirming `BTCTL2` is read-only |

@@ -46,7 +46,7 @@
 --        combinational from synchronous. A transparent latch in an FPGA fabric
 --        that has no latch primitive is built out of combinational feedback.
 --     2. The course's own board-interface reference does it this way:
---        Auxiliary/Lab 5/Auxilary/Lab4/DUT/fpga_hw_interface.vhd registers its
+--        Auxiliary/Lab4/DUT/fpga_hw_interface.vhd registers its
 --        SW/KEY inputs inside "IF rising_edge(clk_2MHz) THEN ... IF
 --        key_pressed(n) = '1' THEN" -- an edge-triggered register with an enable,
 --        which is precisely this structure.
@@ -115,7 +115,7 @@ END gpo_port;
 ARCHITECTURE behavior OF gpo_port IS
 	-- The initial value sets the register's POWER-UP state, before any reset has
 	-- been seen. Precedent in the course material:
-	-- Auxiliary/Lab 5/Auxilary/Lab4/DUT/fpga_hw_interface.vhd declares
+	-- Auxiliary/Lab4/DUT/fpga_hw_interface.vhd declares
 	-- "SIGNAL Y_reg, X_reg : STD_LOGIC_VECTOR(15 DOWNTO 0) := (OTHERS => '0');"
 	-- for the same purpose, and Quartus honours it on a Cyclone IV register.
 	SIGNAL q_q		: STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0) := (OTHERS => '0');

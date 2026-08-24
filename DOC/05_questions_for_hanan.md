@@ -107,7 +107,7 @@ Nothing states the polarity, and `PORT_PB` is defined in every `io_map.s` but re
 program, so the material does not constrain it.
 
 **Built as:** pressed reads `1`, behind `KEY_ACTIVE_LOW` (default `TRUE`), following
-`Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` and this design's own treatment of KEY0.
+`Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:37-38` and this design's own treatment of KEY0.
 
 ### A11 — What do the upper 24 bits of a byte-wide MMIO read return?
 

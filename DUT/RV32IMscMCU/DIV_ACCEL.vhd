@@ -83,7 +83,7 @@
 --   while a hand-built ripple of discrete XOR/OR gates may not.
 --
 --   The structural alternative is a real one and is already in the material:
---   Auxiliary/Lab 5/Auxilary/Lab4/DUT/AdderSub.vhd, generic n-bit, built from
+--   Auxiliary/Lab4/DUT/AdderSub.vhd, generic n-bit, built from
 --   Lab4/DUT/FA.vhd. Its mapping onto this file is exact, which is worth writing
 --   down so nobody has to re-derive it if the report wants that PPA row:
 --          x => divisor,  y => the shifted upper half,  sub_cont => "001"
@@ -178,7 +178,7 @@ ARCHITECTURE behavior OF div_accel IS
 
 	-- Initial values give the engine a defined power-up state before any reset
 	-- has been seen, so a waveform opened at 0 ns shows zeros and not 'U'.
-	-- Precedent: Auxiliary/Lab 5/Auxilary/Lab4/DUT/fpga_hw_interface.vhd, and
+	-- Precedent: Auxiliary/Lab4/DUT/fpga_hw_interface.vhd, and
 	-- GPO_PORT.vhd in this directory for the same reason.
 	SIGNAL state_q	: state_t := IDLE;
 	SIGNAL busy_q	: STD_LOGIC := '0';

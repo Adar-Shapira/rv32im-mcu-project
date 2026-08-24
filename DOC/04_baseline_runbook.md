@@ -8,7 +8,7 @@ environment.
 nothing has to be recreated from scratch. Sections 1–3 are preparation, section 4 is the run,
 section 5 is the pass/fail criterion.
 
-Based on `Auxiliary/Lab 5 - as submitted/ModelSim_Testing_Guide.md`, which is the students' own
+Based on `Auxiliary/Lab 5/ModelSim_Testing_Guide.md`, which is the students' own
 documented working procedure, and on the supplied `.do` scripts in the same tree.
 
 ---
@@ -42,8 +42,8 @@ documented working procedure, and on the supplied `.do` scripts in the same tree
 
 | | |
 | --- | --- |
-| Design under test | `Auxiliary/Lab 5 - as submitted/DUT/RV32IM_sc/` — **unmodified** |
-| Testbench | `Auxiliary/Lab 5 - as submitted/TB/RV32IM_sc/tb_RV32IM_sc.vhd` — unmodified |
+| Design under test | `Auxiliary/Lab 5/DUT/RV32IM_sc/` — **unmodified** |
+| Testbench | `Auxiliary/Lab 5/TB/RV32IM_sc/tb_RV32IM_sc.vhd` — unmodified |
 | Scripts | `SIM/baseline_reference/{compile,run_test,mem_dump}.do` — ours, because the reference's were deleted. Wave view from `Auxiliary/Lab 5 - as submitted/SIM/RV32IM_sc/golden.do`, unmodified |
 | Benchmarks | Lab 5's own test1–test4 (add / mul / xor programs), **not** the Final Project benchmarks |
 | Pass criterion | four exact cycle counts, and the DTCM dump identical to the reference's own capture in all **2048** words |
@@ -74,7 +74,7 @@ which `mem save` does not report as an error.
 
 ## 2. Simulation mode — **do not edit anything**
 
-`Auxiliary/Lab 5 - as submitted/DUT/RV32IM_sc/cond_compilation_package.vhd:51` ships as:
+`Auxiliary/Lab 5/DUT/RV32IM_sc/cond_compilation_package.vhd:51` ships as:
 
 ```vhdl
 constant G_MODELSIM : integer := 0;   -- options{1=MODELSIM,0=FPGA}

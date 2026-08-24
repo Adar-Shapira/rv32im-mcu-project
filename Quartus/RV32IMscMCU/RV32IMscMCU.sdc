@@ -6,7 +6,7 @@
 #   - it documented a single 25 MHz PLL output (50 * G_PLL_MUL / G_PLL_DIV),
 #     which stopped being true at Phase 4B.
 #
-# Reference: Auxiliary/Lab 5/Auxilary/QUARTUS/SDC/RISCV_simple.sdc, which is
+# Reference: Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/SDC/RISCV_simple.sdc, which is
 # exactly these three commands. What is added below is the part that file did
 # not need: three generated clocks instead of one, and the cross-domain
 # statements that go with them.

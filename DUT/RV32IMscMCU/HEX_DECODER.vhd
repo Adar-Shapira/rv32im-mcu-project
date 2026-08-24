@@ -5,7 +5,7 @@
 -- hex_decoder -- the "7-segment encoder" block of Figure 5 (p5).
 --
 -- USED AS IS. Copied from the students' own Lab 4:
---     Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd
+--     Auxiliary/Lab4/DUT/hex_decoder.vhd
 -- Everything below this header block is BYTE-IDENTICAL to that file. Only this
 -- header was added, and the filename was capitalised to match the convention the
 -- rest of DUT/RV32IMscMCU uses. The entity name is unchanged.

@@ -103,7 +103,7 @@ END PROCESS;
 	-- word-granular ITCM (bits 1..0 are dropped on the way to the RAM address), so the
 	-- fetch still lands on the right word -- but pc_o, pc_plus4 and every downstream link
 	-- address carry the odd value. Repair reference:
-	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd:190
+	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd:190
 	--     redirect_addr_w <= mem_alu_res_w(PC_WIDTH-1 DOWNTO 1) & '0' WHEN mem_Jalr_w = '1'
 	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN G_ISA_REPAIR ELSE
 						alu_res_i(PC_WIDTH-1 DOWNTO 0);
@@ -112,7 +112,7 @@ END PROCESS;
 	--
 	-- THIS IS NOT A NEW IDEA, AND IT IS NOT OURS. It is the same mechanism our
 	-- own Lab 5 pipeline already uses for the load-use interlock:
-	--   Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/IFETCH.vhd:107
+	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/IFETCH.vhd:107
 	--     pc_q(PC_WIDTH-1 DOWNTO 0)   WHEN  stall_i  ELSE  -- freeze PC (hazard stall)
 	--   with the comment at lines 103-104 giving the same reason this needs:
 	--     "On stall the PC recirculates, which also keeps the synchronous ITCM

@@ -494,7 +494,7 @@ project explicitly forbids by requiring **two** structural levels (§3: "The top
 core must be structural").
 
 The correct placement already exists in their own earlier work:
-`Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38` inverts KEY at the board wrapper and leaves everything
+`Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:38` inverts KEY at the board wrapper and leaves everything
 below it polarity-agnostic. Commit 1's core matches Hanan's baseline exactly; keep it that way and
 invert in the MCU top.
 
@@ -652,7 +652,7 @@ Anchor every decision here, in this order. Never skip a level silently.
 3. **`Auxiliary/Lab 5/Auxilary/DUT/`** — Hanan's 12 supplied source files, single-cycle RV32I only.
 4. **Commit `cfc4b4f`** — the structural base, equal to `Auxiliary/Lab 5 - as submitted/` for
    everything except the two testbenches.
-5. **`Auxilary/Lab3/`, `Auxilary/Lab4/`** — their own completed earlier labs. The richest source of
+5. **`Auxilary/Lab3/`, `Auxiliary/Lab4/`** — their own completed earlier labs. The richest source of
    reusable leaf modules.
 6. **`Auxiliary/Benchmark Apps/`** — `io_map.s` is the executable MMIO contract.
 7. **`Auxiliary/hanan/` — Hanan's own lecture material for THIS lab.** Added 2026-08-24. 24 of the
@@ -796,7 +796,7 @@ Prove the environment before changing anything.
 >    (§0.e), so a bounded `run` is required.
 >
 > The four expected counts are unchanged and are independently confirmed by
-> `Auxiliary/Lab 5 - as submitted/DOC/HANDOVER_Report_lab5.md` §5.3 and
+> `Auxiliary/Lab 5/DOC/HANDOVER_Report_lab5.md` §5.3 and
 > `PROJECT_EXPLANATION.md` §7 — 134 / 1514 / 2725 / 2735, at terminal PCs
 > `0x0070` / `0x0070` / `0x00CC` / `0x004C`. That is now two independent written sources for the
 > baseline, which is worth more than the scripts we lost.
@@ -904,7 +904,7 @@ Establish the tree from commit 1's shape, not HEAD's.
   renaming the cores. This is what gives us the second structural level §3 demands, and the place
   where reset inversion, the clock tree and the peripherals attach.
 - Move KEY0 inversion into the top wrapper, patterned on
-  `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38`. Delete `RSTPOL` from the core. **Fixes D-1.**
+  `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:38`. Delete `RSTPOL` from the core. **Fixes D-1.**
 - Convert `G_MODELSIM` from a package constant to a generic the testbench overrides with `-g`.
   **Fixes G-201.** The package constant stays as the default so Quartus needs no edit.
 - Carry commit 2's testbench auto-stop forward.
@@ -1362,7 +1362,7 @@ Gaps: **G-311 closed.** New assumption **A19**. `ACCELCLK`'s value is still **B3
 - **`PLL.vhd` is now instantiated by nothing.** It stays compiled and byte-identical; `PLL_GEN` is
   what the tree uses. Do not delete it — its provenance is worth more than the file list is tidy.
 - **Reset is held until the PLLs report lock**, behind `GEN_RESET_ON_LOCK` (default `TRUE`).
-  Precedent `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked`; `PROJECT_EXPLANATION.md`
+  Precedent `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd` captures `pll_locked`; `PROJECT_EXPLANATION.md`
   §9.3 records that the reference then leaves it **unused** and that a production design would hold
   reset until lock. So this is a deliberate improvement over the reference and **the report should
   say so.** Note the clock tree's own `areset` keeps the unconditioned `rst_w` — a PLL held in reset
@@ -1688,7 +1688,7 @@ renaming would have made "unchanged" false.
    (`Auxiliary/hanan/Sequential Code part7 - System Design Principles.md`), and a Cyclone IV has no
    latch primitive — a transparent latch becomes combinational feedback.
 2. The course's **own** board-interface reference does it this way:
-   `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` registers its SW/KEY inputs as
+   `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd` registers its SW/KEY inputs as
    `IF rising_edge(clk_2MHz) THEN IF key_pressed(n) = '1' THEN` — an enabled register, exactly this
    structure.
 3. Behaviour is identical here. Single-cycle: the address, the write data and `MemWrite` are stable
@@ -1848,7 +1848,7 @@ P5 alone means Phase 6A broke, not 6B.
   readable register. That is the ordinary MMIO reading and it matches the figure, but it is an
   interpretation — recorded in `DOC/02_requirements_traceability.md` §2.1 rather than assumed.
 - `PORT_SW` at `0x2010`, and the tri-state read return this phase finally has a driver for:
-  `Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd` with `width => 32`, which Figure 1 links to
+  `Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd (since deleted from the tree)` with `width => 32`, which Figure 1 links to
   explicitly and Figure 5 draws as the buffer on `CS7 · MemRead`.
 - Replaces the Phase 5B placeholder `dbus_rdata_w <= (OTHERS => '0')` and deletes the `SFRSTUB`
   notice process with it.
@@ -1953,7 +1953,7 @@ not by polling.
 
 **The polarity is not his, so it is an Assumption with a generic.** Nothing states whether `PORT_PB`
 presents the raw active-low pin or the pressed sense. `KEY_ACTIVE_LOW` defaults to `TRUE` — pressed
-reads `'1'` — because `Auxilary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly that for all four
+reads `'1'` — because `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:37-38` does exactly that for all four
 keys (*"Invert KEYs because DE2-115 pushbuttons are normally HIGH, LOW when pressed"*) and this design
 already does it for KEY0 through `RST_ACTIVE_LOW`. Registered as **A16**; one word to flip.
 
@@ -2189,7 +2189,7 @@ Touches `CONTROL`/`IFETCH`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why i
 - 32-bit `BTCNT` up-counter, `BTSSEL` 4-to-1 clock mux (`00`→÷1 … `11`→÷8), `BTHOLD` enable,
   `BTCLR` clear.
 - `BTCL0`/`BTCL1` shadow latches loaded from `BTCMPR0`/`BTCMPR1`.
-- Output Unit adapted from `Auxilary/Lab4/DUT/pwm.vhd` — 16→32 bit, and re-map period `Y`→`BTCL0`,
+- Output Unit adapted from `Auxiliary/Lab4/DUT/pwm.vhd` — 16→32 bit, and re-map period `Y`→`BTCL0`,
   duty `X`→`BTCL1` to match Figure 8's Set/Reset and Reset/Set traces.
 - Capture path: `CAPISEL` mux → `CAPMD` edge select → `BTCNT_CAPTURE` → `BTCAPR`.
 - `BTINT` selects the `BTIFG` source from `EQU0`, `EQU1`, capture.
@@ -2309,7 +2309,7 @@ Blocked on **Q1**.
 
 ## Phase 16 — Report and submission  ·  both
 
-- `Final_report.pdf`, structured on `Auxiliary/Lab 5 - as submitted/DOC/Report_lab5.pdf`. Figures and
+- `Final_report.pdf`, structured on `Auxiliary/Lab 5/DOC/Report_lab5.pdf`. Figures and
   tables numbered, captions **below**.
 - Must include: top-level block diagram, RTL Viewer, the three PPA tables with mandatory Quartus
   screenshots and critical-path analysis, a short description of every HDL file, waveforms for
@@ -2394,7 +2394,7 @@ before/after line pairs.
 | **G-329** | **NEW.** `jalr` does not clear the target's bit 0 (`IFETCH.vhd:93`). Masked today by the word-granular ITCM dropping bits 1..0, but `pc_o`, `pc_plus4` and every link address carry the odd value. | **lecturer's baseline**, `IFETCH.vhd` | repaired (3A) |
 | **G-330** | **NEW.** Our `DUT/RV32IMpipelinedMCU/` was an entire revision behind the reference and its wrapper referenced retired ports (`BPTRIGGER_o`, `stall_o`, `flush_o`, 8-bit counters) — it could not have compiled. | our tree, from the 2026-08-23 reference update | re-imported (3D) |
 | **G-331** | `Auxilary/Ori/` — another student's pipeline. **CLOSED 2026-08-23:** permitted as a reference, never as code. It independently confirms the defect 6 and defect 7 repairs with identical expressions, and confirms no byte-enable reference exists anywhere. See §0.d. | another student, via Yehonatan | closed |
-| **G-334** | **NEW, found by the Phase 5B review.** `aux_package.vhd`'s `RV32IM_CORE` **component** defaults `PC_WIDTH` and `MA_WIDTH` to `10`, while the **entity** defaults them to `G_PC_WIDTH`/`G_MA_WIDTH` = `13`. Every other generic in the same component forwards its `G_*` constant; only these two are hardcoded. Latent today — the sole instantiation associates both explicitly — but a component's default is what fills an unassociated generic, so any future bare-core instantiation would elaborate with `MA_WIDTH = 10` against `DTCM_ADDR_WIDTH = 11`, making `dtcm_addr_w` 8 bits wide against an 11-bit port. Inherited verbatim from `Auxiliary/Lab 5 - as submitted/DUT/RV32IM_sc/aux_package.vhd:21-22`, so **not changed unilaterally** — surfaced here per the no-blind-copy rule. Fix is two words when we decide to. | **lecturer's baseline** | open, latent |
+| **G-334** | **NEW, found by the Phase 5B review.** `aux_package.vhd`'s `RV32IM_CORE` **component** defaults `PC_WIDTH` and `MA_WIDTH` to `10`, while the **entity** defaults them to `G_PC_WIDTH`/`G_MA_WIDTH` = `13`. Every other generic in the same component forwards its `G_*` constant; only these two are hardcoded. Latent today — the sole instantiation associates both explicitly — but a component's default is what fills an unassociated generic, so any future bare-core instantiation would elaborate with `MA_WIDTH = 10` against `DTCM_ADDR_WIDTH = 11`, making `dtcm_addr_w` 8 bits wide against an 11-bit port. Inherited verbatim from `Auxiliary/Lab 5/DUT/RV32IM_sc/aux_package.vhd:21-22`, so **not changed unilaterally** — surfaced here per the no-blind-copy rule. Fix is two words when we decide to. | **lecturer's baseline** | open, latent |
 
 ## Verification
 
@@ -2414,7 +2414,7 @@ before/after line pairs.
 | ID | Gap |
 | --- | --- |
 | **G-501** | Q1–Q13 unanswered. `DOC/03_open_questions.md`. Send Q1–Q3 now. |
-| **G-502** | Submission `DOC/Readme.txt` not written. Template: `Auxiliary/Lab 5 - as submitted/DOC/readme.txt`. |
+| **G-502** | Submission `DOC/Readme.txt` not written. Template: `Auxiliary/Lab 5/DOC/readme.txt`. |
 | **G-503** | `Final_report.pdf` not started. Template: `.../DOC/Report_lab5.pdf`. |
 | **G-504** | No DE2-115 expansion-header pin table anywhere in the material. UART pins need the User Manual. Do not copy the DE10-Standard pins — `PIN_W15`/`PIN_AK2`/`PIN_AK3` are valid on F29 too, so it compiles cleanly and mis-routes silently. |
 | **G-505** | Ten assumptions recorded and unconfirmed. `DOC/02_requirements_traceability.md` §10. |
@@ -2431,7 +2431,7 @@ before/after line pairs.
 | `DOC/05_questions_for_hanan.md` | **The sendable list** — only what is still open after the forum. 18 items, one "Ask" line each, grouped by what they block, plus a 23-row "do not re-ask" table |
 | `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers. **Rewritten 2026-08-24** for the replaced reference: sections 2, 4, 5.2, 6 and 8 all changed, and section 8.1b covers the Phase 3A/3B measurement |
 | `SIM/baseline_reference/` | `compile.do`, `run_test.do`, `mem_dump.do` — replacements for the scripts the reference lost, reaching into `Auxiliary/` read-only |
-| `Auxiliary/Lab 5 - as submitted/README-import.md` | What was imported and why the two Lab 5 copies differ |
+| ``README-import.md` (removed by the 2026-08-25 Auxiliary restructure)` | What was imported and why the two Lab 5 copies differ |
 
 ---
 
