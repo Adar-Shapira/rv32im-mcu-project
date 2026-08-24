@@ -19,6 +19,7 @@ package aux_package is
 			RST_ACTIVE_LOW		: boolean	:= TRUE;
 			GEN_DEBUG_PORTS		: boolean	:= TRUE;
 			GEN_GPO_READBACK	: boolean	:= TRUE;	-- Phase 6B, assumption A15
+			GEN_INPUT_SYNC		: boolean	:= FALSE;	-- Hanan: switches need no synchroniser
 			WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 			MODELSIM			: integer	:= G_MODELSIM;
 			DATA_BUS_WIDTH		: integer	:= 32;

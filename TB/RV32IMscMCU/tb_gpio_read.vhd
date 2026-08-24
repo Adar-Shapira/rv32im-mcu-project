@@ -85,7 +85,7 @@ ENTITY tb_gpio_read IS
 		-- changes, the iteration already in flight has ALREADY read the old value
 		-- and will complete with the old branch, so exactly one stale store to
 		-- PORT_LEDR arrives in the new phase. One full iteration is 42 cycles;
-		-- 60 covers it with margin, plus the synchroniser's two.
+		-- 60 covers it with margin.
 		--
 		-- Without this, phase 3 fails: a stale increment landing just after the
 		-- boundary looks like "a write happened with both switches clear", which is
@@ -283,10 +283,16 @@ BEGIN
 
 			cycles_v := cycles_v + 1;
 
-			-- Drive the switches. Changed at a phase boundary only, and the change
-			-- is seen through the two-stage synchroniser, so the program picks it up
-			-- a few cycles later -- which is why each phase is 300 cycles and the
-			-- first few writes of a phase are not scored (see the guard below).
+			-- Drive the switches. Changed at a phase boundary only. The program
+			-- picks a change up on its next loop iteration, not immediately, which
+			-- is what SETTLE_CYCLES below is for.
+			--
+			-- Note since 2026-08-24: SW_i is now read combinationally by default.
+			-- GEN_INPUT_SYNC defaults to FALSE because Hanan's forum says a switch
+			-- needs no synchroniser -- "their rate of change is many orders of
+			-- magnitude slower than the system clock, so the signal is considered
+			-- static". The settle window is unaffected either way: it exists for
+			-- the loop iteration already in flight, not for the two flip-flops.
 			if    cycles_v = 1              then
 				SW_i <= x"01"; phase_v := 1; phase_at_v := cycles_v; have_prev_v := FALSE;
 			elsif cycles_v = PHASE_CYCLES   then

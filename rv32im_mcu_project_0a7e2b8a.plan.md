@@ -562,24 +562,45 @@ The full transcription, with the wording of every answer and the cross-checks ag
 `A6` (`IFG` holds the raw flag) — **FALSIFIED.** `IFG` is the **masked** value; it only rises when
 `IE = 1`. Nothing is built on it yet, so this cost nothing — it would have cost a Phase 9 rebuild.
 
-## 1.5.c Three things already written that the answers contradict
+## 1.5.c Three things already written that the answers contradict — **ALL THREE FIXED 2026-08-24**
 
-Recorded here and not buried, because two of them are real rework:
+Recorded here and not buried, because two of them were real rework. All three are now done, before
+any new phase was started.
 
-1. **The `SW_i` synchroniser (Phase 6B) is not wanted.** Hanan: buttons and switches need no
+1. ✔ **The `SW_i` synchroniser (Phase 6B) is not wanted.** Hanan: buttons and switches need no
    two-DFF synchroniser, *"since their rate of change is many orders of magnitude slower than the
    system clock, so the signal is considered static"*. It was added citing his **own** Figures 10a/10b
-   material, which is exactly the kind of reasoning-from-analogy the project rules warn about.
-   → Put it behind a generic defaulting to **off**, with his answer quoted next to it.
-2. **The bidirectional data bus is mandatory, and ours is half-built.** *"It is mandatory to use a
-   DATA BUS based on the bi-directional bus."* Phase 6B built the **read** side as a genuine
-   tri-state bus, but write data still leaves the core on a separate `dbus_wdata_w` path — that is
-   two unidirectional buses, not one bidirectional one.
-   → Restructure so the CPU drives the same wires on a write, through `BidirPin`. This is now a
-   requirement, not a preference.
-3. **The peripherals belong on `SMCLK`, not `MCLK`.** Phase 6A clocks the seven GPO ports from the
-   core's `mclk_o`. Benign while `MCLK = SMCLK` (which is permitted), but architecturally wrong.
-   → Fix as part of Phase 4B, which now has everything it needs.
+   material — exactly the reasoning-from-analogy the project rules warn about.
+   → **Now behind `GEN_INPUT_SYNC`, defaulting to `FALSE`**, with his answer quoted at the generic.
+   The chain is kept available because it costs sixteen flip-flops and two cycles on a hand-operated
+   switch, i.e. nothing, and because turning it on is how a marginal board would be diagnosed.
+
+2. ✔ **The bidirectional data bus is mandatory, and ours was half-built.** *"It is mandatory to use a
+   DATA BUS based on the bi-directional bus."* Phase 6B built the **read** side as a genuine tri-state
+   bus, but write data still left the core on a separate `dbus_wdata_w` path — two unidirectional
+   buses, not one bidirectional one.
+   → **Now one shared `data_bus_w`** with **ten drivers**: the CPU through `BP_CPU` on `MemWrite`,
+   the eight readable registers on `CS · MemRead · lane`, and the terminator when neither. And the
+   crucial part — **the peripherals now take their write data *from the bus*** rather than from a
+   private wire, which is what makes it a bus rather than decoration.
+
+   Two details that make it safe without a simulator. **Every driver is 32 bits wide**, including the
+   byte registers, which drive their value zero-extended — that is assumption **A11** expressed once,
+   in the only place it belongs, and it also guarantees the whole bus has a driver whenever any one
+   is on. And `onehot_check` was extended to count **all ten** drivers, not just the readers, with a
+   second assertion for the opposite failure: **no** driver active, which gives `'Z'` rather than
+   `'X'` and would otherwise surface far from its cause.
+
+   Exclusivity is by construction: `MemRead` and `MemWrite` are the load and store outputs of
+   `CONTROL` and are never both asserted, the decoder is one-hot (proved exhaustively in Phase 5A),
+   and the lanes are complementary.
+
+3. ✔ **The peripherals belong on `SMCLK`, not `MCLK`.** Phase 6A clocked the seven GPO ports from the
+   core's `mclk_o`.
+   → **A named `pclk_w` now clocks every peripheral**, and nothing below the bus interface touches
+   `mclk_w` any more. It is currently driven from `mclk_w`, which is *correct* rather than a shortcut
+   — the same forum answer permits `MCLK = SMCLK` for a single-cycle core. Phase 4B changes the one
+   line `pclk_w <= mclk_w;` to the SMCLK PLL instance's output and nothing else.
 
 ## 1.5.d What the added ReadMe is worth on its own
 
@@ -1678,6 +1699,11 @@ The third row is the sharp one. An undriven read bus reads `'Z'`, a doubly-drive
 one reads `'X'`, and either sends a branch somewhere — which shows up as writes
 appearing when there should be none. *Exactly zero writes* is very hard to produce
 by accident.
+
+**Corrected 2026-08-24 after Hanan's forum answers** — see §1.5.c. The read path described below is
+now one **bidirectional** bus with the CPU as a driver, not a read-only tri-state bus beside a
+separate write path; the peripherals take their write data from it; and the `SW_i` synchroniser is
+behind `GEN_INPUT_SYNC`, default `FALSE`.
 
 **A terminator whose enable cannot drift.** Inside an FPGA there is no bus keeper,
 so with every tri-state off the bus would be `'Z'` and the core would mux that into

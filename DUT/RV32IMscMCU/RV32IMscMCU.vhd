@@ -107,6 +107,17 @@ ENTITY RV32IMscMCU IS
 		-- answer comes back "output ports must not respond to a read", this is one
 		-- word to change and the seven tri-states disappear.
 		GEN_GPO_READBACK	: boolean	:= TRUE;
+		-- Phase 6B built a two-stage synchroniser on SW_i, reasoning from Hanan's
+		-- own Figures 10a/10b material. HIS FORUM ANSWER SAYS IT IS NOT WANTED:
+		-- asked whether the asynchronous button and switch signals need a two-DFF
+		-- synchroniser before use in synchronous logic, the answer is
+		--   "No, since their rate of change is many orders of magnitude slower
+		--    than the system clock, so the signal is considered static."
+		-- So the default is FALSE and the switches are read combinationally. The
+		-- generic remains because the chain costs sixteen flip-flops and two cycles
+		-- of latency on a hand-operated switch, i.e. nothing, and because a marginal
+		-- board would be diagnosed by turning it on.
+		GEN_INPUT_SYNC		: boolean	:= FALSE;
 
 		-- Passed through to the core unchanged.
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
@@ -244,6 +255,19 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- becomes a CLKTREE output instead of a core output.
 	SIGNAL mclk_w				: STD_LOGIC;
 
+	-- THE PERIPHERAL CLOCK. Hanan's forum: the other modules' registers "are DFF
+	-- based on SMCLK, and that is preferable for the GPIO register too" -- so the
+	-- peripherals belong on SMCLK, not on the core's MCLK.
+	--
+	-- Today it is driven from mclk_w, and that is CORRECT rather than a shortcut,
+	-- because the same forum permits the two to be equal: "since you are working
+	-- with a single-cycle base CPU (not a pipeline) running at a low frequency ...
+	-- your values may be identical, i.e. MCLK = SMCLK". The signal exists under its
+	-- own name so that Phase 4B, which now knows the clock tree is THREE separate
+	-- PLL instances each fed from the 50 MHz base, changes one line here and
+	-- nothing else. Every peripheral below is clocked from pclk_w, never mclk_w.
+	SIGNAL pclk_w				: STD_LOGIC;
+
 	-- Byte-lane qualification, the A0 term of Figure 5. lane0 selects the register
 	-- at the word's base address, lane1 the one at base+1 -- which is how the
 	-- figure separates PORT_HEX0 from PORT_HEX1 on a shared chip select.
@@ -284,12 +308,30 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 
 	CONSTANT RD_NONE	: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0) := (OTHERS => '0');
-	CONSTANT ZEROS8		: STD_LOGIC_VECTOR(7 DOWNTO 0)     := (OTHERS => '0');
+
+	type rd_word_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
 	SIGNAL rd_en_w				: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0);
 	SIGNAL rd_byte_w			: rd_byte_array_t;
-	SIGNAL term_en_w			: STD_LOGIC;	-- drives zeros when nothing else drives
-	SIGNAL rdbk_w				: STD_LOGIC;	-- GEN_GPO_READBACK as a signal
+	SIGNAL rd_word_w			: rd_word_array_t;	-- the byte, zero-extended to the bus
+	SIGNAL term_en_w			: STD_LOGIC;		-- drives zeros when nothing else drives
+	SIGNAL rdbk_w				: STD_LOGIC;		-- GEN_GPO_READBACK as a signal
+
+	-- THE DATA BUS. One shared, bidirectional, resolved signal -- not a read path
+	-- and a separate write path. Hanan's forum, asked whether the data bus may be
+	-- implemented as separate read and write paths or whether BidirPin is
+	-- required: "It is mandatory to use a DATA BUS based on the bi-directional
+	-- bus." Phase 6B had built only the read half as a real bus; this is the
+	-- correction.
+	--
+	-- Exactly one driver is active at any time, by construction:
+	--   the CPU              when MemWrite
+	--   one readable register when its own CS . MemRead ( . A0 )
+	--   the terminator        when neither
+	-- MemRead and MemWrite are never both asserted -- they are the load and store
+	-- outputs of CONTROL -- so the first two cannot collide.
+	SIGNAL data_bus_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	CONSTANT ZEROS_BUS			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 
 	-- SW7..SW0 after synchronisation. A switch is a mechanical contact with no
 	-- clock at all, so its value can change arbitrarily close to a clock edge --
@@ -366,7 +408,7 @@ BEGIN
 		dtcm_data_rd_o		=> dtcm_data_rd_w,
 		dtcm_wren_o			=> dtcm_wren_w,
 
-		mclk_o				=> mclk_w,			-- Phase 6A: clocks the peripherals
+		mclk_o				=> mclk_w,			-- Phase 6A: source of pclk_w until 4B
 		mclk_cnt_o			=> mclk_cnt_w
 	);
 
@@ -389,35 +431,53 @@ BEGIN
 	);
 
 	--=======================================
-	-- SFR read return path (Figure 5) — Phase 6B
+	-- THE DATA BUS (Figure 1, Figure 5) — Phase 6B, corrected 2026-08-24
 	--=======================================
-	-- This replaces the Phase 5B placeholder "dbus_rdata_w <= (OTHERS => '0')".
+	-- CORRECTION. Phase 6B built the read half as a genuine tri-state bus but left
+	-- the write data on its own separate path out of the core, which is two
+	-- unidirectional buses rather than one bidirectional one. Hanan's forum,
+	-- asked exactly that question -- may the DATA BUS be implemented as separate
+	-- read and write paths, or must BidirPin be used -- answers: "It is mandatory
+	-- to use a DATA BUS based on the bi-directional bus." So there is now ONE
+	-- shared bus, and the CPU is one of its drivers.
 	--
-	-- STRUCTURE, straight from Figure 5: every readable register drives the shared
-	-- Data<7..0> through a tri-state buffer enabled by its own chip select ANDed
-	-- with MemRead (and with A0 where a pair shares a chip select). The buffer is
-	-- the supplied Lab 3 BidirPin, which is what Figure 1's "Bi-directional Data
-	-- BUS (reminder)" link points at.
+	-- WHO DRIVES IT, AND WHY EXACTLY ONE ALWAYS DOES
+	--   the CPU               when MemWrite            (BP_CPU below)
+	--   one readable register when CS . MemRead ( . A0 ) (the RDGEN loop)
+	--   the terminator        when neither              (BP_TERM)
+	-- MemRead and MemWrite are the load and store outputs of CONTROL and are never
+	-- both asserted, so the first two cannot collide. The terminator's enable is
+	-- derived from the SAME signals that gate the other two rather than
+	-- re-deriving the condition, so it cannot drift out of step -- a hand-written
+	-- complement that lost a term would give 'X' (two drivers) or 'Z' (none), and
+	-- neither is simulatable on this machine.
 	--
-	-- WHY THERE IS A TERMINATOR, AND WHY ITS ENABLE IS BUILT THIS WAY
-	--   Inside an FPGA there is no bus keeper: with every tri-state off the bus
-	--   would be 'Z', which the core would mux into the register file and turn into
-	--   'X' in the next arithmetic. So one more driver supplies zeros whenever no
-	--   register is selected. Its enable is derived from rd_en_w itself rather than
-	--   re-deriving the condition, so the terminator and the readers CANNOT
-	--   disagree -- a hand-written complement that drifted by one term would give
-	--   either 'X' (two drivers) or 'Z' (none), and neither is simulatable here.
+	-- EVERY DRIVER IS 32 BITS WIDE, including the byte registers, which drive
+	-- their value zero-extended. That is what implements assumption A11 (an MMIO
+	-- read returns zero in the upper 24 bits) and it is also what guarantees the
+	-- whole bus has a driver whenever any of them is on. When Phase 8 adds
+	-- BTCMPR0/BTCMPR1/BTCAPR -- Word resolution -- they simply drive all 32 bits
+	-- with real data instead of a zero extension, and nothing here changes shape.
 	--
-	-- BITS 31..8 (assumption A11: an MMIO read returns zero in the upper bits)
-	--   Nothing in the current map drives them: all eight readable registers are
-	--   byte-resolution and Figure 5 draws only Data<7..0>. A plain assignment is
-	--   therefore correct and is one driver. When Phase 8 adds BTCMPR0/BTCMPR1/
-	--   BTCAPR -- Word resolution, so they drive all 32 bits -- this line becomes a
-	--   tri-state too and the terminator grows a second enable.
+	-- THE PERIPHERALS TAKE THEIR WRITE DATA FROM THE BUS, not from a private wire,
+	-- which is what makes it a bus rather than decoration. During a read the bus
+	-- carries the read value and the GPO ports see it, but their enable requires
+	-- MemWrite, so they do not capture it.
 	--
-	-- The three MMIO reads in the whole benchmark suite are "lw ... PORT_SW", each
-	-- immediately followed by an andi, so nothing observes the upper bits today.
-	dbus_rdata_w(DATA_BUS_WIDTH-1 DOWNTO 8) <= (OTHERS => '0');
+	-- A note on the first cycles: before MemRead/MemWrite have settled out of 'U',
+	-- no enable is definitely '1' and the bus reads 'Z'. Harmless -- the core only
+	-- selects it when dtcm_cs is '0', and the reset PC addresses word 0, where
+	-- dtcm_cs is '1'.
+	BP_CPU : BidirPin
+	generic map( width => DATA_BUS_WIDTH )
+	PORT MAP (
+		Dout	=> dbus_wdata_w,
+		en		=> dbus_MemWrite_w,
+		Din		=> open,
+		IOpin	=> data_bus_w
+	);
+
+	dbus_rdata_w <= data_bus_w;
 
 	RDBK:
 	if (GEN_GPO_READBACK) generate
@@ -426,23 +486,27 @@ BEGIN
 		rdbk_w <= '0';
 	end generate;
 
-	-- SW7..SW0 through the Phase 4A synchroniser. GEN_SRC_REG is FALSE because
-	-- there is no source domain to launch from: a switch is not driven by logic,
-	-- so the launch register of Figure 10a has nothing to register. src_clk_i is
-	-- unused in that configuration and is tied to the destination clock.
-	SWSYNC : sync
-	generic map(
-		DATA_WIDTH	=> 8,
-		STAGES		=> 2,
-		GEN_SRC_REG	=> FALSE
-	)
-	PORT MAP (
-		src_clk_i	=> mclk_w,
-		dst_clk_i	=> mclk_w,
-		rst_i		=> rst_w,
-		d_i			=> SW_i,
-		q_o			=> sw_sync_w
-	);
+	-- SW7..SW0. See GEN_INPUT_SYNC in the entity: Hanan's forum says a switch
+	-- needs no synchroniser because its rate of change is many orders of magnitude
+	-- slower than the clock, so the default is the direct connection.
+	SWSYNC:
+	if (GEN_INPUT_SYNC) generate
+		SW_SYNC : sync
+		generic map(
+			DATA_WIDTH	=> 8,
+			STAGES		=> 2,
+			GEN_SRC_REG	=> FALSE		-- a switch is driven by no logic, so there
+		)								-- is nothing for Figure 10a's launch
+		PORT MAP (						-- register to register
+			src_clk_i	=> pclk_w,
+			dst_clk_i	=> pclk_w,
+			rst_i		=> rst_w,
+			d_i			=> SW_i,
+			q_o			=> sw_sync_w
+		);
+	else generate
+		sw_sync_w <= SW_i;
+	end generate;
 
 	-- One enable per readable register. PORT_SW is unconditional; the seven
 	-- read-back paths are gated by rdbk_w so GEN_GPO_READBACK => FALSE removes
@@ -465,34 +529,45 @@ BEGIN
 	rd_byte_w(RD_HEX4) <= hex_q(4);
 	rd_byte_w(RD_HEX5) <= hex_q(5);
 
-	-- The exact complement, by construction.
-	term_en_w <= '1' WHEN rd_en_w = RD_NONE ELSE '0';
+	-- Zero-extend each byte register to the full bus width. This IS assumption
+	-- A11, expressed once, in the only place it belongs.
+	WEXT:
+	for i in 0 to NRD-1 generate
+		rd_word_w(i) <= ZEROS_BUS(DATA_BUS_WIDTH-1 DOWNTO 8) & rd_byte_w(i);
+	end generate;
+
+	-- The exact complement of the other drivers, by construction: nobody reading
+	-- AND the CPU not writing.
+	term_en_w <= '1' WHEN (rd_en_w = RD_NONE and dbus_MemWrite_w = '0') ELSE '0';
 
 	RDGEN:
 	for i in 0 to NRD-1 generate
 		BP : BidirPin
-		generic map( width => 8 )
+		generic map( width => DATA_BUS_WIDTH )
 		PORT MAP (
-			Dout	=> rd_byte_w(i),
+			Dout	=> rd_word_w(i),
 			en		=> rd_en_w(i),
 			Din		=> open,
-			IOpin	=> dbus_rdata_w(7 DOWNTO 0)
+			IOpin	=> data_bus_w
 		);
 	end generate;
 
 	BP_TERM : BidirPin
-	generic map( width => 8 )
+	generic map( width => DATA_BUS_WIDTH )
 	PORT MAP (
-		Dout	=> ZEROS8,
+		Dout	=> ZEROS_BUS,
 		en		=> term_en_w,
 		Din		=> open,
-		IOpin	=> dbus_rdata_w(7 DOWNTO 0)
+		IOpin	=> data_bus_w
 	);
 
 	-- Simulation-only. Two drivers on the same bus give 'X', which would show up
 	-- far from its cause, so the at-most-one property is asserted where it lives.
 	-- Severity is warning, not failure, so a metavalue during the first cycles
 	-- after reset does not abort a run.
+	-- Counts EVERY driver of data_bus_w, not just the readers: the CPU's driver
+	-- and the terminator are on the same bus and a collision with either resolves
+	-- to 'X' just as readily. Extended when the bus became bidirectional.
 	onehot_check : process(all)
 		variable hot_v : integer;
 	begin
@@ -502,10 +577,29 @@ BEGIN
 				hot_v := hot_v + 1;
 			end if;
 		end loop;
+		if dbus_MemWrite_w = '1' then			-- BP_CPU
+			hot_v := hot_v + 1;
+		end if;
+		if term_en_w = '1' then					-- BP_TERM
+			hot_v := hot_v + 1;
+		end if;
+
 		assert hot_v <= 1
-			report "RV32IMscMCU: " & integer'image(hot_v) & " SFR read enables are " &
-				   "active at once. The read bus will resolve to 'X'. Check the " &
-				   "chip-select and lane terms in rd_en_w."
+			report "RV32IMscMCU: " & integer'image(hot_v) & " drivers of data_bus_w " &
+				   "are active at once, so the bus resolves to 'X'. The three " &
+				   "families are: the CPU (MemWrite), the eight readable registers " &
+				   "(CS . MemRead . lane), and the terminator (neither). MemRead and " &
+				   "MemWrite come from CONTROL and are never both asserted, so a " &
+				   "count above one means either a chip-select/lane term in rd_en_w " &
+				   "or the terminator's complement in term_en_w."
+			severity warning;
+
+		-- The other failure mode, and the one that produces 'Z' rather than 'X'.
+		assert hot_v >= 1 or is_x(dbus_MemWrite_w) or is_x(dbus_MemRead_w)
+			report "RV32IMscMCU: NO driver of data_bus_w is active, so the bus is " &
+				   "floating at 'Z'. The terminator's enable has a gap. (Before the " &
+				   "control signals settle out of 'U' this is normal and is not " &
+				   "reported.)"
 			severity warning;
 	end process onehot_check;
 
@@ -562,6 +656,9 @@ BEGIN
 		end process sfr_stub_notice;
 	end generate;
 
+	-- Phase 4B replaces this with the SMCLK PLL instance's output.
+	pclk_w <= mclk_w;
+
 	--=======================================
 	-- GPIO output ports (Figure 5, clause 5) -- Phase 6A
 	--=======================================
@@ -584,12 +681,12 @@ BEGIN
 	P_LEDR : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i		=> mclk_w,
+		clk_i		=> pclk_w,
 		rst_i		=> rst_w,
 		cs_i		=> sfr_cs_w(CS_LEDR),
 		MemWrite_i	=> dbus_MemWrite_w,
 		lane_en_i	=> lane0_w,
-		data_i		=> dbus_wdata_w(7 DOWNTO 0),
+		data_i		=> data_bus_w(7 DOWNTO 0),
 		q_o			=> ledr_q
 	);
 	LEDR_o <= ledr_q;
@@ -599,44 +696,44 @@ BEGIN
 	P_HEX0 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(0)			-- 0x2004
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(0)			-- 0x2004
 	);
 	P_HEX1 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(1)			-- 0x2005
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(1)			-- 0x2005
 	);
 	P_HEX2 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(2)			-- 0x2008
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(2)			-- 0x2008
 	);
 	P_HEX3 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(3)			-- 0x2009
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(3)			-- 0x2009
 	);
 	P_HEX4 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(4)			-- 0x200C
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(4)			-- 0x200C
 	);
 	P_HEX5 : gpo_port
 	generic map( DATA_WIDTH => 8 )
 	PORT MAP (
-		clk_i => mclk_w, rst_i => rst_w,
+		clk_i => pclk_w, rst_i => rst_w,
 		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
-		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(5)			-- 0x200D
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(5)			-- 0x200D
 	);
 
 	-- The "7-segment encoder" of Figure 5, one per display. Low nibble only --

@@ -38,10 +38,22 @@
 #   the old value and completes with the old branch, so exactly one stale store
 #   arrives in the new phase. Scoring it would fail a correct design.
 #
+#   SW_i is read combinationally by default. GEN_INPUT_SYNC defaults to FALSE
+#   because Hanan's forum says a switch needs no synchroniser - "their rate of
+#   change is many orders of magnitude slower than the system clock, so the signal
+#   is considered static". Set it TRUE to diagnose a marginal board; it costs two
+#   cycles and sixteen flip-flops.
+#
 # WHAT PASS MEANS
 #   P1 up, P2 down, P3 quiet, P4 not-vacuous (at least two increments AND two
 #   decrements actually observed), P5 the seven ports still hold what was stored -
 #   the Phase 6A model carried forward, so 6B cannot silently break 6A.
+#
+#   Since 2026-08-24 this also exercises the CORRECTED data bus: one shared
+#   bidirectional bus with the CPU as one of its drivers, which Hanan's forum makes
+#   mandatory. The GPO ports now take their write data FROM the bus, so if the
+#   CPU's driver or the terminator is wrong, the writes in phases 1 and 2 carry the
+#   wrong value and P1/P2 fail.
 #
 # WHAT PASS DOES NOT MEAN
 #   The seven GPO READ-BACK paths are not exercised. Figure 5 draws a
