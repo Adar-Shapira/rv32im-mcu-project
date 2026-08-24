@@ -606,6 +606,14 @@ waiting:
   count. **Nothing is needed from Quartus for Phase 7A** — `div_accel` is not instantiated yet, so
   synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
   of the plan asked for those two numbers and was wrong to;
+- **Phase 7B2 changed two expected numbers ON PURPOSE, and you should not read them as breakage.**
+  `run_isa.do` now expects **21** mismatches at `G_ISA_REPAIR = FALSE` and **5** at `TRUE`, where it
+  used to say 25 and 9. `div`, `divu`, `rem` and `remu` were four of the mismatches — they were not
+  decoded at all and the core wrote zero — and they now go through the Figure 9 accelerator. They
+  pass at **either** setting, because the divider is not behind that switch. The **5 that remain are
+  all mul-related and all out of scope** by Hanan's own answer, so 5 is the floor. `repair_check.do`
+  is unaffected — it does not touch the divider, and its own "25 failures" signature is a different
+  test's number that happens to share the digits;
 - **Phase 4C is the one that most needs your numbers.** It moved the clock tree from inside the core
   up to `RV32IMscMCU` per Figure 1, removed the core's `mclk_o`, put the peripherals on `smclk`, and
   now holds reset until the PLLs lock. That changed the clocking of **every** test at once. **Re-run

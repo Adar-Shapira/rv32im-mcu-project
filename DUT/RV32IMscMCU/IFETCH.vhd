@@ -31,6 +31,12 @@ ENTITY Ifetch IS
 		Jal_ctrl_i			: IN 	STD_LOGIC;
 		Jalr_ctrl_i			: IN 	STD_LOGIC;
 		alu_res_i 			: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		-- Phase 7B2. Figure 3 gives the Control Unit a PCHold input; this is the
+		-- other end of it. While it is high the PC does not advance and the SAME
+		-- instruction is re-fetched, which is what keeps DIVstart asserted for the
+		-- whole divide. Defaulted to '0' so an instantiation that predates the
+		-- divider behaves exactly as before.
+		PCHold_i			: IN	STD_LOGIC := '0';
 		
 		--Outputs
 		pc_o 				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -102,7 +108,20 @@ END PROCESS;
 	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN G_ISA_REPAIR ELSE
 						alu_res_i(PC_WIDTH-1 DOWNTO 0);
 
+	-- PHASE 7B2 -- THE STALL, AND WHY IT IS ONE LINE.
+	--   Feeding pc_q back as the next PC does the whole job. itcm_addr_w is
+	--   next_pc_w, so holding it at pc_q re-fetches the CURRENT instruction
+	--   rather than the next one -- and freezing only the pc register would not
+	--   have done that: next_pc_w would still have been pc_plus4_q, the ITCM
+	--   would have fetched the following instruction, instruction_o would have
+	--   changed underneath the stall, and DIVstart would have dropped mid-divide.
+	--   pc_plus4_q needs no separate hold either: it tracks next_pc_w + 4, so
+	--   while the PC is held it simply sits at pc_q + 4, which is the right value
+	--   to resume on.
+	--   It is placed after the reset arm and before every redirect so that reset
+	--   still wins, and so a branch cannot slip past a stall.
 	next_pc_w	<=	(others => '0') 					WHEN	rst_q 					ELSE
+					pc_q								WHEN	PCHold_i = '1'			ELSE	-- Phase 7B2: hold
 					jalr_target_w						WHEN	Jalr_ctrl_i				ELSE	-- case of jalr
 					addr_gen_i(PC_WIDTH-1 DOWNTO 0)		WHEN	brTaken_w or Jal_ctrl_i ELSE	-- case of Branch Taken or jal 
 					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);											-- case of Branch Not-Taken 				

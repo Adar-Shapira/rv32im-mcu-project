@@ -407,16 +407,25 @@ def suite():
              "exists in const_package but no ALU op consumes it, so the core "
              "writes 0. Both operands are positive here, so all three high "
              "multiplies share the same correct answer.")
+    # G-307 CLOSED BY PHASE 7B2. These four were DEFECT cases for as long as
+    # div/divu/rem/remu went undecoded and the core wrote 0. Phase 7B2 decodes
+    # them, stalls the pipeline on PCHold and writes back from the Figure 9
+    # accelerator, so they are now expected to PASS -- and, unlike the G-321..325
+    # repairs, they pass at EITHER setting of G_ISA_REPAIR, because the divider is
+    # not behind that switch. Removing the DEFECT tag is what drops the expected
+    # mismatch counts from 25/9 to 21/5.
+    #   The five that remain are all mul-related and all OUT OF SCOPE by Hanan's
+    #   own answer (DOC/03, F1: "mul only (as in Lab 5)", 16-bit) -- so 5 is the
+    #   floor, not a to-do list. See DOC/05 item R3 for how the report says so.
     case("div", [("addi", "t0", "zero", 100), ("addi", "t1", "zero", 7)],
          ("div", "t2", "t0", "t1"), 14,
-         f"{DEFECT} G-307: div/divu/rem/remu are not decoded; the accelerator "
-         "of Figure 9 does not exist yet")
+         "G-307 closed by Phase 7B2: div through the Figure 9 accelerator")
     case("divu", [("addi", "t0", "zero", 100), ("addi", "t1", "zero", 7)],
-         ("divu", "t2", "t0", "t1"), 14, f"{DEFECT} G-307")
+         ("divu", "t2", "t0", "t1"), 14, "G-307 closed by Phase 7B2")
     case("rem", [("addi", "t0", "zero", 100), ("addi", "t1", "zero", 7)],
-         ("rem", "t2", "t0", "t1"), 2, f"{DEFECT} G-307")
+         ("rem", "t2", "t0", "t1"), 2, "G-307 closed by Phase 7B2")
     case("remu", [("addi", "t0", "zero", 100), ("addi", "t1", "zero", 7)],
-         ("remu", "t2", "t0", "t1"), 2, f"{DEFECT} G-307")
+         ("remu", "t2", "t0", "t1"), 2, "G-307 closed by Phase 7B2")
     return C
 
 
@@ -511,6 +520,18 @@ def build():
 # counts from drifting away from the program.
 GAP_IDS = ("G-307", "G-308", "G-309", "G-321", "G-322",
            "G-323", "G-324", "G-325", "G-326")
+def _div_ref(a, b, is_signed, want_rem):
+    """RV32IM div/divu/rem/remu, from the definition. Mirrors DIV_UNIT.vhd and
+    is checked far harder in tools/model_div_unit.py (131488 cases)."""
+    from fractions import Fraction
+    M = 0xFFFFFFFF
+    if b == 0:                       # spec override, all four opcodes
+        return (a & M) if want_rem else M
+    q = int(Fraction(a, b))          # truncation toward zero
+    r = a - q * b
+    return (r & M) if want_rem else (q & M)
+
+
 REPAIRED_BY_SWITCH = ("G-309",                                      # phase 3B
                       "G-321", "G-322", "G-323", "G-324", "G-325")  # phase 3A
 
@@ -868,10 +889,29 @@ def defect_run(words, repair, max_steps=200000):
                 val = (a & (immI & M32)) if repair else 0
         elif op == 0x33:                                  # OP
             if f7 == 0x01:                                # M extension
-                # Only mul is decoded, and MUL16 sees the low half-words only
-                # (G-326). Everything else falls through to ALU_NONE -- the
-                # instruction still writes rd, it just writes zero (G-308/G-307).
-                val = ((a & 0xFFFF) * (b & 0xFFFF)) if f3 == 0 else 0
+                # mul is decoded but MUL16 sees the low half-words only (G-326),
+                # and mulh/mulhsu/mulhu are still not decoded at all (G-308) --
+                # those write zero.  BOTH ARE OUT OF SCOPE by Hanan's answer
+                # (DOC/03, F1: "mul only (as in Lab 5)", 16-bit).
+                #
+                # G-307 CLOSED BY PHASE 7B2: div/divu/rem/remu now go to the
+                # Figure 9 accelerator, so they produce real results here. The
+                # semantics modelled are RISC-V's, which is what DIV_UNIT.vhd
+                # implements -- truncation toward zero, remainder taking the
+                # dividend's sign, divide-by-zero giving all-ones and the
+                # dividend, and -2^31/-1 giving -2^31 remainder 0.
+                if f3 == 0:                               # mul -- G-326
+                    val = (a & 0xFFFF) * (b & 0xFFFF)
+                elif f3 in (1, 2, 3):                     # mulh* -- G-308
+                    val = 0
+                elif f3 == 4:                             # div
+                    val = _div_ref(sa, sb, True, False)
+                elif f3 == 5:                             # divu
+                    val = _div_ref(a & M32, b & M32, False, False)
+                elif f3 == 6:                             # rem
+                    val = _div_ref(sa, sb, True, True)
+                else:                                     # remu
+                    val = _div_ref(a & M32, b & M32, False, True)
             elif f3 == 0: val = (a - b) if (f7 & 0x20) else (a + b)
             elif f3 == 1: val = a << (b & 0x1F)
             elif f3 == 2: val = 1 if sa < sb else 0

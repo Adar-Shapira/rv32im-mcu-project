@@ -521,6 +521,48 @@ instead of trusting it. If B3 returns a much faster `DIVCLK`, re-check this.
 
 ---
 
+### 5.3 What Phase 7B2 wired into the core
+
+**[CODE, ours]** `CONTROL.vhd`, `IFETCH.vhd`, `IDECODE.vhd`, `RV32IM_CORE.vhd`, `RV32IMscMCU.vhd`.
+
+**[REQ p4, Figure 3]** `CONTROL` gains the `DIVstart` output the figure draws, plus two qualifiers
+(signed, remainder). The four encodings were already in `const_package.vhd` and had simply never been
+decoded. Each mask is `0xFE00707F`, so **funct7 is part of the compare** — which matters: `div`'s
+funct3 of `100` is the same as `xor`'s, and only the funct7 bit separates them. A narrower mask would
+have made every `div` decode as a `xor` and quietly compute one.
+
+**[DEC] The stall is one line in `IFETCH`, and the obvious alternative is wrong.** `next_pc_w` takes
+`pc_q` while `PCHold` is high. Freezing only the *pc register* would not have worked: `itcm_addr_w`
+is `next_pc_w`, so it would still have been `pc_plus4_q`, the ITCM would have fetched the *following*
+instruction, `instruction_o` would have changed underneath the stall, and `DIVstart` — being
+combinational decode — would have dropped mid-divide. Feeding `pc_q` back re-fetches the **same**
+instruction, which is what holds the whole thing steady. `pc_plus4_q` needs no separate hold: it
+tracks `next_pc_w + 4`, so it sits at `pc_q + 4`, the right value to resume on.
+
+**[DEC] `RegWrite` and `MemWrite` are gated off during the stall.** Without it, a div — an R-type
+instruction — leaves `RegWrite` asserted for every cycle of the stall, so the register file takes a
+new and (until the last cycle) meaningless write on each. The final write would still be correct, so
+this is not a correctness bug on its own; it is gated because a register file written fifteen times
+per divide is indefensible in a report, and because the same gate is what any future multi-cycle
+instruction needs. `MemWrite` is gated too, for one AND gate, against a store executing repeatedly.
+
+**[BENCH] Why the four Lab 5 cycle counts cannot move, checked and not assumed.** Every new control
+term is gated by `pc_hold_w`, which can only rise on a div — and the four Lab 5 benchmarks contain
+**none**. Their ITCM images decode to exactly **one `mul` each and zero div/rem** (29 / 29 / 52 / 62
+words). The decoder used for that count was validated by confirming test1's first word is
+`0x00000417` = `auipc x8,0`, and the word counts match the "29 to 62 instructions" already recorded
+in `RV32IMscMCU.vhd`'s header.
+
+**[CODE] The ISA suite's expected counts changed from 25/9 to 21/5**, and that is the phase working
+rather than a regression: `div`/`divu`/`rem`/`remu` were four of the mismatches and now pass at
+**either** `G_ISA_REPAIR` setting, since the divider is not behind that switch. The generator's two
+independent derivations disagreed until the defect model was taught the new behaviour, and it
+**refused to promise a count** until they agreed. The ITCM/DTCM images are byte-identical, so the
+program did not change — only which stores are expected to fail. **The 5 that remain are all
+mul-related and all out of scope** per F1.
+
+---
+
 **[REQ p10, Figures 10a/10b]** The CDC rule and its exact structure, read off the figures rather
 than inferred from the prose. **Three flip-flops, not two.**
 

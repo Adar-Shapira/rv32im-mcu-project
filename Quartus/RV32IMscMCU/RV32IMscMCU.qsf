@@ -76,9 +76,9 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
 # this .qsf for Quartus - and there is no SEARCH_PATH, so a file added to only
 # one of them binds in one tool and fails in the other.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
-# Phase 7B1. DIV_UNIT wraps DIV_ACCEL with the four clock-domain crossings, the
-# MCLK-side handshake and the signed div/rem wrapper. Still not instantiated by
-# the top level - that is 7B2 - so like the others it is analysed and pruned.
+# Phase 7B1/7B2. DIV_UNIT wraps DIV_ACCEL with the four clock-domain crossings,
+# the MCLK-side handshake and the signed div/rem wrapper, and RV32IM_CORE now
+# instantiates it -- so this subtree is LIVE and appears in the resource tables.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
@@ -95,9 +95,10 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
 # frequency. PLL.vhd is left byte-identical and the core still instantiates it.
 # CLOCK_TREE.vhd is Figure 1's block: three pll_gen instances, per forum answer
 # F6. AS OF PHASE 4C BOTH ARE LIVE: RV32IMscMCU instantiates CLOCK_TREE, clk_i
-# reaches it and nothing else, and the core receives mclk. Expect TWO PLLs in the
-# resource report, not three -- accelclk has no load until Phase 7B wires the
-# divider in, so Quartus prunes that third instance.
+# reaches it and nothing else, and the core receives mclk. AS OF PHASE 7B2 expect
+# THREE PLLs in the resource report -- the divider gives accelclk a load, so the
+# third instance is no longer pruned. Two would mean the divider is being
+# optimised away.
 #
 # TWO THINGS ONLY THIS TOOL CAN ANSWER, both in PLL_GEN.vhd's header:
 #   1. the family string says "Cyclone II" while FAMILY above is "Cyclone IV E".

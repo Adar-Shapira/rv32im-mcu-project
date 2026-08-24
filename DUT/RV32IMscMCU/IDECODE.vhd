@@ -31,6 +31,13 @@ ENTITY Idecode IS
 		RegDst_ctrl_i 		: IN 	STD_LOGIC;
 		RegWrite_ctrl_i 	: IN 	STD_LOGIC;
 		MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
+		-- Phase 7B2. Figure 3 widens the write-back mux and selects it with
+		-- WBSrc1/WBSrc0; these are that widening. div_result_i is already the
+		-- quotient or the remainder -- RV32IM_CORE picks between them from the
+		-- DivRem control bit, so this mux stays one bit wide. Both are defaulted,
+		-- so an instantiation that predates the divider behaves exactly as before.
+		DivSel_ctrl_i		: IN 	STD_LOGIC := '0';
+		div_result_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 		
 		--Outputs
 		read_data1_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -86,7 +93,11 @@ BEGIN
 	read_data2_o <= RF_q(CONV_INTEGER(rs2_w));
 	
 	-- Mux to bypass data memory for Rformat instructions
+	-- Phase 7B2: the divider arm sits ABOVE the ALU arm because a div is an
+	-- R-type instruction, so MemtoReg is '0' for it and it would otherwise take
+	-- the ALU result. It sits BELOW RegDst so jal/jalr are unaffected.
 	write_data_w <= ZEROS_DBUS2PCADDR & pc_plus4_i			WHEN	RegDst_ctrl_i			ELSE
+					div_result_i							WHEN	DivSel_ctrl_i = '1'		ELSE
 					alu_res_i(DATA_BUS_WIDTH-1 DOWNTO 0) 	WHEN	not MemtoReg_ctrl_i 	ELSE 
 					dtcm_data_rd_i;
 	

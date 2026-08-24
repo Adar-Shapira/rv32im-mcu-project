@@ -304,7 +304,8 @@ wrong — say so.
      `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the new
      wrapper. `mem save` does not report this as an error.
 3. **Phase 2 — the "before" measurement.** Run `run_isa.do` with the tree exactly as cloned
-   (`G_ISA_REPAIR = FALSE`). Expect **exactly 25 mismatches**, then a `SUMMARY` block.
+   (`G_ISA_REPAIR = FALSE`). Expect **exactly 21 mismatches**, then a `SUMMARY` block.
+   *(Was 25 before Phase 7B2, which made div/divu/rem/remu work and so removed four.)*
    - **25 is the pass condition.** These are the known defects; the suite exists to measure them.
    - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
    - **Any other number is a finding.** A mismatch on a case the listing does not mark `DEFECT` is a
@@ -427,7 +428,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
 | **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
 | **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
-| 7B2 Divider into the core | Yehonatan | Adar | next — 4B/4C supply `DIVCLK`, nothing blocks it |
+| **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
 | 8 Basic Timer | Yehonatan | Adar | waits on **B2**, **B4** (was Q3, Q8) |
 | 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
 | 10 SC benchmarks | Yehonatan | Adar | |
@@ -998,7 +999,7 @@ The image is now 268 words instead of 206 (`ITCM.hex` md5 `893b7c48…`; `DTCM.h
 before and after — is intact, because both configurations run this same image. It is frozen again
 from here.
 
-**Exit criterion, not yet met:** run `run_isa.do`. The expected result is **exactly 25 mismatches** —
+**Exit criterion, not yet met:** run `run_isa.do`. The expected result is **exactly 21 mismatches** —
 a generated constant (`EXPECTED_DEFECT_COUNT`) that the testbench compares its own tally against, so
 it cannot drift. Zero would mean the images never reached `app_bin`. A count other than 25 is the
 interesting outcome: a mismatch on a case not marked `DEFECT` is a new finding, and a `DEFECT` case
@@ -1189,7 +1190,7 @@ extract-and-extend mux lengthens exactly that path. **Expect Fmax to drop.** If 
 blocks. Embedded memory bits should still read **131,072**; if that number moves, say so before
 drawing any conclusion from it.
 
-Closes G-309. Takes the ISA suite from 25 mismatches to 9.
+Closes G-309. Takes the ISA suite from 21 mismatches to 5. *(Those were 25 and 9 until Phase 7B2 closed G-307.)*
 
 ### Phase 3C — `mul` width, `mulh`, and `div`  ·  **ANSWERED 2026-08-24 — mostly nothing to do**
 
@@ -2110,7 +2111,7 @@ MCLK period rather than the fixed 5:2 relationship the real design will have.
 | operations | 55 (15 directed + 40 random) | |
 | Runtime | about 60 us simulated, quick | |
 
-### Phase 7B2 — wire it into the core  ·  **next**
+### Phase 7B2 — wire it into the core  ·  **built, awaiting verification**
 
 All the clock-domain work is done and tested in 7B1. What is left is core-side and single-domain:
 
@@ -2128,7 +2129,51 @@ All the clock-domain work is done and tested in 7B1. What is left is core-side a
 - **Exit:** the RV32IM benchmark's `div`/`rem` arrays produce the right values through the core, and
   the four Lab 5 cycle counts still hold for the benchmarks that contain no `div`.
 
-Touches `CONTROL`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why it is separate from 7B1.
+**Files changed:** `CONTROL.vhd`, `IFETCH.vhd`, `IDECODE.vhd`, `RV32IM_CORE.vhd`, `RV32IMscMCU.vhd`,
+`aux_package.vhd`, `RV32IMscMCU.sdc`, `tools/gen_isa_test.py`, `isa_expected_pkg.vhd`. No new files.
+
+**Three things worth reading before verifying:**
+
+1. **The ISA suite's expected numbers CHANGED, and that is the phase working.**
+   `run_isa.do` now expects **21 / 5**, not 25 / 9. `div`, `divu`, `rem` and `remu` were four of the
+   mismatches — undecoded, core wrote zero — and they now pass **at either setting of
+   `G_ISA_REPAIR`**, because the divider is not behind that switch. The generator's **two independent
+   derivations caught this by themselves**: the gap tagging said one thing and the defect model still
+   said "div writes 0", and generation refused to promise a count until both agreed.
+   **The 5 that remain are all mul-related and all out of scope** by Hanan's own answer (F1: "mul only
+   (as in Lab 5)", 16-bit). 5 is the floor, not a to-do list.
+   The ITCM/DTCM images are **byte-identical** (`893b7c48…` / `e0c27360…`) — the program did not
+   change, only which stores are expected to fail.
+2. **The four Lab 5 cycle counts must NOT move, and this is checkable rather than hopeful.** Every new
+   control term is gated by `pc_hold_w`, which can only rise on a div — and **none of the four Lab 5
+   benchmarks contains one.** Their ITCM images decode to exactly **one `mul` each and zero
+   div/rem** (29 / 29 / 52 / 62 words; the decoder was validated by checking the first word of test1
+   is `auipc x8,0` = `0x00000417`). So `pc_hold_w ≡ '0'`, the RegWrite/MemWrite gating is a no-op, and
+   the write-back mux's new arm is never selected.
+3. **Expect THREE clocks in Quartus now, not two.** The divider finally gives `accelclk` a load, so
+   the third PLL stops being pruned — and the ACCELCLK `set_clock_groups` in the SDC, deliberately
+   commented out since 4C, is now **enabled**. If the Timing Analyzer still lists two clocks, that
+   constraint is silently matching nothing and is hiding every violation on the crossing.
+
+**How the stall works, in one line each:** `CONTROL` decodes the four opcodes into `DIVstart` plus a
+signed and a remainder qualifier; `pc_hold_w <= DIVstart AND NOT done_o`; `IFETCH` feeds `pc_q` back
+as the next PC, which re-fetches the **same** instruction and so keeps `DIVstart` asserted; `IDECODE`
+gains a divider arm above the ALU arm in its write-back mux; and `RegWrite`/`MemWrite` are gated off
+for the duration so the register file is not written on every stall cycle.
+
+**Adar's results — Phase 7B2**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| Run 2 four counts | 134 / 1514 / 2725 / 2735 — **unchanged** | |
+| `run_isa.do`, `G_ISA_REPAIR = FALSE` | **21** mismatches (was 25) | |
+| `run_isa.do`, `G_ISA_REPAIR = TRUE` | **5** mismatches (was 9), all mul-related | |
+| `repair_check.do` | unchanged — it does not touch the divider | |
+| Quartus: clocks in the Timing Analyzer | **three** | |
+| Quartus: `f_MCLK` with the divider in | a number — the PPA table's `f_sysclk` | |
+
+Touches `CONTROL`/`IFETCH`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why it is separate from
+7B1. **G-307 closed.**
 
 ## Phase 8 — Basic Timer  ·  Yehonatan writes · Adar verifies
 
@@ -2470,7 +2515,7 @@ What still gates:
   part 1 and extend to RV32IM *"including support for a 16-bit multiplier only"*, and *"`mul` only (as
   in Lab 5)"*. So `mulh`/`mulhsu`/`mulhu` are **out of scope**, the 16-bit `mul` **is** the
   requirement, and `div`/`rem` are served by the Phase 7 accelerator rather than by an ALU operation.
-  Nine of the ten remaining ISA-suite mismatches therefore stop being defects to fix and become
+  The remaining ISA-suite mismatches therefore stop being defects to fix and become
   conformance gaps beyond the project's scope — which is item R3 of `DOC/05`, a reporting question,
   not a build one.
 - **Phase 4 onward is gated on Run 1.** If the Phase 0 baseline does not reproduce, nothing built on
