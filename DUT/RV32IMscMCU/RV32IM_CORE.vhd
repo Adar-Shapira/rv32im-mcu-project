@@ -85,7 +85,21 @@ ENTITY RV32IM_CORE IS
 		-- Phase 5B: the DTCM's gated write enable. Observation only -- see the
 		-- header of DMEMORY.vhd for why this is a port and not an internal signal.
 		dtcm_wren_o				:OUT	STD_LOGIC;
-		
+
+		-- TRANSITIONAL, PHASE 6A -- to be removed by Phase 4B.
+		--   The core generates its own mclk from its internal PLL (the G0 generate
+		--   below), so at MODELSIM = 0 the core runs at the PLL frequency while
+		--   clk_i is still the 50 MHz board clock. Any peripheral the MCU level
+		--   attaches must be clocked by the SAME clock as the core, or it samples
+		--   a MemWrite pulse that belongs to a different clock rate and can
+		--   capture twice or miss entirely. Exporting mclk is the smallest correct
+		--   fix available now.
+		--   Phase 4B moves the clock tree up to RV32IMscMCU per Figure 1, at which
+		--   point the core RECEIVES mclk instead of generating and exporting it,
+		--   and this port disappears. It is deliberately not load-bearing for
+		--   anything but peripheral clocking.
+		mclk_o					:OUT	STD_LOGIC;
+
 		mclk_cnt_o				:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 	);		
 END RV32IM_CORE;
@@ -343,6 +357,7 @@ BEGIN
 													-- region mux, so on an SFR load it
 													-- shows the bus data, not the DTCM word.
 	
+	mclk_o					<=	mclk_w;				-- Phase 6A, transitional -- see the entity
 	mclk_cnt_o				<=	mclk_cnt_q;			-- TOP output
 	
 ---------------------------------------------------------------------------------------

@@ -347,6 +347,22 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
+### 8.1a Two tests that need nothing — run them first
+
+No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
+straight after `compile.do`; if either fails, nothing after it is meaningful.
+
+| Script | Phase | Expect |
+| --- | --- | --- |
+| `do run_sync.do` | 4A — CDC synchronizer | `VERDICT: PASS`, zero failures in all three checkers |
+| `do run_decode.do` | 5A — address decoder | `VERDICT: PASS`, failures 0, totals **8192 / 29 / 8163** |
+
+`run_decode.do` is exhaustive over all 16,384 addresses of the 14-bit data address space, so it is a
+proof rather than a sample. It also runs `CHECK 0` first, which holds `const_package.vhd`'s map
+against an address list transcribed separately from `io_map.s` — **if CHECK 0 fails, the
+specification is wrong and the RTL may be a faithful implementation of it: fix `const_package.vhd`,
+not the RTL.**
+
 ### 8.1b Phases 3A and 3B — the "after" measurement
 
 Only once 8.1 has reproduced the baseline. **One edit, then two runs.**
@@ -365,6 +381,51 @@ Only once 8.1 has reproduced the baseline. **One edit, then two runs.**
 5. Re-run the four benchmarks with the repair on. **The four cycle counts should not move**, and all
    four DTCM dumps should still match. The repairs touch instructions the benchmarks either already
    use correctly or never use. A count that *does* move is a finding worth stopping for.
+
+### 8.1c Phases 5B and 6A — while `G_ISA_REPAIR` is still `TRUE`
+
+Do these **before** setting the switch back, so there is no second full recompile.
+
+**Both need `G_ISA_REPAIR = TRUE`, and the reason is worth knowing.** At `FALSE` the core reproduces
+the LAB5 submission, in which `lui` writes zero (defect 2). Every one of GPIO test0's stores is
+reached by `lui t4,0x2 / addi t4,t4,offset / sw t0,0(t4)`, so with `lui` broken `t4 = offset` and the
+stores land on byte addresses 0, 4, 5, 8, 9, 12, 13 — inside the DTCM, **never reaching `0x2000`**.
+Neither test can measure anything, and both print `VERDICT: NOT APPLICABLE` instead of failing.
+
+That is a finding for the report in its own right: **the two defects masked each other.** The missing
+region decode was invisible on the GPIO benchmarks precisely because `lui` never formed an SFR
+address. Repairing `lui` is what exposes the aliasing.
+
+**Stage GPIO test0's images.** The `M9K-intel` files, **not** `Hexadecimal-Text` — they are different
+programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
+
+```
+copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
+copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
+```
+
+A warning that `DTCM.hex` supplies 1024 words for a 2048-word memory is the shipped file's own
+length, not a staging mistake.
+
+| Script | Phase | Expect |
+| --- | --- | --- |
+| `do run_mmio.do` | 5B — MMIO aliasing | `VERDICT: PASS`; **`DTCM WRITES ACCEPTED: 0`**; ~126 MMIO stores; `DTCM stores seen 0` |
+| `do run_gpio.do` | 6A — the seven GPO ports | `VERDICT: PASS`; ~**18 writes to each** of the seven ports; ≥ 3 distinct `LEDR` values |
+
+**`DTCM WRITES ACCEPTED: 0` is the single line that matters in `run_mmio.do`.** It says the DTCM
+refused every MMIO store, which is the whole point of Phase 5B. The earlier draft of that test
+watched the address decoder's chip select instead and would have printed PASS with the fix deleted.
+
+**One `note` in each is expected and is not a failure:** the wrapper reports once that an SFR access
+reached the bus interface while no peripheral exists behind it yet. Phase 6B replaces that stub.
+
+**Reading a `run_gpio.do` failure:** one HEX of a pair failing while its partner is correct is
+cross-talk on a shared chip select — `PORT_HEX0` and `PORT_HEX1` share one, separated only by `A0` —
+so look at `lane_en_i` on the two `P_HEXn` instances. All six failing together points at the
+low-nibble wiring or `HEX_DECODER.vhd`. A P3 failure alone means the program did not run.
+
+**GPIO test1 and test2 cannot be run yet.** Both branch on `PORT_SW`, and the read path is Phase 6B.
+test0 is the only GPIO benchmark that is purely output.
 
 Before Phase 2's run, note that two bugs were found in the ISA suite's own generator on 2026-08-23
 and fixed — a store-count shift and a case that could not fail. The counts in the plan file before
@@ -385,6 +446,19 @@ Open `Quartus\RV32IMscMCU\RV32IMscMCU.qpf` and compile.
 (= 2 × 2048 × 32). If it shows 483,328, a SignalTap instance has crept back in — that was exactly
 the defect in repo commit `8a71ffb`, and reverting it is why this revision came from commit
 `cfc4b4f`.
+
+**Four files were added to the project since the last Quartus run** — `ADDR_DECODER.vhd`,
+`SYNC.vhd`, `GPO_PORT.vhd`, `HEX_DECODER.vhd`. If Analysis & Synthesis reports an **unbound
+component**, the `.qsf` file list is the first place to look: this project has no `SEARCH_PATH`, so
+Quartus finds an entity only if its file is listed. (This exact omission was caught in review before
+Phase 5B was committed — `compile.do` had been updated and the `.qsf` had not.)
+
+**Phase 6A added 50 real board pins** — `LEDR_o[7..0]` and six `HEX*_o[6..0]` — and they are still
+**unassigned on purpose**. The Fitter placing them anywhere is fine for PPA, but nothing can be tested
+on the DE2-115 until they have locations, and **the pin numbers are in no course file**: the only
+pin-location material in `Auxiliary/` is a 28-line student note covering `clk_i`, `rst_i` and
+`BPADDR_i` only. That is gap **G-504**. The block at the end of `RV32IMscMCU.qsf` says where the
+numbers have to come from and asks for them in a commit that touches nothing else.
 
 **Two new risks from Phase 3B, both to watch here.** Byte enables were added to the DTCM
 (`byteena_a`, `byte_size`, `width_byteena_a`), and:
@@ -410,4 +484,12 @@ waiting:
 - the four pipeline `CLKCNT`/`STCNT`/`FHCNT` triples (G-205);
 - `repair_check.do` passed/failed, and `run_isa.do` mismatches, in both configurations;
 - compile error and warning counts;
-- the memory-bit figure **and Fmax** from both perf revisions.
+- the memory-bit figure **and Fmax** from both perf revisions;
+- `run_sync.do` and `run_decode.do` verdicts (Phases 4A and 5A) — and `run_decode.do`'s three totals;
+- `run_mmio.do`'s **`DTCM WRITES ACCEPTED`** figure and `run_gpio.do`'s seven write counts
+  (Phases 5B and 6A);
+- **one Quartus-only answer nobody else can give:** open the In-System Memory Content Editor and
+  confirm the `DTCM` instance still appears and can be read and written. Phase 3B added `byteena_a`
+  to the same `altsyncram` that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8
+  validation loop. If the instance is gone, **report it and change nothing** — sub-word access and
+  ISMCE are both required, so a conflict between them is a question for Hanan.

@@ -33,6 +33,15 @@ package aux_package is
 			clk_i				:IN		STD_LOGIC;
 			rst_i				:IN		STD_LOGIC;
 
+			--GPIO board outputs (Phase 6A, Figure 5)
+			LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+			HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+			HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+			HEX3_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+			HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+			HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+
 			--Outputs (Signal-Tap observation, gated by GEN_DEBUG_PORTS)
 			pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 			instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -110,6 +119,7 @@ package aux_package is
 			dtcm_data_wr_o		:OUT 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_data_rd_o		:OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			dtcm_wren_o			:OUT	STD_LOGIC;		-- Phase 5B, observation
+			mclk_o				:OUT	STD_LOGIC;		-- Phase 6A, transitional: clocks the peripherals
 			
 			mclk_cnt_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0)
 		);		
@@ -176,6 +186,38 @@ package aux_package is
 			dtcm_cs_o		: OUT	STD_LOGIC;
 			sfr_cs_o		: OUT	STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
 			unmapped_o		: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
+	-- One general-purpose OUTPUT port interface of Figure 5 (gap G-306): a
+	-- register holding D0..D7, enabled by CS . MemWrite (. A0 for the ports that
+	-- share a chip select). Instantiated seven times in RV32IMscMCU.
+	component gpo_port is
+		generic(
+			DATA_WIDTH	: integer := 8
+		);
+		PORT(
+			--Inputs
+			clk_i		: IN	STD_LOGIC;
+			rst_i		: IN	STD_LOGIC;
+			cs_i		: IN	STD_LOGIC;
+			MemWrite_i	: IN	STD_LOGIC;
+			lane_en_i	: IN	STD_LOGIC := '1';
+			data_i		: IN	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+
+			--Outputs
+			q_o			: OUT	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
+	-- The "7-segment encoder" of Figure 5. USED AS IS from the students' Lab 4 --
+	-- the body of DUT/RV32IMscMCU/HEX_DECODER.vhd is byte-identical to
+	-- Auxiliary/Lab 5/Auxilary/Lab4/DUT/hex_decoder.vhd (md5 56f2f166...), so the
+	-- port names here are that file's, not this project's _i/_o convention.
+	component hex_decoder is
+		PORT(
+			bin : IN	STD_LOGIC_VECTOR(3 DOWNTO 0);
+			seg : OUT	STD_LOGIC_VECTOR(6 DOWNTO 0)
 		);
 	end component;
 ---------------------------------------------------------

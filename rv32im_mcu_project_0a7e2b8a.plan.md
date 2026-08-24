@@ -281,6 +281,14 @@ edit. If you ever find yourself editing `cond_compilation_package.vhd` in our tr
 wrong — say so.
 
 1. Execute `compile.do`. Expect 0 errors and the same three warnings.
+
+   **Then two tests that need nothing at all** — no images, no `app_bin`, and they do not care what
+   `G_ISA_REPAIR` is set to. Run them first, because if either fails, nothing after it is meaningful:
+   - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
+     all three checkers.
+   - `do run_decode.do` → **Phase 5A**, the address decoder, exhaustive over all 16,384 addresses.
+     Expect `VERDICT: PASS`, failures 0, and the three totals **8192 / 29 / 8163**.
+
 2. **Phase 1:** run `run_test.do` for `N` = 1..4. Expect the **same four counts as Run 1**
    (134 / 1514 / 2725 / 2735). The only change is that `RV32IMscMCU` now sits between the testbench
    and the core, so identical counts prove the new top level is transparent.
@@ -307,8 +315,38 @@ wrong — say so.
      configuration you compiled.
    - `do run_isa.do` → expect **exactly 9 mismatches**. Not 0. The 9 that remain are the cases
      blocked on open questions, and `run_isa.do` prints the breakdown.
-   - Then set it back to `FALSE` before committing, unless we have agreed to flip the default.
-5. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
+5. **Phases 5B and 6A — while `G_ISA_REPAIR` is still `TRUE`.** Do these *now*, before setting the
+   switch back, so you do not pay for a second full recompile.
+
+   **Both of them need `G_ISA_REPAIR = TRUE` and it is not arbitrary.** At `FALSE`, `lui` writes zero
+   (defect 2), so GPIO test0's `lui t4,0x2 / addi / sw` sequences never form an address at or above
+   `0x2000` — no MMIO store happens at all and there is nothing for either test to see. Both
+   testbenches detect that and print `VERDICT: NOT APPLICABLE` rather than failing. Worth knowing for
+   the report: **the two defects masked each other** — the missing region decode was invisible on the
+   GPIO benchmarks precisely because `lui` was also broken.
+
+   First stage GPIO test0's images. **The `M9K-intel` ones, not `Hexadecimal-Text`** — they are
+   different programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
+
+   ```
+   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
+   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
+   ```
+
+   Expect a warning that `DTCM.hex` supplies 1024 words for a 2048-word memory. That is the shipped
+   file's own length, not a staging mistake.
+
+   - `do run_mmio.do` → **Phase 5B.** Expect `VERDICT: PASS`, and specifically
+     **`DTCM WRITES ACCEPTED: 0`**. That one line is the fix: it says the DTCM refused every MMIO
+     store. Also expect ~126 MMIO stores and `DTCM stores seen 0`.
+   - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
+     about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
+   - One `note` in each is **expected and is not a failure**: the wrapper reports once that an SFR
+     access reached the bus interface while there is no peripheral behind it yet.
+
+6. **Now** set `G_ISA_REPAIR` back to `FALSE` before committing, unless we have agreed to flip the
+   default.
+7. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
    pipeline — new file list in `compile.do`, and `golden.do` is now the wave script to prefer.
 
 ### Run 3 — Quartus (still Phase 1).
@@ -319,7 +357,17 @@ Open `Quartus\RV32IMscMCU\RV32IMscMCU.qpf`, compile.
 - **The Fitter will warn about unassigned pins. That is correct.** This is the *performance* revision
   and deliberately carries no pin assignments, so the PPA numbers describe the design and not the
   board. The pinned revision comes later, in Phase 14.
-- **The number that matters: embedded memory bits must be 131,072** (= 2 × 2048 × 32). If it reads
+- **Four files were added to the project since the last Quartus run** — `ADDR_DECODER.vhd`,
+  `SYNC.vhd`, `GPO_PORT.vhd`, `HEX_DECODER.vhd`. If Analysis & Synthesis reports an **unbound
+  component**, the `.qsf` file list is the first place to look: there is no `SEARCH_PATH` in this
+  project, so Quartus finds an entity only if the file is listed.
+- **Pins are still not assigned, and now that matters more.** Phase 6A added 50 real board outputs
+  (`LEDR_o[7..0]` plus six `HEX*_o[6..0]`). The Fitter will place them wherever it likes and the
+  design still gives valid PPA numbers, which is what this revision is for. But **nothing can be
+  tested on the board until they are assigned**, and the pin numbers are in no course file — see the
+  block at the end of `RV32IMscMCU.qsf` and gap **G-504**.
+- **The number that matters: embedded memory bits must be 131,072** (= 2 × 2048 × 32) — GPIO adds
+  registers, not memory, so this figure must not move. If it reads
   **483,328**, a SignalTap instance has crept back in — that was the exact defect in Lab 5 commit
   `8a71ffb`, and avoiding it is why our tree was built from commit `cfc4b4f`.
 - Sanity reference, not a target: single-cycle Fmax was **26.81 MHz** on
@@ -1411,13 +1459,119 @@ Gaps: G-305 (closed by 5A + 5B), G-309.
 
 ## Phase 6 — GPIO  ·  Yehonatan writes · Adar verifies
 
-- `hex_decoder.vhd` from `Auxilary/Lab4/DUT/` — **use as is**, active-low DE2-115, complete 0–F table.
-- Latched LEDR7-0 and six HEX nibble registers per Figure 5; SW7-0 and KEY3-1 reads.
-- KEY0 is reset only, in the top wrapper. KEY1-3 feed `PORT_PB` and the interrupt edge latches.
-- **Exit:** GPIO test0, test1, test2 pass. **G-405**: these never write the DTCM, so verification is
-  by MMIO assertion and waveform, not golden memory.
+Split three ways, because only the output side is unblocked. The order matters: 6A needs no read
+path, 6B builds the read path, 6C needs a question answered.
 
-Gaps: G-306. Blocked on **Q5**.
+### Phase 6A — the seven GPO ports  ·  **built, awaiting verification**
+
+Done 2026-08-24. Closes the output half of **G-306**.
+
+| Done | What |
+| --- | --- |
+| ✔ | `DUT/RV32IMscMCU/GPO_PORT.vhd` — Figure 5's output-port interface, instantiated seven times |
+| ✔ | `DUT/RV32IMscMCU/HEX_DECODER.vhd` — **used as is** from Lab 4, body byte-identical, md5 `56f2f16645e9bb4643c3a113c36e49c4` |
+| ✔ | `RV32IMscMCU.vhd` — 7 × `gpo_port` + 6 × `hex_decoder`, and the board outputs `LEDR_o[7..0]`, `HEX0_o`…`HEX5_o[6..0]` |
+| ✔ | `RV32IM_CORE.vhd` — exports `mclk_o`, transitionally; see below |
+| ✔ | `TB/RV32IMscMCU/tb_gpio.vhd` + `SIM/RV32IMscMCU/run_gpio.do`, `compile.do` and the `.qsf` updated |
+
+**"Use as is" is a checkable claim, not a courtesy.** `HEX_DECODER.vhd` is Lab 4's file with a
+provenance header prepended and nothing else touched — the body's md5 matches the original exactly.
+Its port names stay `bin`/`seg` rather than being renamed to the `_i`/`_o` convention, because
+renaming would have made "unchanged" false.
+
+**One deliberate deviation from Figure 5, with three reasons.** The figure draws a level-sensitive
+`D-Latch ... En`. `gpo_port` is an edge-triggered register with an enable instead:
+
+1. Hanan's own material is explicit about not writing what infers a latch
+   (`Auxiliary/hanan/Sequential Code part7 - System Design Principles.md`), and a Cyclone IV has no
+   latch primitive — a transparent latch becomes combinational feedback.
+2. The course's **own** board-interface reference does it this way:
+   `Auxilary/Lab4/DUT/fpga_hw_interface.vhd` registers its SW/KEY inputs as
+   `IF rising_edge(clk_2MHz) THEN IF key_pressed(n) = '1' THEN` — an enabled register, exactly this
+   structure.
+3. Behaviour is identical here. Single-cycle: the address, the write data and `MemWrite` are stable
+   for the whole store cycle, so a latch transparent for that cycle and a register capturing at its
+   end settle to the same value.
+
+**Which four bits the display shows — settled by the software, not guessed.**
+`Intrrupt-based IO/test1/asm-code/01_func.s:17-20` does `andi s1,a0,0x000000F0` then `srli s1,s1,4`
+then `sw` — the program shifts the digit into bits 3..0 before storing. So the encoder takes
+`q_o(3 DOWNTO 0)`. Bits 7..4 are stored (Figure 5 draws D0..D7), have no load, and are pruned.
+
+**Full lane decode, one step stricter than the figure.** Figure 5 gives `PORT_LEDR`'s latch only
+`CS1 · MemWrite` with no `A0` term, because in the GPIO-only subset it draws nothing shares that word.
+Every port here is qualified by its exact lane anyway — the same choice `ADDR_DECODER` already made,
+for the same reason: otherwise a store to `0x2001` would be flagged by `unmapped_o` **and** still land
+in `PORT_LEDR`, and having the report disagree with the hardware is worse than being stricter than the
+figure. No supplied benchmark writes any of these addresses off-lane.
+
+**A real bug found by tracing timing, recorded so it is not re-introduced.** `gpo_port` was written
+with a *synchronous* reset. Every testbench in this project drives reset high from 0 ns and low at
+80 ns, and the first rising clock edge is at **100 ns** — so a synchronous reset never sees an active
+edge, and the register would leave reset holding its power-up value. In simulation that is `'U'`
+propagating to a board pin. It is asynchronous now, which is also what every other clocked element in
+this design does. The signal additionally carries an initial value, following
+`fpga_hw_interface.vhd`'s own `:= (OTHERS => '0')`.
+
+**`mclk_o` — transitional, and it is a correctness fix, not tidiness.** The core generates its own
+`mclk` from its internal PLL, so at `MODELSIM = 0` the core runs at the PLL rate while `clk_i` is
+still the 50 MHz board clock. A peripheral clocked from `clk_i` would sample a `MemWrite` pulse
+belonging to a different clock rate and could capture twice or miss entirely. Exporting `mclk` is the
+smallest correct fix available before Phase 4B moves the clock tree up to this level, at which point
+the port disappears.
+
+**Assumption — the reset value.** Nothing states what a GPO port holds after reset, and Figure 5
+draws no reset on the latch at all. Zero is used: LEDs off, every display showing `0`. Recorded as
+A13 in `DOC/02_requirements_traceability.md`.
+
+**Why the test is a scoreboard and not a waveform.** `PORT_HEX0` and `PORT_HEX1` share one chip select
+and are separated only by `A0`, so the natural bug is a store to one updating both. test0 writes the
+**same value to all seven ports in the same iteration**, so on a waveform that bug is invisible —
+every display would show the right digit anyway. Only a model that knows which port was addressed can
+see it. The testbench also transcribes the 7-segment table **independently** of `hex_decoder.vhd`, so
+comparing against it is a real check of the display path rather than a tautology.
+
+#### ▸ Adar's results — Phase 6A
+
+Part of **Run 2 step 5** — same staging as `run_mmio.do`, and needs `G_ISA_REPAIR = TRUE`. Then
+`do run_gpio.do`.
+
+- writes seen — LEDR: ____ · HEX0: ____ · HEX1: ____ · HEX2: ____ · HEX3: ____ · HEX4: ____ · HEX5: ____
+  (expect about **18** each; **any zero fails P3**)
+- distinct LEDR values: ____ (expect ~17, must be ≥ 3)
+- failures: ____
+- **VERDICT line:** ____________________
+
+Reading a failure: one HEX of a pair failing while its partner is correct is **cross-talk on a shared
+chip select** — look at `lane_en_i` on the two `P_HEXn` instances. All six failing together points at
+the low-nibble wiring or `HEX_DECODER.vhd`. P3 alone means the program did not run.
+
+### Phase 6B — the read path  ·  **not started**
+
+- `PORT_SW` at `0x2010`, and the tri-state read return this phase finally has a driver for:
+  `Auxiliary/Lab 5/Auxilary/Lab3/DUT/BidirPin.vhd` with `width => 32`, which Figure 1 links to
+  explicitly and Figure 5 draws as the buffer on `CS7 · MemRead`.
+- Replaces the Phase 5B placeholder `dbus_rdata_w <= (OTHERS => '0')` and deletes the `SFRSTUB`
+  notice process with it.
+- **Not blocked.** §5 maps `SW7-SW0` and the benchmark masks confirm the bit order
+  (`SW0_MASK 0x01`, `SW1_MASK 0x02` in `GPIO/test1/asm-code/test1.s`). Switches are not inverted on
+  the DE2-115 — only the pushbuttons are.
+- **Assumption A11** applies: the upper 24 bits of an MMIO read return zero. All three MMIO reads in
+  the benchmarks `andi` the result immediately, so nothing observes them.
+- **Exit:** GPIO test1 and test2 become runnable — both branch on `PORT_SW`, so neither can run
+  before this lands. That is why test0 is the only GPIO benchmark Phase 6A could use.
+
+### Phase 6C — `PORT_PB` and the KEY inputs  ·  **blocked**
+
+- `PORT_PB` at `0x2014` reads KEY3-1. KEY0 is reset only, handled at the board boundary.
+- KEY1-3 also feed the interrupt edge latches (Phase 9), and need synchronising into `mclk` first —
+  `SYNC.vhd` from Phase 4A is the component for that.
+- **Blocked:** `0x2014` has an address but **no bit-field table anywhere**. Which bit is KEY1, KEY2,
+  KEY3, and do they read active-low as Figure 6's pull-up schematic implies? The `KEYnIFG` masks in
+  `io_map.s` constrain the *interrupt* bits, not `PORT_PB`'s own layout. This is the open question to
+  send Hanan.
+
+Gaps: G-306 (output half closed by 6A). 6C blocked on the `PORT_PB` layout question.
 
 ## Phase 7 — Division accelerator  ·  Yehonatan writes · Adar verifies
 
@@ -1726,13 +1880,17 @@ before/after line pairs.
 
 1. ~~Commit and push~~ — done. ~~Update the `DOC/` documents for the new reference~~ — done in
    `82a1a11`. ~~Phase 5A~~ — done, see above.
-2. ~~Phase 5B — wire the decoder in~~ — done, see above.
-3. **Phase 6 — GPIO** is now the next design work, and can start in parallel with 5B's verification: `hex_decoder.vhd` is a drop-in,
-   and the two findings recorded in `ADDR_DECODER.vhd`'s header settle the write path
-   (`Data<7..0>`, no lane replication, no `byteena_a`). Still blocked on **Q5** for `PORT_PB`'s bit
-   layout only — the seven output registers are not blocked on anything.
-4. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for
-   `c0`/`c1`/`c2` and all three existing copies expose only `c0`.
+2. ~~Phase 5B — wire the decoder in~~ — done. ~~Phase 6A — the seven GPO ports~~ — done.
+3. **Phase 6B — the read path.** Next, and unblocked: `PORT_SW` plus the tri-state read return using
+   `BidirPin.vhd` with `width => 32`, replacing the Phase 5B placeholder `dbus_rdata_w` and deleting
+   the `SFRSTUB` notice with it. This is what makes **GPIO test1 and test2 runnable** — both branch on
+   `PORT_SW` — so it roughly doubles the benchmark coverage Adar has.
+4. **Then Phase 7 (divider) or Phase 8 (Basic Timer)**, whichever question comes back first. 6C, 7 and
+   8 are all blocked on Hanan: `PORT_PB`'s bit layout, Q6/Q14 for the divider, Q3/Q4/Q8 for the timer.
+5. **Prepare Phase 4's clock tree** as far as Q2 allows: the ALTPLL needs regenerating for
+   `c0`/`c1`/`c2` and all three existing copies expose only `c0`. Note Phase 6A added a
+   `mclk_o` port to the core that exists **only** until 4B moves the clock tree up — removing it is
+   part of 4B, not a separate cleanup.
 
 ## The gate between us
 

@@ -644,8 +644,12 @@ Everything in this document that is not cited to a source.
 | A10 | Board is DE2-115 | All Lab 5 material and the students' own hardware runs target it | Course staff naming DE10-Standard |
 | A11 | The upper 24 bits of an MMIO read return zero | Figure 5 drives only `Data<7..0>` from the `PORT_SW` tri-state; all three MMIO reads in the benchmarks `andi` the result immediately | A program that uses the upper bits of an MMIO read |
 | A12 | A Word-resolution register owns all four lanes of its word | §6's table gives `BTCMPR0`/`BTCMPR1`/`BTCAPR` Address Resolution "Word", and `io_map.s` marks them "define a Word address" | A byte-resolution use of any of those three |
+| A13 | A GPO port holds zero after reset — LEDs off, every HEX showing `0` | Nothing states a reset value and Figure 5 draws no reset on the latch at all; zero needs no extra state, whereas "blank until first written" needs a flag nothing asks for | Any statement that the displays should be dark after KEY0 |
+| A14 | A `PORT_HEXn` register is 8 bits wide and the display decodes bits 3..0 | Figure 5 draws `D0..D7` into the latch and a 7-segment encoder after it; `Intrrupt-based IO/test1/asm-code/01_func.s:17-20` masks and `srli`s the digit into bits 3..0 before storing | A program that expects the upper nibble to affect the display |
 
-Twelve assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
+Fourteen assumptions. None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of
 Phase 5A and are both exercised by `TB/RV32IMscMCU/tb_addr_decoder.vhd`, so if either is wrong the
-change is one line in `const_package.vhd` and the exhaustive sweep re-proves the whole map.
+change is one line in `const_package.vhd` and the exhaustive sweep re-proves the whole map. A13 and
+A14 came out of Phase 6A; both are one line in `GPO_PORT.vhd` or in the `SEGGEN` generate of
+`RV32IMscMCU.vhd`, and `tb_gpio.vhd` re-proves the display path either way.

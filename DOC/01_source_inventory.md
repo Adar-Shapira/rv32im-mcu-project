@@ -131,7 +131,7 @@ displacements are 0 and 8 with no `jalr` at all. They are covered instead by
 
 | Component | Requirement | Supplied | Path | Provenance | Verdict |
 | --- | --- | --- | --- | --- | --- |
-| Seven-segment decoder, active-low | §5, Fig 5 | **yes** | `Auxilary/Lab4/DUT/hex_decoder.vhd` (36 lines) | students, Lab 4 | **use as is** — full 0–F table, all-off default, comment at line 13 states DE2-115 active-low |
+| Seven-segment decoder, active-low | §5, Fig 5 | **yes** | `Auxilary/Lab4/DUT/hex_decoder.vhd` (36 lines) | students, Lab 4 | **used as is, Phase 6A** — copied to `DUT/RV32IMscMCU/HEX_DECODER.vhd`; body byte-identical, md5 `56f2f16645e9bb4643c3a113c36e49c4`, only a provenance header prepended and the filename capitalised |
 | PWM output unit | §6.ii, Fig 8 | **yes** | `Auxilary/Lab4/DUT/pwm.vhd` (60 lines) | students, Lab 4 | **adapt** — 16→32 bit; re-map period `Y`→`BTCL0`, duty `X`→`BTCL1`; drop the unused Toggle mode or map it to `BTINT` |
 | Bidirectional data bus | Fig 1, which links to it as "Bi-directional Data BUS (reminder)" | **yes** | `Auxilary/Lab3/DUT/BidirPin.vhd` (20 lines) | students, Lab 3 | **use as is** with `width => 32` |
 | ITCM unregistered / DTCM registered pattern | Fig 3 | yes | `Auxilary/Lab3/DUT/progMem.vhd`, `dataMem.vhd` | students, Lab 3 | **reference** — explains why Lab 5's DTCM runs on `not(clk)` |
@@ -279,7 +279,7 @@ The question "was earlier-lab code supplied that we should be reusing" resolves 
 | **use as is** | 6 | `hex_decoder.vhd`; `BidirPin.vhd` (`width => 32`); the M-extension instruction masks; the 32×32 register file; the measured baseline dumps; the two lecturer procedure PDFs |
 | **adapt** | 14 | both CPU cores, hazard/forward units, `MUL16`, `pwm.vhd`, the ALTPLL, UART option 1, both testbenches, the `.do` scripts, the SDCs, the two-revision PPA structure, the `.stp`, the report structure, the architecture figures |
 | **reference only** | 8 | the RV32I baseline, `Shifter.vhd`, `AdderSub.vhd`/`FA.vhd`, `Lab3/RF.vhd`, `progMem`/`dataMem`, `fpga_hw_interface.vhd`, `Lab4/pll.vhd`, `Lab3/tb_top.vhd` assertions |
-| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, ~~MMIO decoder~~ **(built, Phase 5A)**, GPIO buffer registers, `div`/`rem`/`mulh*`, ~~byte enables and sub-word load/store~~ **(built, Phase 3B)**, edge detectors, ~~CDC synchronizer~~ **(built, Phase 4A)**, multi-output clock tree, the UART register layer |
+| **write new** | 12 | divider accelerator, Basic Timer core, interrupt controller, CPU interrupt FSM, ~~MMIO decoder~~ **(built, Phase 5A/5B)**, ~~GPIO output registers~~ **(built, Phase 6A)**, `div`/`rem`/`mulh*`, ~~byte enables and sub-word load/store~~ **(built, Phase 3B)**, edge detectors, ~~CDC synchronizer~~ **(built, Phase 4A)**, multi-output clock tree, the UART register layer |
 
 The roadmap assumed the seven-segment decoder, the PWM unit and the bidirectional bus would all be
 written from scratch. They exist. Conversely it under-scoped sub-word load/store and the UART

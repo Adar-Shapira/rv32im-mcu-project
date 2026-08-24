@@ -107,6 +107,23 @@ ENTITY RV32IMscMCU IS
 		clk_i				:IN		STD_LOGIC;		-- CLOCK_50, PIN_Y2
 		rst_i				:IN		STD_LOGIC;		-- KEY0,     PIN_M23
 
+		--=== GPIO board outputs — Phase 6A, Figure 5 (clause 5) ===
+		-- Widths and roles from clause 5's table: PORT_LEDR drives LEDR7..LEDR0
+		-- and each PORT_HEXn drives one 7-segment display. Port names take the
+		-- _o extension per Auxiliary/hanan/Useful name extensions.md; the board
+		-- pin names the .qsf assigns are LEDR[n] and HEX0[n]..HEX5[n].
+		--
+		-- LEDR9 and LEDR8 are deliberately absent. Clause 4 says the board has ten
+		-- red LEDs, clause 5 maps only eight, and the map is what is implementable
+		-- -- there is no register bit for the other two. Not an omission.
+		LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+		HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX3_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+
 		--=== Observation ports — Signal-Tap only, gated by GEN_DEBUG_PORTS ===
 		pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -183,6 +200,32 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- mistake. Phases 6 to 9 and 12 attach to it.
 	SIGNAL sfr_cs_w				: STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
 
+	--=======================================================================
+	-- GPIO — Phase 6A
+	--=======================================================================
+	-- The clock every peripheral here must use: the core's mclk, not clk_i. At
+	-- MODELSIM = 0 the core runs on its internal PLL and clk_i is still the raw
+	-- board clock, so clocking a peripheral from clk_i would sample core signals
+	-- at the wrong rate. Phase 4B moves the clock tree to this level and this
+	-- becomes a CLKTREE output instead of a core output.
+	SIGNAL mclk_w				: STD_LOGIC;
+
+	-- Byte-lane qualification, the A0 term of Figure 5. lane0 selects the register
+	-- at the word's base address, lane1 the one at base+1 -- which is how the
+	-- figure separates PORT_HEX0 from PORT_HEX1 on a shared chip select.
+	SIGNAL lane0_w				: STD_LOGIC;
+	SIGNAL lane1_w				: STD_LOGIC;
+
+	-- Each port's stored byte, and each display's seven segments. Local array
+	-- types rather than one flat vector, so an index is a display number and not
+	-- an arithmetic slice. A TYPE declaration needs no package body.
+	type hex_byte_array_t is array (0 TO 5) of STD_LOGIC_VECTOR(7 DOWNTO 0);
+	type hex_seg_array_t  is array (0 TO 5) of STD_LOGIC_VECTOR(6 DOWNTO 0);
+
+	SIGNAL ledr_q				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL hex_q				: hex_byte_array_t;		-- what the CPU stored
+	SIGNAL hex_seg_w			: hex_seg_array_t;		-- what the display shows
+
 BEGIN
 	--=======================================
 	-- Reset conditioning at the board boundary
@@ -246,6 +289,7 @@ BEGIN
 		dtcm_data_rd_o		=> dtcm_data_rd_w,
 		dtcm_wren_o			=> dtcm_wren_w,
 
+		mclk_o				=> mclk_w,			-- Phase 6A: clocks the peripherals
 		mclk_cnt_o			=> mclk_cnt_w
 	);
 
@@ -302,6 +346,101 @@ BEGIN
 			end if;
 		end process sfr_read_notice;
 	end generate;
+
+	--=======================================
+	-- GPIO output ports (Figure 5, clause 5) -- Phase 6A
+	--=======================================
+	-- Figure 5's structure, instantiated once per port rather than generated, so
+	-- each block reads directly against the figure: which chip select, which A0
+	-- term, and for the HEX ports which display.
+	--
+	-- The byte lane. Figure 5 gives PORT_LEDR's latch only "CS1 . MemWrite" with
+	-- no A0 term, because in the GPIO-only subset it draws, nothing shares that
+	-- word. Every port here is qualified by its exact lane anyway. That is the
+	-- same full-decode choice ADDR_DECODER.vhd already made and for the same
+	-- reason: otherwise a store to 0x2001 would be reported by unmapped_o AND
+	-- still land in PORT_LEDR, and having the report disagree with the hardware
+	-- is worse than being stricter than the figure. No supplied benchmark writes
+	-- any of these addresses off-lane, so nothing observable changes.
+	lane0_w <= (NOT dbus_addr_w(1)) AND (NOT dbus_addr_w(0));	-- word base + 0
+	lane1_w <= (NOT dbus_addr_w(1)) AND      dbus_addr_w(0);	-- word base + 1
+
+	-- PORT_LEDR, 0x2000 -> LEDR7..LEDR0
+	P_LEDR : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i		=> mclk_w,
+		rst_i		=> rst_w,
+		cs_i		=> sfr_cs_w(CS_LEDR),
+		MemWrite_i	=> dbus_MemWrite_w,
+		lane_en_i	=> lane0_w,
+		data_i		=> dbus_wdata_w(7 DOWNTO 0),
+		q_o			=> ledr_q
+	);
+	LEDR_o <= ledr_q;
+
+	-- The six 7-segment ports. PORT_HEX0/1 share CS_HEX01 and are separated by
+	-- A0, and likewise for the other two pairs -- exactly Figure 5's pairing.
+	P_HEX0 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(0)			-- 0x2004
+	);
+	P_HEX1 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(1)			-- 0x2005
+	);
+	P_HEX2 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(2)			-- 0x2008
+	);
+	P_HEX3 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(3)			-- 0x2009
+	);
+	P_HEX4 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(4)			-- 0x200C
+	);
+	P_HEX5 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => mclk_w, rst_i => rst_w,
+		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => dbus_wdata_w(7 DOWNTO 0), q_o => hex_q(5)			-- 0x200D
+	);
+
+	-- The "7-segment encoder" of Figure 5, one per display. Low nibble only --
+	-- the software shifts the digit down before storing, see HEX_DECODER.vhd.
+	SEGGEN:
+	for i in 0 to 5 generate
+		SEG : hex_decoder
+		PORT MAP (
+			bin => hex_q(i)(3 DOWNTO 0),
+			seg => hex_seg_w(i)
+		);
+	end generate;
+
+	HEX0_o <= hex_seg_w(0);
+	HEX1_o <= hex_seg_w(1);
+	HEX2_o <= hex_seg_w(2);
+	HEX3_o <= hex_seg_w(3);
+	HEX4_o <= hex_seg_w(4);
+	HEX5_o <= hex_seg_w(5);
 
 	--=======================================
 	-- Observation ports (§7)
