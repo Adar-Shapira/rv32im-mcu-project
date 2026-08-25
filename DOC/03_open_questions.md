@@ -99,6 +99,92 @@ Q9 (`BTINT`'s three-of-four encoding), Q11/Q12 (`UCTL` spelling, `UxBRx`/`UxMCTL
 
 ---
 
+# THE RECORDED PREP SESSION — transcript received 2026-08-25
+
+Hanan's recorded preparation meeting for the final project. Yehonatan supplied the raw
+speaker-tagged ASR transcript (Hebrew) on 2026-08-25; **our copy is truncated mid-way through the
+closing bonus discussion**, so anything after the UART-bonus logistics is not on record here. This
+section is the digest, with the load-bearing sentences quoted verbatim. Evidentiary rank: the
+lecturer's own words about **this** project — same tier as the forum answers. It is oral, so where
+it could conflict with the PDF the PDF wins; **every checkable claim was cross-checked against
+pp. 13–15 of the definition PDF and no conflict was found.**
+
+## A. What it confirms that is already built — checked, no code change needed
+
+| Session statement | Where we already have it |
+| --- | --- |
+| Address split: DTCM low, peripherals from `0x2000`; *"הסיבית ה-14 שהיא 1... אוטומטית אנחנו עוברים לעולם של פנייה למודולים"* — bit 13 set means SFR | `ADDR_DECODER.vhd`, Phase 5A — never drop A13 |
+| Each peripheral decodes its own address from the bus and stays silent otherwise; decoder emits one chip select | Figure 5 reading, Phases 5A/6A |
+| LEDs at `0x2000`, byte resolution, value in the word's low byte | `const_package.vhd` map, `io_map.s` |
+| HEX pairs share one chip select, `A0` splits the pair (his example: `0x2004`/`0x2005`) | Phase 6A lane decode |
+| The 7-segment encoder is **in the GPO hardware** — *"כל הסיבוכיות של הקוד באסמבלי יורדת לתוך החומרה"* | `HEX_DECODER.vhd` inside the HEX path |
+| GPI is load-only — *"סטור לא יעזור. רק לורד"* | Phase 6C's discarded-store case |
+| Vector table at DTCM address 0, **deliberately** — *"מכתובת אפס בכוונה... אני חוסך את האופסט"* | Phase 5A aliasing table, DOC/02 §4.1 |
+| TYPE holds the vector-table **byte address** — the timer produces *"אחד אפס... באקסה"* = `0x10` | p14 table; forum: TYPE already holds multiples of 4 |
+| Priority: RESET (0, unmaskable locally **and** globally) > UART error/RX/TX > Basic Timer > KEY1 > KEY2 > KEY3 | p14 table, exactly |
+| `IFG` rises only when the source is enabled — *"כשזה מאושר... אז הדגל הזה, ה'אףג'י' עולה ל-1"* | Forum answer that falsified A6; p13's AND gate |
+| Entry protocol: 2 cycles, `GIE = gp[0]` cleared, TYPE driven **on the data bus** into a dedicated register, then load + `jalr` emulation with `R[tp]` = return address; `reti` = 1 cycle, restores GIE. Protocol unit is multicycle, **inside the control unit**, and the CPU reacts on the cycle after `INTR` rises | p15, word for word |
+| Divider: unsigned **integer** engine, multicycle, **32 cycles** for 32-bit operands; `busy` holds the PC; write-back happens in the cycle busy releases and the PC continues on the **next rising edge**; slow→fast domain crossing needs the synchroniser | Phases 7A/7B1/7B2 as built |
+| Capture: sources are the two external pins plus internal `'1'`/`'0'`; his worked example — *"אני מאתחל את הבקרה שזה יהיה 3... ואז קובע אותו להיות שתיים, יצרתי סיגנל של עלייה"* — select 3 (GND) then 2 (VCC) makes a rising event | `BASIC_TIMER.vhd:331-335` implements exactly this mux (0/1 = pins, 2 = VCC, 3 = GND). **Independent oral confirmation of the BTCTL2 raster reading** |
+| Timer has three modes — compare interrupts, output-compare PWM, input capture | Phase 8A |
+| `SHORT_DELAY` = 4 cycles for RARS/ModelSim, the long value for the FPGA | Phase 5B's disassembly finding |
+| Verification method: run in RARS/GDB, print the DTCM-formatted golden, diff | The Phase 0/10 golden-model flow |
+
+## B. What it upgrades
+
+1. **A15 — GPO read-back — effectively answered.** On the type-1 GPO he says outright:
+   *"אנחנו רוצים לקרוא... יש פה קריאה מהטרייסטייט, קריאה של תוכן הלאץ'... אני יכול לכתוב ללדים,
+   לקרוא את הערך של הלדים"* — a load from a GPO port returns the latch content through the
+   `MemRead` tri-state. `GEN_GPO_READBACK` already defaults `TRUE`, so nothing changes in code;
+   A15 moves from "our interpretation of Figure 5" to "the lecturer's own description".
+2. **B3 — ACCELCLK — reframed from "what number" to "our choice, maximise it".**
+   *"אנחנו מביאים אותו למקסימום האפשרי"*, *"באופן תיאורטי פי 5, 6, 7, 8, משהו כזה"*, and — the
+   decisive one — *"כמה מהר המאיץ יסיים, תלוי בכם"*. So no specific frequency is mandated; the
+   value is a design decision bounded by the divider's own Fmax. The 50 MHz provisional stands
+   until Phase 14 measures `div_accel`'s Fmax, then raise toward it (the 7B1 hang bound is
+   `f_DIVCLK < 16 × f_MCLK` = 320 MHz, far above anything reachable).
+3. **B1 — the board — both are acceptable at the interface level.** Showing a board:
+   *"הממשק שלו, זה לא משנה בשניהם אותו דבר"* — and he describes six 7-segment modules, which is
+   what the design drives. Which board we physically get still decides the pin table, so B1 stays
+   open for the pinned revision only.
+4. **Q10 / G-327 — test4's capture bug — the corrected copy now matches his own description.**
+   His capture walkthrough is precisely "initialise the select to 3, then set it to 2" — the
+   GND→VCC rising event. The shipped test4 writes `0x07` twice and never performs the second
+   write, so the event he describes never occurs. The separately-marked corrected copy (`0x06`)
+   implements the sequence he himself described.
+
+## C. The one genuinely NEW hardware fact — Phase 9 must honour it
+
+**Interrupt request events are rising edges, 0→1, for every source — deliberately:**
+*"אנחנו נעבוד רק עם איוונט של עלייה מאפס לאחד. אני בכוונה רוצה לפשט את זה... שכל הסיגנלים עצמם
+בבקשות שלהם יהיו מאפס לאחד."*
+
+**And for the pushbuttons that means the request fires on RELEASE.** The debounced KEY line falls
+1→0 on press and rises 0→1 on release — *"בלחיצה יש ירידה מ-1 ל-0, בשחרור מ-0 ל-1"* — and he
+demonstrates the request appearing at release: *"לחצתי שחרור, טאק, יש לי פה בקשת פסיקה."*
+
+Consequence for Phase 9, recorded before anyone builds the wrong edge: the p13 IS flop must be
+clocked from the **debounced KEY line itself** (rising = release). Do **not** reuse Phase 6C's
+`key_pressed_w` rising edge — that signal is inverted (`KEY_ACTIVE_LOW`), so its rising edge is the
+**press**, and using it would fire every KEY interrupt one event early. The PDF is silent on KEY
+polarity, so this transcript is currently the **only** source for it.
+
+## D. Bonus logistics stated in the session
+
+- Both bonuses are conditional on **finishing the base project first** and **registering with
+  Hanan by a date he will announce**. He was explicit that starting a bonus before the base is
+  done is the failure mode he wants to prevent.
+- **Pipeline bonus:** he will give a dedicated ~half-hour lecture — how to move the core, the
+  accelerator and the peripherals from single-cycle to pipeline — to those who register.
+- **UART bonus (20%):** registrants **receive ready HDL code from Hanan** — *"אתם מקבלים ממני
+  קוד, קוד HDL מוכן של מודול תקשורת, שצריך לעשות לו הסבה כדי לחבר אותו בתור רכיב פריפריאלי"* —
+  and the task is to understand it and integrate it on the bus. `Auxiliary/USART Material/`
+  already ships `UART_FPGA_option1` and `UART_FPGA_option2`, which are presumably that code —
+  **confirm at registration whether a further handout supersedes them** before building Phase
+  12's register layer.
+
+---
+
 ## Blocking before hardware work
 
 ### Q1 — Which FPGA board?

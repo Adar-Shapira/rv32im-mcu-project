@@ -44,6 +44,11 @@
 --   BTCTL2 (0x201D):  [3:2] CAPMD  {0,3: disabled, 1: rising, 2: falling}
 --                     [1:0] CAPISEL {0: CAPIN1 pin, 1: CAPIN2 pin,
 --                                    2: VCC('1'),   3: GND('0')}
+--        The CAPISEL half of this table gained independent oral confirmation
+--        on 2026-08-25: Hanan's recorded prep session walks capture through
+--        "initialise the select to 3, then set it to 2 -- I have created a
+--        rising event", which is exactly GND->VCC in this encoding.
+--        DOC/03_open_questions.md, s"THE RECORDED PREP SESSION".
 --   BTSSEL: 00 -> SMCLK   01 -> SMCLK/2   10 -> SMCLK/4   11 -> SMCLK/8
 --   BTCMPR0/BTCMPR1 (Word): compare values, auto-transferred to the BTCL0/
 --   BTCL1 shadow latches. BTCAPR (Word): BTCNT captured on the input event.

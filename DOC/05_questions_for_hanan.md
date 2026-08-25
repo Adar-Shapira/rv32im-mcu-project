@@ -1,6 +1,7 @@
 # Questions for Hanan — the current list
 
-**Last updated 2026-08-24, after the forum answers.**
+**Last updated 2026-08-25, after the forum answers and the recorded prep session
+(`DOC/03` §"THE RECORDED PREP SESSION").**
 
 This file is the short, sendable list: **only what is still open.** Each item has a one-sentence
 **Ask** line meant to be sent as-is (translate to Hebrew if posting to the forum), followed by what we
@@ -36,6 +37,11 @@ UART bonus menu names `LEDG`, which exists on the DE2-115 and not on the DE10-St
 the F29 package as well, so a DE10-Standard assignment copied into a DE2-115 project compiles
 cleanly and drives the wrong physical pins.
 
+**Update 2026-08-25 (prep session):** demonstrating on a board, Hanan said the interface *"doesn't
+matter — the same on both"*, and described six 7-segment modules, which is what the design drives.
+So both boards are acceptable at the interface level; the question now decides **only the pin
+table**, not the architecture.
+
 **Meanwhile:** everything targets the DE2-115. Nothing is blocked except the pinned Quartus revision.
 
 ### B2 — `SEC_PERIOD` and `BTSSEL` disagree by a factor of 8
@@ -66,6 +72,12 @@ rather than silently "fixed". Registered as assumption **A5**.
 The forum settled that `DIVCLK` "needs to be high" so the divider is genuinely an accelerator, and
 that all three come from separate PLLs fed by the 50 MHz base. No number was given. It also said
 `MCLK` must be an integer multiple of `SMCLK` — satisfied trivially at ×1.
+
+**Update 2026-08-25 (prep session) — likely no longer worth asking.** Hanan: *"we bring it to the
+maximum possible"*, *"theoretically ×5, 6, 7, 8"*, and decisively *"how fast the accelerator
+finishes is up to you"*. So no specific frequency is mandated — the value is our design decision,
+bounded by the divider's own Fmax. Plan: keep 50 MHz until Phase 14 measures `div_accel`'s Fmax,
+then raise toward it and state the choice in the report.
 
 **Meanwhile:** Phase 4B will use `MCLK = SMCLK = 20 MHz` and `ACCELCLK = 50 MHz`, and state the
 choice in the report. A wrong guess costs one PLL parameter.
@@ -103,6 +115,10 @@ what would falsify it. They are listed so that a "no" costs one line rather than
 
 **Built as:** readable, behind `GEN_GPO_READBACK` (default `TRUE`). No supplied benchmark reads a GPO
 port, so nothing observable depends on it. **A "no" is one word.**
+
+**Update 2026-08-25 (prep session) — effectively answered, keep only as confirmation.** Hanan,
+describing the type-1 GPO: *"there is a read from the tri-state, a read of the latch content... I
+can write to the LEDs, read the value of the LEDs."* That is the read-back this generic implements.
 
 ### A16 — Does `PORT_PB` read `1` for a pressed key?
 
