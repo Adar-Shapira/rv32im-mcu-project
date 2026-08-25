@@ -39,16 +39,16 @@ package aux_package is
 
 			--GPIO board input (Phase 6B). Defaulted so the four earlier testbenches,
 			--which do not associate it, still elaborate.
-			SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+			SW_i				:IN		STD_LOGIC_VECTOR(9 DOWNTO 0) := (OTHERS => '0');
 			KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
-			-- Phase 8B: the three expansion-header pins of F18 (numbers wait on B1)
+			GPIO				:INOUT	STD_LOGIC_VECTOR(35 DOWNTO 0) := (OTHERS => 'Z');
 			CAPIN1_i			:IN		STD_LOGIC := '0';
 			CAPIN2_i			:IN		STD_LOGIC := '0';
 			PWM_o				:OUT	STD_LOGIC;
 
 			--GPIO board outputs (Phase 6A, Figure 5)
-			LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			LEDR_o				:OUT	STD_LOGIC_VECTOR(9 DOWNTO 0);
 			HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 			HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 			HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);

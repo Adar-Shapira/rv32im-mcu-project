@@ -132,7 +132,8 @@ BEGIN
 	PORT MAP (
 		clk_i				=> clk_i,
 		rst_i				=> rst_i,
-		SW_i				=> SW_VALUE,		-- both from the generated package
+		SW_i(7 DOWNTO 0)	=> SW_VALUE,
+		SW_i(9 DOWNTO 8)	=> "00",
 		KEY_i				=> KEY_VALUE,		-- raw active-low pins, KEY3..KEY1
 		instruction_o		=> instruction_o,
 		MemWrite_ctrl_o		=> MemWrite_ctrl_o,

@@ -68,12 +68,13 @@ ARCHITECTURE struct OF tb_RV32IMscMCU IS
 
 	-- Board I/O — Final Project clauses 4–6. Forced from the wave window
 	-- for GPIO / interrupt apps; defaults are "switches down, keys released".
-	SIGNAL SW_i					: STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+	SIGNAL SW_i					: STD_LOGIC_VECTOR(9 DOWNTO 0) := (OTHERS => '0');
 	SIGNAL KEY_i				: STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');	-- active-low, idle = 1
+	SIGNAL GPIO					: STD_LOGIC_VECTOR(35 DOWNTO 0) := (OTHERS => 'Z');
 	SIGNAL CAPIN1_i				: STD_LOGIC := '0';
 	SIGNAL CAPIN2_i				: STD_LOGIC := '0';
 	SIGNAL PWM_o				: STD_LOGIC;
-	SIGNAL LEDR_o				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL LEDR_o				: STD_LOGIC_VECTOR(9 DOWNTO 0);
 	SIGNAL HEX0_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
 	SIGNAL HEX1_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
 	SIGNAL HEX2_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
@@ -127,6 +128,7 @@ BEGIN
 
 		SW_i				=> SW_i,
 		KEY_i				=> KEY_i,
+		GPIO				=> GPIO,
 		CAPIN1_i			=> CAPIN1_i,
 		CAPIN2_i			=> CAPIN2_i,
 		PWM_o				=> PWM_o,

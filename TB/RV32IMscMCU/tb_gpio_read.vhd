@@ -199,8 +199,9 @@ BEGIN
 	PORT MAP (
 		clk_i				=> clk_i,
 		rst_i				=> rst_i,
-		SW_i				=> SW_i,
-		LEDR_o				=> LEDR_o,
+		SW_i(7 DOWNTO 0)	=> SW_i,
+		SW_i(9 DOWNTO 8)	=> "00",
+		LEDR_o(7 DOWNTO 0)	=> LEDR_o,
 		HEX0_o				=> HEX0_o,
 		HEX1_o				=> HEX1_o,
 		HEX2_o				=> HEX2_o,

@@ -174,15 +174,9 @@ ENTITY RV32IMscMCU IS
 		rst_i				:IN		STD_LOGIC;		-- KEY0,     PIN_M23
 
 		--=== GPIO board input — Phase 6B, Figure 5 (clause 5) ===
-		-- PORT_SW at 0x2010 reads SW7..SW0. Clause 5 maps eight of the board's ten
-		-- switches, the same asymmetry as LEDR below.
-		--
-		-- DEFAULTED, and that is load-bearing: the four testbenches written before
-		-- this phase do not associate it, and an unassociated IN port with no
-		-- default is an elaboration error. With the default they keep working and
-		-- read all switches low. Quartus ignores a default on a top-level port --
-		-- the pin drives it.
-		SW_i				:IN		STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+		-- Clause 4 lists SW9-SW0. PORT_SW at 0x2010 reads SW7..SW0 only
+		-- (clause 5). SW9/SW8 are board pins, not MMIO bits.
+		SW_i				:IN		STD_LOGIC_VECTOR(9 DOWNTO 0) := (OTHERS => '0');
 
 		-- KEY3..KEY1 -- Phase 6C. Indexed 3 DOWNTO 1 so that KEY_i(n) is KEYn on
 		-- the board and no off-by-one is possible at the pin assignment. KEY0 is
@@ -194,23 +188,22 @@ ENTITY RV32IMscMCU IS
 		-- see released keys.
 		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
 
-		-- Phase 8B (F18: "choose three pins on the board's external interface
-		-- connector" for PWMout, CAPIN1, CAPIN2). Pin numbers wait on B1.
-		-- Inputs defaulted so every earlier testbench still elaborates.
+		-- Phase 8B (F18: three pins on the expansion header). PWM is GPIO[9]
+		-- as in Lab 4 / Figure 4b. CAPIN on GPIO[8] and GPIO[10]. The rest of
+		-- J15 (GPIO[35:0], Terasic CSV) is brought out so clause 4's 2x20
+		-- header is fully assigned; unused bits are high-Z.
+		-- PWM_o / CAPIN1_i / CAPIN2_i stay for ModelSim; Quartus marks them
+		-- VIRTUAL_PIN so they do not take a second ball.
+		GPIO				:INOUT	STD_LOGIC_VECTOR(35 DOWNTO 0) := (OTHERS => 'Z');
 		CAPIN1_i			:IN		STD_LOGIC := '0';
 		CAPIN2_i			:IN		STD_LOGIC := '0';
 		PWM_o				:OUT	STD_LOGIC;
 
 		--=== GPIO board outputs — Phase 6A, Figure 5 (clause 5) ===
-		-- Widths and roles from clause 5's table: PORT_LEDR drives LEDR7..LEDR0
-		-- and each PORT_HEXn drives one 7-segment display. Port names take the
-		-- _o extension per Auxiliary/hanan/Useful name extensions.md; the board
-		-- pin names the .qsf assigns are LEDR[n] and HEX0[n]..HEX5[n].
-		--
-		-- LEDR9 and LEDR8 are deliberately absent. Clause 4 says the board has ten
-		-- red LEDs, clause 5 maps only eight, and the map is what is implementable
-		-- -- there is no register bit for the other two. Not an omission.
-		LEDR_o				:OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+		-- Widths from clause 5's table: PORT_LEDR drives LEDR7..LEDR0.
+		-- Clause 4 lists LEDR9-LEDR0; LEDR9/LEDR8 are board pins held low
+		-- (no register bits).
+		LEDR_o				:OUT	STD_LOGIC_VECTOR(9 DOWNTO 0);
 		HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 		HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 		HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
@@ -378,6 +371,9 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL ledr_q				: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL hex_q				: hex_byte_array_t;		-- what the CPU stored
 	SIGNAL hex_seg_w			: hex_seg_array_t;		-- what the display shows
+	SIGNAL pwm_w				: STD_LOGIC;
+	SIGNAL capin1_w				: STD_LOGIC;
+	SIGNAL capin2_w				: STD_LOGIC;
 
 	--=======================================================================
 	-- SFR read path -- Phase 6B (Figure 5, and Figure 1's bidirectional-bus link)
@@ -678,11 +674,11 @@ BEGIN
 			src_clk_i	=> pclk_w,
 			dst_clk_i	=> pclk_w,
 			rst_i		=> sys_rst_w,
-			d_i			=> SW_i,
+			d_i			=> SW_i(7 DOWNTO 0),
 			q_o			=> sw_sync_w
 		);
 	else generate
-		sw_sync_w <= SW_i;
+		sw_sync_w <= SW_i(7 DOWNTO 0);
 	end generate;
 
 	--=======================================
@@ -870,9 +866,9 @@ BEGIN
 		lane0_i		=> lane0_w,
 		lane1_i		=> lane1_w,
 		data_i		=> data_bus_w,
-		capin1_i	=> CAPIN1_i,
-		capin2_i	=> CAPIN2_i,
-		pwm_o		=> PWM_o,
+		capin1_i	=> capin1_w,
+		capin2_i	=> capin2_w,
+		pwm_o		=> pwm_w,
 		btifg_set_o	=> bt_ifg_set_w,
 		btctl1_o	=> btctl1_rd_w,
 		btctl2_o	=> btctl2_rd_w,
@@ -881,6 +877,22 @@ BEGIN
 		btcapr_o	=> btcapr_rd_w,
 		btcnt_o		=> open
 	);
+
+	-- J15 expansion header (clause 4). PWM on GPIO[9] (Lab 4 / Figure 4b);
+	-- CAPIN1/2 on GPIO[8]/[10]. Remaining bits high-Z so they are inputs.
+	-- ModelSim still uses CAPIN1_i / CAPIN2_i / PWM_o (TBs already drive those).
+	GPIO <= (9 => pwm_w, OTHERS => 'Z');
+	PWM_o <= pwm_w;
+	FPGA_CAPIN:
+	if (MODELSIM = 0) generate
+		capin1_w <= GPIO(8);
+		capin2_w <= GPIO(10);
+	end generate FPGA_CAPIN;
+	SIM_CAPIN:
+	if (MODELSIM /= 0) generate
+		capin1_w <= CAPIN1_i;
+		capin2_w <= CAPIN2_i;
+	end generate SIM_CAPIN;
 
 	--=======================================
 	-- Interrupt Controller -- Phase 9C (REQ p13/p14 onto Figure 5's bus)
@@ -1018,7 +1030,8 @@ BEGIN
 		data_i		=> data_bus_w(7 DOWNTO 0),
 		q_o			=> ledr_q
 	);
-	LEDR_o <= ledr_q;
+	LEDR_o(7 DOWNTO 0) <= ledr_q;
+	LEDR_o(9 DOWNTO 8) <= "00";
 
 	-- The six 7-segment ports. PORT_HEX0/1 share CS_HEX01 and are separated by
 	-- A0, and likewise for the other two pairs -- exactly Figure 5's pairing.

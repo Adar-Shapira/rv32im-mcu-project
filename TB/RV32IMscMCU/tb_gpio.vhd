@@ -216,7 +216,7 @@ BEGIN
 	PORT MAP (
 		clk_i				=> clk_i,
 		rst_i				=> rst_i,
-		LEDR_o				=> LEDR_o,
+		LEDR_o(7 DOWNTO 0)	=> LEDR_o,
 		HEX0_o				=> HEX0_o,
 		HEX1_o				=> HEX1_o,
 		HEX2_o				=> HEX2_o,
