@@ -638,6 +638,11 @@ waiting:
   (NOT the gpio or timer images). Report the three printed numbers: tp1 (expect 44..48), tp3
   (expect 100..124) and the R3 deferral in cycles — the deferral is the F13 measurement, expect
   well above 12; a tiny value means interrupt entry did not wait for the divides;
+- `run_intr_mmio.do`'s verdict (Phase 9C) — stage `SIM\RV32IMscMCU\intrmmio\` into `app_bin`. The
+  full stack: a real KEY1 release and a real timer EQU0 through controller, entry, bus and reti.
+  All 14 expected stores are exact; the run script's footer maps each possible failure to the
+  specific wire it implicates. Also confirm the bus one-hot warning never fires during the run —
+  the TYPE push is a new bus driver and silence is its collision proof;
 - `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
   clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
   tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —

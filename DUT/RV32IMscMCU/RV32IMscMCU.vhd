@@ -334,6 +334,7 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- figure separates PORT_HEX0 from PORT_HEX1 on a shared chip select.
 	SIGNAL lane0_w				: STD_LOGIC;
 	SIGNAL lane1_w				: STD_LOGIC;
+	SIGNAL lane2_w				: STD_LOGIC;	-- Phase 9C: TYPE sits at word base + 2 (0x202E)
 
 	-- '1' when the addressed SFR word has a peripheral behind it. Used only by the
 	-- simulation-only stub notice below, which has to know which writes really are
@@ -343,15 +344,30 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL sfr_rd_impl_w		: STD_LOGIC;	-- this SFR word answers a read
 
 	-- Phase 8B -- the Basic Timer's read-backs, and its event pulse.
-	-- bt_ifg_set_w is DELIBERATELY UNCONSUMED until Phase 9 latches it into IFG
-	-- under the falsified-A6 rule (request AND enable). Not dead code; same
-	-- posture as div_busy_w in the core. Expect one no-load warning until then.
+	-- bt_ifg_set_w: CONSUMED SINCE PHASE 9C -- it is the INTC's bt_ifg_set_i,
+	-- latched into IFG under the falsified-A6 rule, exactly what Phase 8B
+	-- declared it was waiting for.
 	SIGNAL btctl1_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL btctl2_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL btcmpr0_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL btcmpr1_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL btcapr_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL bt_ifg_set_w			: STD_LOGIC;
+
+	-- Phase 9C -- the Interrupt Controller's read-backs and the CPU handshake.
+	-- intr_w arrives at the core ALREADY gated by GIE (the p13 AND lives in the
+	-- controller); gie_w is the core's gp[0] tap closing that loop; inta_w is
+	-- the core's one-cycle acknowledge; type_push_w/type_capt_w are REQ p15's
+	-- TYPE-over-the-data-bus transfer, driven below as one more bus driver.
+	SIGNAL intc_ie_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intc_ifg_rd_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intc_type_rd_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL type_push_w			: STD_LOGIC;
+	SIGNAL type_capt_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intr_w				: STD_LOGIC;
+	SIGNAL inta_w				: STD_LOGIC;
+	SIGNAL gie_w				: STD_LOGIC;
+	SIGNAL intc_cs_w			: STD_LOGIC;	-- for the stub notices below
 
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
@@ -383,11 +399,23 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	-- WORD-resolution registers and drive all 32 bits directly.
 	CONSTANT RD_BTCTL1	: integer := 9;		-- 0x201C  byte, lane0
 	CONSTANT RD_BTCTL2	: integer := 10;	-- 0x201D  byte, lane1
-	CONSTANT NRD_BYTE	: integer := 11;	-- indices 0..10 are byte-wide
-	CONSTANT RD_BTCMPR0	: integer := 11;	-- 0x2020  word
-	CONSTANT RD_BTCMPR1	: integer := 12;	-- 0x2024  word
-	CONSTANT RD_BTCAPR	: integer := 13;	-- 0x2028  word
-	CONSTANT NRD		: integer := 14;
+	-- Phase 9C: the Interrupt Controller's three byte registers (word 11,
+	-- lanes 0/1/2 -- the map's first lane-2 register), plus the TYPE PUSH:
+	-- REQ p15's transfer of TYPE to the CPU over the DATA bus during entry
+	-- Cycle 1. The push is one more driver of the one shared bus -- Hanan's
+	-- "mandatory ... bi-directional bus" answer applies to it like to every
+	-- reader -- except its enable is the controller's push strobe, not a
+	-- CS.MemRead term (the CPU cannot issue a load for it: it is the only
+	-- bus master, which is the reason p15 routes TYPE this way at all).
+	CONSTANT RD_IE			: integer := 11;	-- 0x202C  byte, lane0
+	CONSTANT RD_IFG			: integer := 12;	-- 0x202D  byte, lane1
+	CONSTANT RD_TYPE		: integer := 13;	-- 0x202E  byte, lane2, read-only
+	CONSTANT RD_TYPEPUSH	: integer := 14;	-- entry Cycle 1, enable = type_push_w
+	CONSTANT NRD_BYTE	: integer := 15;	-- indices 0..14 are byte-wide
+	CONSTANT RD_BTCMPR0	: integer := 15;	-- 0x2020  word
+	CONSTANT RD_BTCMPR1	: integer := 16;	-- 0x2024  word
+	CONSTANT RD_BTCAPR	: integer := 17;	-- 0x2028  word
+	CONSTANT NRD		: integer := 18;
 
 	type rd_byte_array_t is array (0 TO NRD_BYTE-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 
@@ -523,6 +551,12 @@ BEGIN
 		-- third PLL had no consumer and Quartus pruned it. Expect THREE clocks in
 		-- the Timing Analyzer from this phase on, not two.
 		divclk_i			=> accelclk_w,
+
+		-- Phase 9C: the interrupt handshake, closing the loop the two halves
+		-- were each verified for separately (9A leaf, 9B core-level).
+		intr_i				=> intr_w,
+		inta_o				=> inta_w,
+		gie_o				=> gie_w,
 
 		--Data bus (Phase 5B)
 		dbus_addr_o			=> dbus_addr_w,
@@ -706,6 +740,17 @@ BEGIN
 	rd_en_w(RD_BTCMPR0) <= sfr_cs_w(CS_BTCMPR0) AND dbus_MemRead_w;
 	rd_en_w(RD_BTCMPR1) <= sfr_cs_w(CS_BTCMPR1) AND dbus_MemRead_w;
 	rd_en_w(RD_BTCAPR)  <= sfr_cs_w(CS_BTCAPR)  AND dbus_MemRead_w;
+	-- Phase 9C. IE/IFG/TYPE share word 11, split by A1..A0 -- the map's first
+	-- three-register word (F15's byte addressing again). TYPE is read-only in
+	-- hardware (REQ p14): it has a reader and NO write path anywhere.
+	-- RD_TYPEPUSH is the odd one out by design: enabled by the controller's
+	-- push strobe during entry Cycle 1, when the core's annul keeps MemRead
+	-- and MemWrite both low -- so it can never collide with the CPU or with
+	-- any reader, and the onehot check below now watches that claim.
+	rd_en_w(RD_IE)       <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w;
+	rd_en_w(RD_TYPEPUSH) <= type_push_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -718,6 +763,10 @@ BEGIN
 	rd_byte_w(RD_PB)   <= portpb_w;
 	rd_byte_w(RD_BTCTL1) <= btctl1_rd_w;
 	rd_byte_w(RD_BTCTL2) <= btctl2_rd_w;
+	rd_byte_w(RD_IE)       <= intc_ie_rd_w;
+	rd_byte_w(RD_IFG)      <= intc_ifg_rd_w;	-- the MASKED view (falsified A6)
+	rd_byte_w(RD_TYPE)     <= intc_type_rd_w;
+	rd_byte_w(RD_TYPEPUSH) <= type_capt_w;		-- frozen at the accept edge (9A)
 
 	-- Zero-extend each byte register to the full bus width. This IS assumption
 	-- A11, expressed once, in the only place it belongs. Phase 8B: the range is
@@ -782,12 +831,14 @@ BEGIN
 
 		assert hot_v <= 1
 			report "RV32IMscMCU: " & integer'image(hot_v) & " drivers of data_bus_w " &
-				   "are active at once, so the bus resolves to 'X'. The three " &
-				   "families are: the CPU (MemWrite), the eight readable registers " &
-				   "(CS . MemRead . lane), and the terminator (neither). MemRead and " &
-				   "MemWrite come from CONTROL and are never both asserted, so a " &
-				   "count above one means either a chip-select/lane term in rd_en_w " &
-				   "or the terminator's complement in term_en_w."
+				   "are active at once, so the bus resolves to 'X'. The families " &
+				   "are: the CPU (MemWrite), the readable registers " &
+				   "(CS . MemRead . lane), the TYPE push (entry Cycle 1, when the " &
+				   "core's annul keeps MemRead AND MemWrite low), and the " &
+				   "terminator (none of the above). A count above one means a " &
+				   "chip-select/lane term in rd_en_w, the terminator's complement " &
+				   "in term_en_w, or a core annul gate that stopped holding during " &
+				   "the push."
 			severity warning;
 
 		-- The other failure mode, and the one that produces 'Z' rather than 'X'.
@@ -831,6 +882,43 @@ BEGIN
 		btcnt_o		=> open
 	);
 
+	--=======================================
+	-- Interrupt Controller -- Phase 9C (REQ p13/p14 onto Figure 5's bus)
+	--=======================================
+	-- Clocked from pclk_w like every peripheral -- F11's own words: "the other
+	-- modules' registers are DFF based on SMCLK". The INTR/INTA/TYPE handshake
+	-- with the core is sound because pclk_w IS mclk_w today (A19, one 20 MHz
+	-- net); if B3 ever splits them, the handshake AND bt_ifg_set_i need CDC --
+	-- recorded in DOC/02 section 4.3.
+	--   The p13 diagram draws CS and INTA active-low; this design's decoder
+	-- produces active-high chip selects everywhere, and the controller was
+	-- built (9A) and verified to that convention. INTA is active-low as drawn.
+	--   Sources: bt_ifg_set_w is Phase 8B's event pulse, consumed at last;
+	-- key_pressed_w is Phase 6C's normalized pressed level -- the controller
+	-- fires on its FALLING edge, the release (DOC/03 section C). UART events
+	-- stay at their '0' defaults until Phase 12.
+	INTC : interrupt_ctrl
+	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+	PORT MAP (
+		clk_i			=> pclk_w,
+		rst_i			=> sys_rst_w,
+		cs_i			=> sfr_cs_w(CS_INTC),
+		MemWrite_i		=> dbus_MemWrite_w,
+		lane0_i			=> lane0_w,
+		lane1_i			=> lane1_w,
+		data_i			=> data_bus_w,
+		bt_ifg_set_i	=> bt_ifg_set_w,
+		key_pressed_i	=> key_pressed_w,
+		gie_i			=> gie_w,
+		inta_i			=> inta_w,
+		intr_o			=> intr_w,
+		type_push_o		=> type_push_w,
+		type_capt_o		=> type_capt_w,
+		ie_o			=> intc_ie_rd_w,
+		ifg_o			=> intc_ifg_rd_w,
+		type_o			=> intc_type_rd_w
+	);
+
 	-- Which SFR words actually have a peripheral behind them today. Phase 6A
 	-- attached the four GPO words; Phase 8B the timer's four (a write to BTCAPR
 	-- reaches the timer and is IGNORED there by design -- capture hardware owns
@@ -842,10 +930,13 @@ BEGIN
 	timer_cs_w <= sfr_cs_w(CS_BTCTL)   OR sfr_cs_w(CS_BTCMPR0) OR
 				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
 
+	intc_cs_w <= sfr_cs_w(CS_INTC);		-- Phase 9C: word 11 has a peripheral now
+
 	-- Which SFR words answer a READ today: PORT_SW and PORT_PB always, the four
-	-- GPO words when read-back is enabled, and the timer's four words.
+	-- GPO words when read-back is enabled, the timer's four words, and the
+	-- interrupt controller's word (Phase 9C).
 	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
-					 OR timer_cs_w;
+					 OR timer_cs_w OR intc_cs_w;
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -870,20 +961,21 @@ BEGIN
 					told_rd_v := TRUE;
 					report "RV32IMscMCU: an SFR READ reached a word with no readable " &
 						   "register behind it and returned zero. PORT_SW, PORT_PB, the " &
-						   "seven GPO read-backs and the Basic Timer's five registers DO " &
-						   "answer; this is the USART or the interrupt controller. " &
-						   "Once per run." severity note;
+						   "seven GPO read-backs, the Basic Timer's five registers and " &
+						   "the interrupt controller's IE/IFG/TYPE DO answer; this is " &
+						   "the USART (Phase 12). Once per run." severity note;
 				end if;
 
 				-- WRITES: only the four GPO words are implemented. A write to any
 				-- other SFR word really is discarded, and that is worth saying.
 				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
-				   and timer_cs_w = '0' and not told_wr_v then
+				   and timer_cs_w = '0' and intc_cs_w = '0' and not told_wr_v then
 					told_wr_v := TRUE;
 					report "RV32IMscMCU: an SFR WRITE reached a word with no peripheral " &
-						   "behind it yet and was discarded. The seven GPO ports and the " &
-						   "Basic Timer DO take their writes; this is the USART or the " &
-						   "interrupt controller. " &
+						   "behind it yet and was discarded. The seven GPO ports, the " &
+						   "Basic Timer and the interrupt controller (IE/IFG; TYPE is " &
+						   "read-only by REQ p14) DO take their writes; this is the " &
+						   "USART (Phase 12). " &
 						   "Note PORT_PB is READ-ONLY, so a write there is discarded by " &
 						   "design, not by omission. Once per run."
 						severity note;
@@ -912,6 +1004,7 @@ BEGIN
 	-- any of these addresses off-lane, so nothing observable changes.
 	lane0_w <= (NOT dbus_addr_w(1)) AND (NOT dbus_addr_w(0));	-- word base + 0
 	lane1_w <= (NOT dbus_addr_w(1)) AND      dbus_addr_w(0);	-- word base + 1
+	lane2_w <=      dbus_addr_w(1)  AND (NOT dbus_addr_w(0));	-- word base + 2 (Phase 9C: TYPE)
 
 	-- PORT_LEDR, 0x2000 -> LEDR7..LEDR0
 	P_LEDR : gpo_port

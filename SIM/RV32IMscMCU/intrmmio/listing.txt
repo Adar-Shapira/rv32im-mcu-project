@@ -1,0 +1,30 @@
+Directed MCU-level interrupt test -- tools/gen_intr_mmio_test.py
+96 instructions; a real KEY1 release and a real timer EQU0.
+
+The bench's one job: when [0x208]=1 is stored, press KEY1 for a few
+cycles and release. Everything else is the program and the hardware.
+
+  READY marker address = 0x208   (store at instr 47)
+  ISR_KEY1 = 0x0124 -> DTCM word 5 (TYPE 0x14)
+  ISR_BT   = 0x0160 -> DTCM word 4 (TYPE 0x10)
+  BT period: BTCMPR0=200 -> EQU0 every 201 pclk
+
+Expected DTCM after the sentinel -- 14 stores, ALL EXACT:
+  [0x0010] = 0x160
+  [0x0014] = 0x124
+  [0x0100] = 0x00
+  [0x0104] = 0x0c
+  [0x0108] = 0x00
+  [0x010c] = 0x01
+  [0x0110] = 0x5d
+  [0x0180] = 0x14
+  [0x0184] = 0x08
+  [0x0188] = 0x00
+  [0x018c] = 0x00
+  [0x0200] = 0x01
+  [0x0204] = 0x01
+  [0x0208] = 0x01
+
+Derived twice: declared here, and reproduced by executing the program
+against model_interrupt_ctrl.Intc + model_basic_timer.Timer composed
+on the bus with the 9B entry protocol emulated between them.

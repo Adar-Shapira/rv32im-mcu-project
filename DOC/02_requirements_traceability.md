@@ -505,6 +505,30 @@ interpreter emulates the whole protocol as the second derivation. Design points:
   GIE-set side door at the same edge (rule f). An *annulled* reti — the return address itself
   holding one — is masked from the side door.
 
+### 4.5 What Phase 9C wired — the two halves onto the bus
+
+**[OUR CODE]** `RV32IMscMCU.vhd` only; no peripheral or core logic changed. Verified end to end by
+`tb_intr_mmio.vhd` over a program from `tools/gen_intr_mmio_test.py`, whose second derivation is
+the two **already-vetted models composed** (`Intc` + `Timer` on one emulated bus with the §4.4
+protocol between them) — nothing re-modelled.
+
+- `IE`/`IFG`/`TYPE` are readers 11/12/13 in the existing Phase 6B structure — `CS_INTC` with lanes
+  0/1/**2** (`lane2_w` is new: TYPE at 0x202E is the map's first base+2 register). TYPE has a
+  reader and **no write path anywhere** (REQ p14: read-only).
+- **The TYPE push is bus driver `RD_TYPEPUSH`** — one more `BidirPin` on the one shared bus
+  (Hanan's "mandatory … bi-directional bus" answer applies to it like to every reader), enabled by
+  the controller's push strobe instead of a `CS·MemRead` term. It cannot collide: during entry
+  Cycle 1 the core's annul holds MemRead **and** MemWrite low, and the `onehot_check` now watches
+  exactly that claim.
+- The controller instance sits on `pclk_w` — **F11 verbatim** ("the other modules' registers are
+  DFF based on SMCLK"), which supersedes §4.3's earlier CPU-clock phrasing; sound because
+  `pclk_w` *is* `mclk_w` today (A19). If B3 splits them, the INTR/INTA/TYPE handshake **and**
+  `bt_ifg_set_i` all need CDC.
+- Sources: `bt_ifg_set_w` (Phase 8B's pulse, consumed at last) and `key_pressed_w` (Phase 6C's
+  normalized level; the controller fires on its falling edge = the release). The p13 drawing shows
+  CS and INTA active-low; the CS here is active-high like every decoder output since Phase 5A — a
+  recorded convention difference, not a behavioural one. INTA is active-low as drawn.
+
 ---
 
 ## 5. Division accelerator

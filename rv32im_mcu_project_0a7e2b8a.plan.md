@@ -440,7 +440,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `timer/` images, `do run_timer_mmio.do`** |
 | **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
 | **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — stage `intr/` images, `do run_intr_core.do`.** Report tp1/tp3 and the R3 deferral (the F13 number) |
-| 9C Controller onto the bus | Yehonatan | Adar | CS_INTC, lanes 0/1/2, the TYPE push reader, sources |
+| **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `intrmmio/` images, `do run_intr_mmio.do`.** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
@@ -2484,6 +2484,48 @@ interpreter emulates the full protocol as the second derivation and aborts on di
 Gaps: **G-304 closed at the core level.** Phase 9C wires the two proven halves together on the bus
 (CS_INTC, lanes 0/1/2, the TYPE-push BidirPin, `bt_ifg_set_w`, `key_pressed_w`, `gie_o`/`intr`/
 `inta` between core and controller) — after that the Interrupt-based IO benchmarks finally run.
+
+### Phase 9C — the two halves onto the bus  ·  **built, awaiting verification**
+
+**Files:** `RV32IMscMCU.vhd` only (plus one stale comment in `RV32IM_CORE.vhd`);
+`tools/gen_intr_mmio_test.py`, `SIM/RV32IMscMCU/intrmmio/{ITCM,DTCM}.hex + listing.txt`,
+`TB/RV32IMscMCU/tb_intr_mmio.vhd`, `SIM/RV32IMscMCU/run_intr_mmio.do` new. **Nothing rewritten:**
+the controller is 9A's, the FSM is 9B's, the readers extend Phase 6B's structure, and the sources
+are the wires 6C and 8B left waiting.
+
+- `IE`/`IFG`/`TYPE` = readers 11/12/13 on `CS_INTC`, lanes 0/1/**2** (`lane2_w` new — TYPE is the
+  map's first base+2 register). TYPE is read-only in hardware: a reader, no write path.
+- **The TYPE push is bus driver 14** — a real `BidirPin` on the one shared bus, per Hanan's
+  "mandatory … bi-directional bus" answer, enabled by the push strobe. It cannot collide because
+  the core's annul holds MemRead and MemWrite low in Cycle 1, and `onehot_check` now watches
+  exactly that claim (its message text names the new family).
+- **Two small hidden-remark corrections while wiring:** the controller sits on `pclk_w` — F11's
+  own words ("the other modules' registers are DFF based on SMCLK") supersede 9A's CPU-clock
+  phrasing, sound under A19 with the B3-split caveat now covering the whole handshake; and the two
+  Phase-8B/7B2 "deliberately unconsumed" comments (`bt_ifg_set_w`, `div_busy_w`) were retired —
+  both signals now have their intended consumers.
+
+**Verification — the first test with no emulation anywhere in the path:** the bench presses KEY1
+once when the program stores its ready marker, and everything else is hardware: pin → KEYCOND →
+release-edge latch → INTR → entry → TYPE over the bus → the program's own vector table → ISR bus
+RMW (`and`-mask, never `andi` — defect 1) → reti; then the timer repeats it with no pin at all —
+`bt_ifg_set_w` consumed, and rule a's auto-clear observed from software (the BT ISR reads IFG = 0).
+**All 14 expected stores are exact — no ranges** — because both interrupt moments are pinned by the
+program, not by bench timing. Second derivation: the program executed against
+`model_interrupt_ctrl.Intc` + `model_basic_timer.Timer` **composed** on one emulated bus with the
+9B protocol between them — the vetted models reused, not re-derived. Agreed on the first run.
+
+**Adar's results — Phase 9C**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| stage `SIM\RV32IMscMCU\intrmmio\*.hex` → `app_bin`, `do run_intr_mmio.do` | `VERDICT: PASS`, failed 0 | |
+| the bus one-hot warning | **never fires** — the TYPE push's collision proof | |
+| re-run Run 2 | four counts unchanged (no old benchmark raises INTR; the reti word appears only in the interrupt suite — scanned) | |
+
+Gaps: **Phase 9 complete as built.** The mandatory-path phases left are 10 (the Interrupt-based IO
+benchmarks on exactly this hardware — Adar), then 13-16. P2/Q4 (`RXIFG`'s two TYPE codes) remains
+A23 until Hanan answers; A17 (BTCTL2 read-only?) unchanged.
 
 ## Phase 10 — Single-cycle benchmark progression  ·  **Adar runs**
 

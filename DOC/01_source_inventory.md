@@ -260,7 +260,7 @@ supplied files, which is why the diffs are line counts rather than whole files.
 | `MUL16.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL_GEN.vhd` | new / other lab | **derived from `PLL.vhd`** — four wizard constants promoted to generics; `PLL.vhd` itself left byte-identical. |
-| `RV32IM_CORE.vhd` | Lab 5 | **extended** — 440 changed line(s) vs the Lab 5 single-cycle core |
+| `RV32IM_CORE.vhd` | Lab 5 | **extended** — 438 changed line(s) vs the Lab 5 single-cycle core |
 | `RV32IMscMCU.vhd` | new / other lab | **new** — §3 requires a structural top. Pattern from `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd`. |
 | `SYNC.vhd` | new / other lab | **new** — Figures 10a/10b. Searched: no synchroniser in the material (`IFETCH.vhd`'s "rst_i synchronization" is a single flop, not one). |
 | `aux_package.vhd` | Lab 5 | **extended** — 435 changed line(s) vs the Lab 5 single-cycle core |

@@ -140,13 +140,11 @@ ARCHITECTURE structure OF RV32IM_CORE IS
 	SIGNAL div_start_w			: STD_LOGIC;	-- Figure 3's DIVstart, from CONTROL
 	SIGNAL div_signed_w			: STD_LOGIC;
 	SIGNAL div_rem_w			: STD_LOGIC;
-	-- div_busy_w is DELIBERATELY UNCONSUMED for now, and is not dead code to be
-	-- tidied away: Phase 9 needs it. Hanan's forum answer F13 -- an interrupt
-	-- arriving during DIV/REM waits for BUSY to fall -- is implemented by blocking
-	-- interrupt entry on exactly this signal. The stall does NOT use it (see the
-	-- note at pc_hold_w: busy still reads low for several MCLK cycles after a div
-	-- issues, which is why done_o exists). Expect one 'signal has no load' warning
-	-- from synthesis until Phase 9 lands.
+	-- div_busy_w: CONSUMED SINCE PHASE 9B -- it is one of the two terms of the
+	-- interrupt accept gate (accept_w below), implementing Hanan's forum answer
+	-- F13: an interrupt arriving during DIV/REM waits for BUSY to fall. The
+	-- stall still does NOT use it (see the note at pc_hold_w: busy reads low
+	-- for several MCLK cycles after a div issues, which is why done_o exists).
 	SIGNAL div_busy_w			: STD_LOGIC;
 	SIGNAL div_done_w			: STD_LOGIC;
 	SIGNAL div_quot_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
