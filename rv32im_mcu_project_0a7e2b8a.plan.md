@@ -282,8 +282,9 @@ wrong — say so.
 
 1. Execute `compile.do`. Expect 0 errors and the same three warnings.
 
-   **Then six tests that need nothing at all** — no images, no `app_bin`, and they do not care what
-   `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is meaningful:
+   **Then seven tests that need nothing at all** — no images, no `app_bin`, and they do not care
+   what `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is
+   meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
    - `do run_decode.do` → **Phase 5A**, the address decoder, exhaustive over all 16,384 addresses.
@@ -295,6 +296,8 @@ wrong — say so.
      0, operations 57.
    - `do run_timer.do` → **Phase 8A**, the Basic Timer. Expect `VERDICT: PASS`, failures 0, and the
      printed FREQ_5K note (4008 cycles = 4990 Hz — a finding, not a bug).
+   - `do run_intc.do` → **Phase 9A**, the Interrupt Controller. Expect `VERDICT: PASS`, failures 0.
+     Quick — a few microseconds of simulated time.
    - `do run_div.do` → **Phase 7A**, the division accelerator. Expect `VERDICT: PASS`, failures 0,
      **65536** operations at N=8 and **517** at N=32. This is the long one — tens of seconds, because
      it sweeps every one of the 65536 operand pairs; it prints a progress line every 16 dividends so
@@ -435,7 +438,9 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
 | **8A Basic Timer core** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_timer.do`.** B4 mostly settled from the benchmarks; B2 still open for `SEC_PERIOD` |
 | **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `timer/` images, `do run_timer_mmio.do`** |
-| 9 Interrupt controller | Yehonatan | Adar | waits on **P2** (`RXIFG`/two TYPEs). Note **A6 was falsified** — `IFG` is the masked value |
+| **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
+| 9B CPU-side protocol | Yehonatan | Adar | entry FSM, GIE=`gp[0]`, `tp`, `reti`, the vector fetch — next |
+| 9C Controller onto the bus | Yehonatan | Adar | CS_INTC, lanes 0/1/2, the TYPE push reader, sources |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
@@ -643,6 +648,62 @@ The answers make this *sharper*: `SMCLK = 20 MHz` is now Hanan's own statement, 
 repeats "1sec" for the same constant. Meanwhile `FREQ_5K = 500` at ÷8 gives exactly the 5 kHz test4's
 PWM needs — so ÷8 is right and it is `SEC_PERIOD` or its comment that is off by a factor of 8.
 **Still the question to ask, and now with three independent citations behind it.**
+
+---
+
+# 1.6 NEW — the recorded prep session, transcript received 2026-08-25
+
+Hanan's recorded preparation meeting for the final project. The raw speaker-tagged transcript
+(Hebrew ASR; **our copy cuts off mid-way through the closing bonus discussion**) arrived on
+2026-08-25. The full digest with verbatim quotes is in `DOC/03_open_questions.md` §"THE RECORDED
+PREP SESSION"; this section is the consequences.
+
+**Evidentiary rank:** the lecturer's own words about this project — same tier as the forum answers.
+Oral, so the PDF wins any conflict; every checkable claim was cross-checked against pp. 13–15 of
+the definition PDF and against the built tree, and **no conflict was found**.
+
+## 1.6.a The bottom line: it is overwhelmingly corroboration, and zero code changed
+
+The session walks through exactly the architecture this plan already implements — the bit-13 region
+split, the one-CS-per-word decoder with `A0` splitting the HEX pairs, the in-hardware 7-segment
+encoder, the load-only GPI, the vector table at DTCM 0 with TYPE as the vector **byte address**
+(timer → `0x10`), the masked `IFG`, `GIE = gp[0]` / return address in `tp`, the 2-cycle entry +
+1-cycle `reti` protocol inside the control unit, the 32-cycle unsigned divider whose `busy` holds
+the PC with write-back in the release cycle, the slow→fast CDC, the timer's three modes, and
+`SHORT_DELAY = 4`. Full table in DOC/03 §A. The one default the transcript could have flipped —
+`GEN_GPO_READBACK` — was **already `TRUE`**, so no RTL edit came out of the session.
+
+Sharpest single corroboration: his capture walkthrough — *"initialise the select to 3, then set it
+to 2, and I have created a rising event"* — is bit-for-bit the `BASIC_TIMER.vhd:331-335` CAPISEL
+mux (2 = VCC, 3 = GND). The BTCTL2 raster reading now has independent oral confirmation.
+
+## 1.6.b Four things it upgrades
+
+| Item | Was | Now |
+| --- | --- | --- |
+| **A15** GPO read-back | our interpretation of Figure 5's tri-state | **his own description**: *"I can write to the LEDs, read the value of the LEDs"* — a load returns the latch content. `GEN_GPO_READBACK => TRUE` stands; the ask in `DOC/05` is now confirmation-only |
+| **B3** ACCELCLK | "what frequency is expected?" | **no number is mandated — it is our design decision**: *"we bring it to the maximum possible"*, *"theoretically ×5, 6, 7, 8"*, and decisively *"how fast the accelerator finishes is up to you"*. Keep 50 MHz until Phase 14 measures `div_accel`'s real Fmax, then raise toward it |
+| **B1** the board | either/or unknown | **both boards are equivalent at the interface level** — *"it doesn't matter, the same on both"* (he demonstrates with six 7-segment modules, which is what we drive). Only the pin table still needs the answer |
+| **Q10/G-327** test4's capture | our reading of the `0x07`/`0x06` constants | the corrected copy's GND→VCC sequence is **the sequence he himself describes**; the shipped test4 never performs the second write |
+
+## 1.6.c The one genuinely new hardware fact — for Phase 9
+
+**Every interrupt request event is a rising 0→1 edge, deliberately** (*"I deliberately simplify
+it... all the request signals go from zero to one"*) — **and for the pushbuttons that means the
+request fires on RELEASE**: the debounced KEY line falls on press, rises on release, and his demo
+places the request at the release. Consequence, recorded before the wrong edge gets built: clock
+the p13 IS flop from the **debounced KEY line itself**, not from `key_pressed_w` — that signal is
+inverted (`KEY_ACTIVE_LOW`), so its rising edge is the *press* and would fire every KEY interrupt
+one event early. The PDF is silent on KEY polarity; the transcript is currently the only source.
+Details and quotes: DOC/03 §C.
+
+## 1.6.d Bonus logistics
+
+Both bonuses require **finishing the base first and registering with Hanan by a date he will
+announce**. Pipeline bonus: a dedicated ~half-hour lecture for registrants. UART bonus (20%):
+registrants **receive ready HDL from Hanan** to adapt and integrate as a bus peripheral —
+presumably the already-shipped `USART Material/UART_FPGA_option{1,2}`, **to be confirmed at
+registration** before Phase 12's register layer is built on option 1.
 
 ---
 
@@ -2298,17 +2359,82 @@ Phase 9's integration test, since they need IFG/IE/TYPE to advance.
 - Per-source flag = a D flop with `D` tied to `'1'`, **clocked by the source edge**, async-cleared —
   exactly the p13 diagram. No separate edge detector is drawn, but KEY1-3 still need synchronising
   into `mclk` first.
-- `IFG` holds the raw latched flag; `IE` masks only the path toward `INTR`. `INTR = OR(irq AND eint)
-  AND GIE`.
-- Fixed priority, TYPE `04h`–`1Ch`.
-- CPU entry FSM, two cycles, triggered by the **falling edge of `INTA`**: cycle 1 clears
-  `GIE = gp[0]`, sets `INTA`, drives `TYPE` onto the data bus into a dedicated register; cycle 2
-  clears the synchronous flag and emulates `load` + `jalr` to `Mem[TYPE]` with `R[tp]` = return
-  address. Return: `jalr zero,0(tp)` sets `GIE`.
+- **Request events are rising 0→1 edges for every source, and the KEY request fires on RELEASE** —
+  the prep session (§1.6.c): the debounced KEY line falls on press, rises on release, and the
+  release edge is the request. So the IS flop clocks from the **debounced KEY line itself**, never
+  from `key_pressed_w` — that signal is inverted, its rising edge is the press, and using it fires
+  every KEY interrupt one event early. The PDF is polarity-silent; the transcript is the only
+  source, so this is the first thing to confirm if a KEY ISR ever fires at the "wrong" moment.
+- **`IFG` reads the MASKED value** — `IFGx = irq AND eint`, the p13 AND gate, confirmed by the
+  forum (the answer that falsified A6) and again by the prep session. The flop output `irq` is the
+  raw latch; what the register exposes is the AND. `INTR = OR(IFGx) AND GIE`.
+- Flag clearing per p13's notes: `BTIFG` auto-clears when serviced; `RXIFG` when serviced or
+  `RXBUF` read; `TXIFG` when serviced or `TXBUF` written; `KEYiIFG` **only by software** (the
+  other three may also be cleared by software).
+- Fixed priority, TYPE `04h`–`1Ch`; RESET is TYPE `00h`, **NMI — no local and no global mask**
+  (p14 table + prep session).
+- CPU entry FSM, two cycles, **multicycle unit inside the control unit** (p15): `INTA` idles high
+  and falls on the cycle **after** `INTR` rises; the FSM triggers on that falling edge. Cycle 1
+  clears `GIE = gp[0]`, restores `INTA` to `'1'`, drives `TYPE` onto the **data** bus into a
+  dedicated register (the address bus cannot carry it — the CPU is the only bus master, p15's red
+  note); cycle 2 clears the synchronous flag and emulates `load` + `jalr` to `Mem[TYPE]` with
+  `R[tp]` = return address. Return: `jalr zero,0(tp)` sets `GIE`, one cycle.
 - **Exit:** cycle-accurate protocol assertions; simultaneous requests, priority, masking, nesting
   deferral while `GIE = 0`, manual and automatic clear, interrupts around loads, stores and divides.
 
-Gaps: G-303, G-304. Blocked on **Q7**.
+Gaps: G-303, G-304. Blocked on **Q7** — which affects only the two UART rows of the vector table;
+the KEY/timer half of the controller is fully specified and buildable now.
+
+### Phase 9A — the controller  ·  **built, awaiting verification**
+
+**Files:** `DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd` (new), `TB/RV32IMscMCU/tb_interrupt_ctrl.vhd` (new),
+`SIM/RV32IMscMCU/run_intc.do` (new), `tools/model_interrupt_ctrl.py` (new); `aux_package.vhd`,
+`compile.do` and the `.qsf` updated. The leaf only — the CPU-side protocol is 9B, the bus wiring is
+9C; sources and the INTA handshake are testbench-driven here.
+
+**No lab precedent — searched and recorded.** The only interrupt hit in Labs 3/4/5 is a student
+explanation document, zero RTL. Built from four sources: the **p13 diagram taken literally** — raw
+request latches (D='1' flops) behind AND gates whose outputs the diagram itself labels `IFGx`; the
+**p14 layouts and vector table** (already benchmark-cross-checked in DOC/02 §3.1); the
+**falsified-A6 forum answer** — what `IFG` *reads* is the masked product `irq AND eint`, never the
+raw latch; and the **prep session** (DOC/03 §C) — every request event is a rising 0→1 edge, so the
+KEY request fires on **RELEASE**. The only reused RTL is `SYNC.vhd` (Figure 10a), two-flop per KEY,
+exactly as `DIV_UNIT` reuses it.
+
+**The mid-build correction the process caught:** the first draft gated the *set* path by IE and
+killed pending flags on IE-drop — plausible from the forum answer's wording alone, but the p13
+diagram and the prep session both say raw-latch-plus-masked-view. The plan's own Phase 9 bullets
+pointed back at the sources before anything was committed; the draft was rebuilt to the sourced
+structure, and the wrong structure now lives on as **mutant M1**, killed by the A22 comeback check
+(P2b). Same for the KEY edge: press-edge detection is **mutant M8**, killed by P8a — DOC/03's exact
+warned-against bug, now permanently fenced.
+
+**What is deliberately visible in the semantics:** a masked request is invisible everywhere (read,
+TYPE, INTR) but **remembered** — it reappears when IE is enabled (**A22**; no benchmark can tell,
+they all clear IFG before enabling, and P3 proves that exact init pattern kills the memory).
+Software writes are **W0C** (**A24** — the p13 flop has no software-set path; the ISR
+read-modify-write idiom works exactly). `RXIFG` presents TYPE `08h` for its two codes (**A23** —
+DOC/02 §4.1: both vector-table words hold the same handler in all four benchmarks). BT auto-clears
+at service, KEYs never do (rules a and d). TYPE freezes at the INTA accept edge and is pushed one
+cycle later for the MCU level to drive onto the data bus (REQ p15: the CPU is the only bus master).
+
+**Verification:** `tools/model_interrupt_ctrl.py` — 0 failures through the same ten phases, and
+**twelve faithful mutations all caught**, each by the phase built for it: set-gated-by-IE, raw
+readback, write-1-sets, inverted priority, INTR ignoring GIE, auto-clear hitting KEYs, no BT
+auto-clear, press-edge, live TYPE during push, level-set key latch, INTR from raw, TYPE from raw.
+The model also caught one cross-check bug in the phase suite itself before commit (P5d demanded a
+KEY3 flag while KEY3IE was still 0).
+
+**Adar's results — Phase 9A**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_intc.do` | `VERDICT: PASS`, failures 0 | |
+| P2b (A22 comeback) and P3 (init pattern) both pass | yes — they check opposite directions of the same latch | |
+| P8a/P8b | no flag on press-and-hold, flag on release | |
+
+Gaps: **G-303 closed for the controller leaf.** The `RXIFG` dual-TYPE choice is **A23**; the
+masked-request memory is **A22**; G-304 (CPU-side FSM) is Phase 9B.
 
 ## Phase 10 — Single-cycle benchmark progression  ·  **Adar runs**
 
@@ -2318,11 +2444,19 @@ Gaps: G-303, G-304. Blocked on **Q7**.
   older one with two extra defects, kept for auditability.
 - **test4's capture never fires**: `capture_init` and `capture` both write `0x07`, so `CAPISEL` stays
   at GND. Verify capture with a separately-marked corrected copy writing `0x06`. Q10.
+  **Strengthened by the prep session (§1.6.b):** Hanan's own capture walkthrough is "initialise the
+  select to 3, then set it to 2" — the exact GND→VCC rising event the corrected copy performs and
+  the shipped benchmark never does. The corrected copy is now his described intent, not our guess.
 - **Exit:** all mandatory checks pass with saved logs, memory diffs and report-ready waveforms.
   **G-204**: `mem_dump.do` exports 1024 of 2048 DTCM words — extend it or document the limit.
 
 ## Phase 11 — Pipeline port  ·  bonus 10%  ·  Yehonatan writes · Adar verifies
 
+- **Process precondition from the prep session (§1.6.d):** the bonus is conditional on finishing
+  the base project and **registering with Hanan by a date he will announce**; registrants get a
+  dedicated ~half-hour lecture on moving the core, the accelerator and the peripherals to
+  pipeline. Register as soon as the base is done — the lecture is reference material this phase
+  currently does not have.
 - Fork only after the single-cycle system is stable. Reuse the same bus interface, peripherals,
   divider and register maps.
 - The pipeline is **a rewrite, not a derivative** of the baseline — changed-line counts against
@@ -2339,6 +2473,11 @@ Gaps: G-303, G-304. Blocked on **Q7**.
 
 ## Phase 12 — UART  ·  bonus 20%  ·  Yehonatan writes · **Adar needs the cable and the board**
 
+- **Process precondition from the prep session (§1.6.d):** same registration gate as Phase 11, and
+  registrants **receive ready HDL from Hanan** to adapt and integrate as a bus peripheral. That is
+  presumably the already-shipped `USART Material/UART_FPGA_option{1,2}` — **confirm at
+  registration whether a further handout supersedes them** before building the register layer on
+  option 1.
 - Base: `UART_FPGA_option1` (jakubcabal, MIT). Keep the licence header.
 - **Most of the register layer is new work** — neither supplied option has separate `RXBUF`/`TXBUF`,
   overrun logic, a parity-error output port, an aggregate `BUSY`, an `SWRST`, a runtime baud
@@ -2517,7 +2656,7 @@ before/after line pairs.
 | --- | --- |
 | `DOC/01_source_inventory.md` | Every component: supplied or not, exact path, provenance, reuse verdict |
 | `DOC/02_requirements_traceability.md` | Every address, bit field, mode and clock with its source; four verification cross-checks; ten assumptions |
-| `DOC/03_open_questions.md` | The long record: Q1–Q14 with a provisional decision each, **plus the full transcription of Hanan's forum answers** and what each closes or falsifies |
+| `DOC/03_open_questions.md` | The long record: Q1–Q14 with a provisional decision each, **plus the full transcription of Hanan's forum answers** and what each closes or falsifies, **plus the digest of the recorded prep session** (received 2026-08-25) with its verbatim quotes |
 | `DOC/05_questions_for_hanan.md` | **The sendable list** — only what is still open after the forum. 18 items, one "Ask" line each, grouped by what they block, plus a 23-row "do not re-ask" table |
 | `DOC/04_baseline_runbook.md` | The Windows procedure, staging script, and exact expected numbers. **Rewritten 2026-08-24** for the replaced reference: sections 2, 4, 5.2, 6 and 8 all changed, and section 8.1b covers the Phase 3A/3B measurement |
 | `SIM/baseline_reference/` | `compile.do`, `run_test.do`, `mem_dump.do` — replacements for the scripts the reference lost, reaching into `Auxiliary/` read-only |

@@ -85,6 +85,11 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 # registers sit on the bus, and PWM_o / CAPIN1_i / CAPIN2_i are new top-level
 # pins waiting on B1/F18 for locations.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
+# Phase 9A. The Interrupt Controller (IE/IFG/TYPE, the falsified-A6 latches,
+# priority onto TYPE, INTR/INTA). PRUNED UNTIL PHASE 9C: nothing instantiates
+# it yet -- listed so the file set stays complete, synthesized as an unused
+# entity. Phase 9C wires CS_INTC, the sources and the CPU handshake.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd

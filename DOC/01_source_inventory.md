@@ -237,7 +237,7 @@ continuation of Lab 5, so the honest question about any file is which parts are 
 are new. Regenerate this table by diffing `DUT/RV32IMscMCU/` against
 `Auxiliary/Lab 5/DUT/RV32IM_sc/`.
 
-**11 of the 21 RTL files come straight from Lab 5** — the entire CPU: fetch, decode,
+**11 of the 22 RTL files come straight from Lab 5** — the entire CPU: fetch, decode,
 execute, data memory, the multiplier, the PLL, and all three packages. Nothing about the core was
 rewritten; every ISA repair, the byte enables and the bus interface are edits **on top of** the
 supplied files, which is why the diffs are line counts rather than whole files.
@@ -256,6 +256,7 @@ supplied files, which is why the diffs are line counts rather than whole files.
 | `HEX_DECODER.vhd` | new / other lab | **Lab 4, used as is** — body byte-identical to `Auxiliary/Lab4/DUT/hex_decoder.vhd` (md5 `56f2f166…`). |
 | `IDECODE.vhd` | Lab 5 | **extended** — 32 changed line(s) vs the Lab 5 single-cycle core |
 | `IFETCH.vhd` | Lab 5 | **extended** — 54 changed line(s) vs the Lab 5 single-cycle core |
+| `INTERRUPT_CTRL.vhd` | new / other lab | **new, Phase 9A** — REQ p13/p14 + the falsified-A6 forum answer + the prep session's release-edge rule (`DOC/03` §C). Searched: no interrupt RTL in Lab 3, 4 or 5. Reuses `SYNC.vhd` for the KEY inputs. |
 | `MUL16.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL_GEN.vhd` | new / other lab | **derived from `PLL.vhd`** — four wizard constants promoted to generics; `PLL.vhd` itself left byte-identical. |
@@ -268,8 +269,9 @@ supplied files, which is why the diffs are line counts rather than whole files.
 
 **What genuinely did not exist in Lab 3, 4 or 5 — verified by searching every `.vhd` under
 `Auxiliary/`:** an address decoder, a GPIO port, a clock tree or any second clock domain, a
-synchroniser, and a divider. Those are the five things the final project adds, and they are exactly
-the five the assignment's own figures introduce (5, 5, 1, 10a/10b, 9).
+synchroniser, a divider, and an interrupt controller. Those are the six things the final project
+adds, and they are exactly the six the assignment's own figures introduce (5, 5, 1, 10a/10b, 9,
+and p13's controller diagram).
 
 **Where Lab 5 DID have a precedent and it is used, it is cited in the file itself.** The clearest
 case is the Phase 7B2 stall: `IFETCH.vhd` holds the PC by feeding `pc_q` back into `next_pc_w`, which

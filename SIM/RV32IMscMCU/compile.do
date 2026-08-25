@@ -45,6 +45,10 @@ vcom -2008 ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
 # Phase 8A. The Basic Timer core -- skeleton from Auxiliary/Lab4/DUT/pwm.vhd.
 # A leaf until Phase 8B wires it in; compiled so its testbench runs.
 vcom -2008 ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
+# Phase 9A. The Interrupt Controller -- no lab precedent exists (searched);
+# built from REQ p13/p14 and the falsified-A6 forum answer. Instantiates SYNC
+# for the KEY inputs, so SYNC must precede it. A leaf until Phase 9C wires it.
+vcom -2008 ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
 # byte-identical to Auxiliary/Lab4/DUT/hex_decoder.vhd, md5
 # 56f2f16645e9bb4643c3a113c36e49c4. Only a provenance header was added.
@@ -81,6 +85,10 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_basic_timer.vhd
 # Phase 8B: needs the generated timer images staged (SIM/RV32IMscMCU/timer/).
 # Runs at either G_ISA_REPAIR setting, like the directed GPIO test.
 vcom -2008 ../../TB/RV32IMscMCU/tb_timer_mmio.vhd
+
+# Phase 9A: zero setup. The falsified-A6 latch, W0C, priority, GIE gating,
+# the INTA handshake with frozen TYPE capture, BT-auto vs KEY-manual clears.
+vcom -2008 ../../TB/RV32IMscMCU/tb_interrupt_ctrl.vhd
 
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.

@@ -441,6 +441,38 @@ Return — latency **one cycle**: as part of executing `jalr zero, 0(tp)` (`reti
 So `INTA` is idle-high, pulses low for exactly one cycle as the trigger, and is driven high again in
 Cycle 1.
 
+### 4.3 What Phase 9A built — the controller leaf
+
+**[OUR CODE]** `DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd`, verified by `tb_interrupt_ctrl.vhd` against
+`tools/model_interrupt_ctrl.py` (twelve faithful mutations, all caught). No lab precedent exists —
+searched, only a student explanation document mentions interrupts. Design points, each carrying its
+source:
+
+- **Raw latch, masked view** — `irq_q` set by the event edge with **no IE gate** (the p13 flop,
+  D='1'), and `ifg_w = irq_q AND ie_q` is the *only* thing read-back, the TYPE encoder and the
+  `INTR` OR-tree ever see. This is the p13 structure taken literally and the falsified-A6 answer
+  honoured: what `IFG` reads is the masked product. The first draft gated the *set* by IE instead —
+  killed and kept as mutant M1. Observable corners recorded as **A22** (masked requests reappear on
+  enable), **A23** (`RXIFG` presents `08h`), **A24** (W0C).
+- **KEY events fire on RELEASE** — the prep session (`DOC/03` §C) is the only polarity source: all
+  request events are rising 0→1 edges of the raw KEY line, which rises when the key is let go. The
+  implementation detects the **falling** edge of the polarity-normalized pressed level — the same
+  physical event on either board polarity — through the Figure 10a two-flop synchronizer
+  (`SYNC.vhd`, reused as in `DIV_UNIT`) plus one history flop. Taking the raw idle-high line into
+  reset-cleared flops would fabricate one spurious "release" after reset; the pressed level idles
+  low, matching reset. Press-edge detection is mutant M8 — DOC/03's exact warned-against bug.
+- **Clearing** — rules a/b/c auto-clear the serviced source's raw latch at the INTA accept edge
+  (`b`/`c` are live but sourceless until Phase 12); rule d exempts the KEYs. A hardware set beats a
+  same-edge software clear, so the ISR read-modify-write idiom can never swallow a new event.
+- **The INTA handshake** — TYPE is frozen into `type_capt_q` at the edge ending the INTA-low cycle
+  and pushed (`type_push_o`) during the following cycle, for the MCU level to drive onto the data
+  bus per REQ p15 (the CPU is the only bus master, so the controller pushes and the CPU captures).
+  Phase 9C owns the BidirPin that does the driving.
+- **Clock domain** — the controller belongs to the CPU clock: INTR/INTA and the bus writes are
+  CPU-side handshakes. `bt_ifg_set_i` arrives from the timer on `pclk_w`; under **A19**
+  (MCLK = SMCLK, one 20 MHz net) that is the same domain today. **If B3 ever splits them, this
+  input needs a pulse CDC** — this sentence is the recorded reminder.
+
 ---
 
 ## 5. Division accelerator
@@ -996,8 +1028,11 @@ Everything in this document that is not cited to a source.
 | A19 | When `MCLK` and `SMCLK` are configured to the same frequency they share **one PLL and one net** | F6 (three instances) and F7 (equal values permitted) taken literally together give two independent PLLs at 20 MHz, across which the core drives a synchronous parallel bus into peripheral registers (F11) with no synchroniser drawn anywhere. Two PLLs on one reference are frequency-identical but phase-unspecified, so that capture cannot be timing-analysed. See §6.1 | Course staff saying the two must be separate nets even at equal frequency. One generic: `SMCLK_SHARES_MCLK => FALSE` |
 | A20 | `BTINT`: `01`→EQU1 and `11`→no source | `00`→EQU0 and `10`→capture are **benchmark-pinned** (`BTINT2=0x02` set exactly when test4 configures capture; every compare test uses 0); EQU1 is the only source left and page 8 says "three options" | Course staff giving a different table — one selected-signal assignment in `BASIC_TIMER.vhd` |
 | A21 | `BTCL0`/`BTCL1` shadow latches load on the bus write | Figure 7's latch-enable label `HEU0` is defined nowhere (open question P1); immediate transfer is indistinguishable in every supplied benchmark, which all configure the compare registers while the timer is held | `HEU0` turning out to mean update-on-EQU0 — one enable term |
+| A22 | A masked interrupt request is invisible but **remembered**: the raw latch keeps it, and setting the IE bit later makes the flag reappear | The p13 diagram's flop has D='1' and no enable — IE lives one AND gate downstream, on the product the diagram itself labels `IFGx`; the prep session restates the same structure ("the flop output irq is the raw latch; what the register exposes is the AND"). No benchmark can tell: all four clear `IFG` while `IE=0` and only then enable — the W0C store clears the raw latches, which `tb_interrupt_ctrl` P3 proves as the exact test1 init pattern | A benchmark (or Hanan) expecting silence when IE is enabled over an uncleared request — the fix is one AND gate on the set path, and mutant M1 already models it |
+| A23 | The one `RXIFG` bit presents TYPE `08h`, never `04h` | One flag serves two vector-table rows (p14); §4.1 shows words 1 and 2 of every benchmark vector table hold the **same** handler, so the choice cannot change behaviour in any supplied program. Open question 4 / P2 stays open for Phase 12, where the UART could tell error from data at the source | Hanan specifying the error code must win — a side latch remembering which event set the bit, Phase 12 |
+| A24 | Software cannot **set** an `IFG` bit — writes are W0C (0 clears the raw latch, 1 leaves it) | The p13 flop has no software-set path drawn; the only software access in any benchmark is the ISR read-modify-write idiom, which W0C serves exactly (and a hardware set beats a same-edge software clear, so a flag arriving between the `lw` and the `sw` survives) | A benchmark or answer requiring software-triggered interrupts — a write-through arm on the latch, and mutant M3 already models it |
 
-Twenty-one assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, and A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin. **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Twenty-four assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — and A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

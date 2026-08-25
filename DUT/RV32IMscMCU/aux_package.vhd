@@ -281,6 +281,46 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- Phase 9A. The Interrupt Controller of REQ p13/p14 (gap G-303): raw
+	-- request latches behind the MASKED view (irq AND eint = IFGx -- the
+	-- falsified-A6 correction), W0C software writes, the p14 priority
+	-- encoder onto TYPE, INTR gated by GIE, the INTA handshake with frozen
+	-- TYPE capture and the rule-a/b/c service auto-clears, and KEY request
+	-- events on the RELEASE edge (DOC/03 section C). No lab contains
+	-- interrupt RTL -- searched; built from the p13 diagram, the p14
+	-- tables, Hanan's forum answers and the prep-session transcript.
+	-- Phase 9B is the CPU side; Phase 9C wires CS_INTC.
+	component interrupt_ctrl is
+		generic(
+			DATA_WIDTH	: integer := 32
+		);
+		PORT(
+			--Inputs
+			clk_i			: IN	STD_LOGIC;
+			rst_i			: IN	STD_LOGIC;
+			cs_i			: IN	STD_LOGIC;
+			MemWrite_i		: IN	STD_LOGIC;
+			lane0_i			: IN	STD_LOGIC;
+			lane1_i			: IN	STD_LOGIC;
+			data_i			: IN	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			bt_ifg_set_i	: IN	STD_LOGIC := '0';
+			key_pressed_i	: IN	STD_LOGIC_VECTOR(3 DOWNTO 1) := "000";
+			rxerr_ev_i		: IN	STD_LOGIC := '0';
+			rx_ev_i			: IN	STD_LOGIC := '0';
+			tx_ev_i			: IN	STD_LOGIC := '0';
+			gie_i			: IN	STD_LOGIC;
+			inta_i			: IN	STD_LOGIC := '1';
+
+			--Outputs
+			intr_o			: OUT	STD_LOGIC;
+			type_push_o		: OUT	STD_LOGIC;
+			type_capt_o		: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			ie_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			ifg_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			type_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
 	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase
