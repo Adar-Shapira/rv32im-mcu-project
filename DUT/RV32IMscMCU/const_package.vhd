@@ -271,6 +271,13 @@ package const_package is
  constant INST_JALR 			:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"67";
  constant INST_JALR_MASK 		:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"707f";
 
+-- reti -- Phase 9B. Not a new opcode: io_map.s defines `.eqv reti jalr zero,0(tp)`
+-- and REQ p15 says the return from interrupt "as part of executing
+-- jalr zero,0(tp)" sets GIE in HW. So reti is the ONE exact jalr encoding
+-- (rd=x0, rs1=x4, imm=0) the hardware additionally recognizes; the jalr
+-- itself executes through the normal path unchanged.
+ constant INST_RETI 			:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"20067";
+
 -- beq
  constant INST_BEQ 				:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"63";
  constant INST_BEQ_MASK 		:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"707f";

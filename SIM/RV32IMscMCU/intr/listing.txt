@@ -1,0 +1,29 @@
+Directed core-level interrupt-protocol test -- tools/gen_intr_core_test.py
+45 instructions; three interrupt rounds (KEY1, BT, KEY1-during-div).
+
+Addresses the testbench needs (BYTE addresses):
+  POLL1    = 0x002c   (tp1 expected in [0x002c, 0x0030])
+  POLL2    = 0x0044
+  DIVPH    = 0x005c   div word = 0x03184fb3
+  POSTDIV  = 0x0064   (tp3 expected in [0x0064, 0x007c])
+  SENTINEL = 0x007c
+  ISR_KEY1 = 0x0080  -> DTCM word 5 (TYPE 0x14)
+  ISR_BT   = 0x009c  -> DTCM word 4 (TYPE 0x10)
+
+Expected DTCM after the sentinel (the testbench holds these):
+  [0x0010] = 0x9c
+  [0x0014] = 0x80
+  [0x0100] = 0x1
+  [0x0108] = 0x1
+  [0x010c] = 0x8e
+  [0x0110] = 0x6
+  [0x0114] = 0x5d
+  [0x0180] = 0x0
+  [0x0188] = 0xb7
+  [0x018c] = 0x0
+  [0x0200] = 0x1
+  [0x0204] = 0x1
+  [0x0104] = [0x0184] = tp1 (range above)
+  [0x0190] = tp3 (range above)
+
+Interpreter (protocol emulated, 3 injections): tp1=0x2c, tp3=0x64 -- both landing where the ranges say.

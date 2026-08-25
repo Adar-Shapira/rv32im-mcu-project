@@ -38,11 +38,29 @@ ENTITY Idecode IS
 		-- so an instantiation that predates the divider behaves exactly as before.
 		DivSel_ctrl_i		: IN 	STD_LOGIC := '0';
 		div_result_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
-		
+
+		-- Phase 9B. The interrupt protocol's two register-file side doors,
+		-- REQ p15 + p13 rules e/f. GIE lives in gp[0] (= RF x3) and the return
+		-- address goes to tp (= RF x4); both writes happen in cycles where the
+		-- normal write port is provably idle -- entry cycles are annulled by the
+		-- core, and reti is a jalr with rd = x0, which the RF guard below
+		-- discards anyway. All defaulted so an instantiation that predates the
+		-- interrupt protocol behaves exactly as before.
+		IntrGieWr_i			: IN	STD_LOGIC := '0';	-- write gp[0] this edge...
+		IntrGieVal_i		: IN	STD_LOGIC := '0';	-- ...with this value ('0' entry, '1' reti)
+		IntrTpWr_i			: IN	STD_LOGIC := '0';	-- write tp this edge...
+		IntrTpVal_i			: IN	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 		--Outputs
 		read_data1_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		read_data2_o		: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-		SignExt_o 			: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)		 
+		SignExt_o 			: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+
+		-- Phase 9B. GIE = gp[0], tapped straight off the register file for the
+		-- interrupt controller's INTR gate (the p13 AND with GIE). A dedicated
+		-- tap, not a read port: both read ports are owned by the instruction's
+		-- rs1/rs2 fields every cycle.
+		gie_o				: OUT	STD_LOGIC
 	);
 END Idecode;
 
@@ -145,7 +163,22 @@ BEGIN
 				RF_q(CONV_INTEGER(rd_w)) <= write_data_w;
 				-- index type is integer so we must use conv_integer for type casting
 			end if;
+			-- Phase 9B: the protocol's side doors, AFTER the normal write so they
+			-- win if both ever named the same register in the same cycle -- which
+			-- cannot happen (entry cycles are annulled; reti's rd is x0), but the
+			-- ordering makes the priority explicit rather than accidental.
+			--   GIE: only bit 0 moves; gp's other 31 bits are untouched, so a
+			--   program using gp as a real global pointer keeps it intact.
+			if (IntrGieWr_i = '1') then
+				RF_q(3)(0) <= IntrGieVal_i;
+			end if;
+			if (IntrTpWr_i = '1') then
+				RF_q(4) <= IntrTpVal_i;
+			end if;
 		end if;
 	end process;
+
+	-- Phase 9B: the GIE tap -- see the port comment.
+	gie_o <= RF_q(3)(0);
 
 END behavior;

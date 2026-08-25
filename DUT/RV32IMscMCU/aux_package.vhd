@@ -104,6 +104,12 @@ package aux_package is
 			clk_i				:IN	STD_LOGIC;
 			divclk_i			:IN	STD_LOGIC := '0';	-- Phase 7B2, Figure 3's divclk
 
+			--Interrupt handshake -- Phase 9B (REQ p15). intr_i arrives already
+			--gated by GIE inside the controller; gie_o is that gate's other half.
+			intr_i				:IN		STD_LOGIC := '0';
+			inta_o				:OUT	STD_LOGIC;
+			gie_o				:OUT	STD_LOGIC;
+
 			--Data-bus master interface -- Phase 5B (G-305). Figure 1's boundary
 			--between the RISC-V core and the BUS Interface Logic. Kept separate
 			--from the Signal-Tap ports below, which clause 7 requires to be
@@ -163,7 +169,9 @@ package aux_package is
 		-- Phase 7B2: Figure 3's DIVstart, plus the two qualifiers.
 		DivStart_ctrl_o			: OUT	STD_LOGIC;
 		DivSigned_ctrl_o		: OUT	STD_LOGIC;
-		DivRem_ctrl_o			: OUT	STD_LOGIC
+		DivRem_ctrl_o			: OUT	STD_LOGIC;
+		-- Phase 9B: jalr zero,0(tp) exactly -- the HW half of reti (rule f).
+		Reti_ctrl_o				: OUT	STD_LOGIC
 	);
 	end component;
 ---------------------------------------------------------	
@@ -475,11 +483,21 @@ package aux_package is
 			-- Phase 7B2: Figure 3's widened write-back mux.
 			DivSel_ctrl_i		: IN 	STD_LOGIC := '0';
 			div_result_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
-			
+
+			-- Phase 9B: the interrupt protocol's register-file side doors
+			-- (GIE = gp[0], return address into tp) -- see IDECODE.vhd's header.
+			IntrGieWr_i			: IN	STD_LOGIC := '0';
+			IntrGieVal_i		: IN	STD_LOGIC := '0';
+			IntrTpWr_i			: IN	STD_LOGIC := '0';
+			IntrTpVal_i			: IN	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 			--Outputs
 			read_data1_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			read_data2_o		: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-			SignExt_o 			: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)		 
+			SignExt_o 			: OUT STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+
+			-- Phase 9B: GIE tapped for the controller's INTR gate.
+			gie_o				: OUT	STD_LOGIC
 		);
 	end component;
 ---------------------------------------------------------		
@@ -502,7 +520,11 @@ package aux_package is
 			Jalr_ctrl_i			: IN 	STD_LOGIC;
 			alu_res_i 			: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 			PCHold_i			: IN	STD_LOGIC := '0';	-- Phase 7B2, Figure 3
-			
+
+			-- Phase 9B: entry Cycle 2's vector redirect (REQ p15's jalr half).
+			IntrVec_ctrl_i		: IN	STD_LOGIC := '0';
+			intr_vector_i		: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 			--Outputs
 			pc_o 				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 			pc_plus4_o 			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);

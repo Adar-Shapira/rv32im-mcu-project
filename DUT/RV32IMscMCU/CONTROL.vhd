@@ -43,7 +43,14 @@ ENTITY control IS
 		--   DivRem   : rem / remu (the remainder is wanted, not the quotient).
 		DivStart_ctrl_o		: OUT	STD_LOGIC;
 		DivSigned_ctrl_o	: OUT	STD_LOGIC;
-		DivRem_ctrl_o		: OUT	STD_LOGIC
+		DivRem_ctrl_o		: OUT	STD_LOGIC;
+
+		-- Phase 9B. reti = the exact encoding `jalr zero,0(tp)` (io_map.s's own
+		-- .eqv; INST_RETI in const_package). The jalr executes normally -- this
+		-- output only tells the core to set GIE = gp[0] in HW at the same edge,
+		-- REQ p13 rule f. Full 32-bit compare, no mask: any other jalr (other
+		-- rd, other rs1, nonzero imm) is NOT a return from interrupt.
+		Reti_ctrl_o			: OUT	STD_LOGIC
 	);
 END control;
 
@@ -163,6 +170,10 @@ BEGIN
 	DivStart_ctrl_o		<=	divop_w;
 	DivSigned_ctrl_o	<=	div_w  or rem_w;
 	DivRem_ctrl_o		<=	rem_w  or remu_w;
+
+	-- Phase 9B: reti recognition -- see the port comment. jalr_w above still
+	-- fires for it too, which is correct: the PC redirect IS the jalr's.
+	Reti_ctrl_o			<=	'1' WHEN instruction_i = INST_RETI ELSE '0';
 	
 	
 	RegWrite_ctrl_o 	<=  Rtype_w or Itype_w or Utype_w or UJtype_w;

@@ -37,7 +37,15 @@ ENTITY Ifetch IS
 		-- whole divide. Defaulted to '0' so an instantiation that predates the
 		-- divider behaves exactly as before.
 		PCHold_i			: IN	STD_LOGIC := '0';
-		
+
+		-- Phase 9B. The interrupt entry's Cycle 2 redirect: REQ p15 emulates
+		-- "load + jalr to Mem[TYPE]", and this is the jalr half -- the vector
+		-- word the core just read from the DTCM becomes the next PC. Both
+		-- defaulted so an instantiation that predates the interrupt protocol
+		-- behaves exactly as before.
+		IntrVec_ctrl_i		: IN	STD_LOGIC := '0';
+		intr_vector_i		: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+
 		--Outputs
 		pc_o 				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		pc_plus4_o 			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -139,11 +147,18 @@ END PROCESS;
 	-- single-cycle core the stalled instruction IS the current instruction, there
 	-- is nothing older in flight, and a redirect computed from a div that has not
 	-- produced its result yet would be meaningless. Reset still wins over both.
+	-- PHASE 9B ORDERING: the interrupt-vector arm sits ABOVE the hold and both
+	-- sit above the jalr/branch arms. During entry Cycle 2 the "instruction" on
+	-- instruction_o is the annulled one at the return address -- whatever
+	-- redirect it decodes to must lose to the vector. It cannot fight the hold
+	-- either: the core asserts the hold in Cycle 1 and the vector in Cycle 2,
+	-- never both. Reset still wins over everything.
 	next_pc_w	<=	(others => '0') 					WHEN	rst_q 					ELSE
-					pc_q								WHEN	PCHold_i = '1'			ELSE	-- Phase 7B2: hold
+					intr_vector_i						WHEN	IntrVec_ctrl_i = '1'	ELSE	-- Phase 9B: entry Cycle 2
+					pc_q								WHEN	PCHold_i = '1'			ELSE	-- Phase 7B2: hold (and entry Cycle 1)
 					jalr_target_w						WHEN	Jalr_ctrl_i				ELSE	-- case of jalr
-					addr_gen_i(PC_WIDTH-1 DOWNTO 0)		WHEN	brTaken_w or Jal_ctrl_i ELSE	-- case of Branch Taken or jal 
-					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);											-- case of Branch Not-Taken 				
+					addr_gen_i(PC_WIDTH-1 DOWNTO 0)		WHEN	brTaken_w or Jal_ctrl_i ELSE	-- case of Branch Taken or jal
+					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);											-- case of Branch Not-Taken
 -----------------------------------------------------------------------------------
 -- pc_plus4 register
 -------------------------------------------------------------------------------------

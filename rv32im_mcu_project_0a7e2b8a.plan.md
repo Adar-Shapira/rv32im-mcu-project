@@ -439,7 +439,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **8A Basic Timer core** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_timer.do`.** B4 mostly settled from the benchmarks; B2 still open for `SEC_PERIOD` |
 | **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `timer/` images, `do run_timer_mmio.do`** |
 | **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
-| 9B CPU-side protocol | Yehonatan | Adar | entry FSM, GIE=`gp[0]`, `tp`, `reti`, the vector fetch — next |
+| **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — stage `intr/` images, `do run_intr_core.do`.** Report tp1/tp3 and the R3 deferral (the F13 number) |
 | 9C Controller onto the bus | Yehonatan | Adar | CS_INTC, lanes 0/1/2, the TYPE push reader, sources |
 | 10 SC benchmarks | Yehonatan | Adar | |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
@@ -2435,6 +2435,55 @@ KEY3 flag while KEY3IE was still 0).
 
 Gaps: **G-303 closed for the controller leaf.** The `RXIFG` dual-TYPE choice is **A23**; the
 masked-request memory is **A22**; G-304 (CPU-side FSM) is Phase 9B.
+
+### Phase 9B — the CPU side  ·  **built, awaiting verification**
+
+**Files:** `RV32IM_CORE.vhd` (entry FSM + hijacks), `CONTROL.vhd` (+`Reti_ctrl_o`), `IDECODE.vhd`
+(+GIE tap and the two register-file side doors), `IFETCH.vhd` (+the vector arm),
+`const_package.vhd` (+`INST_RETI`), `aux_package.vhd` (all four components) changed;
+`tools/gen_intr_core_test.py`, `SIM/RV32IMscMCU/intr/{ITCM,DTCM}.hex + listing.txt`,
+`TB/RV32IMscMCU/tb_intr_core.vhd`, `SIM/RV32IMscMCU/run_intr_core.do` new.
+
+**The protocol, placed exactly where DOC/02 §4.2 reconstructed it:** a three-state FSM whose accept
+cycle is combinational (`INTA = NOT accept_w`, a one-cycle low pulse the cycle after `INTR` rises —
+`intr_q` is the "next clock cycle" of REQ p15). Cycle 1: PC held by the same mechanism as the
+divider stall, GIE = `gp[0]` cleared through a side door that touches **only bit 0** (a program
+using gp as a real global pointer keeps it), TYPE captured from the **raw** `dbus_rdata_i`.
+Cycle 2: DTCM address hijacked to `type_q(7:2)` with `MemOp` forced to `MEM_W` (the extract mux
+would otherwise slice the vector), the word into IFETCH's new top-priority arm, `tp` = return
+address. `reti` = the exact word `jalr zero,0(tp)` recognized in CONTROL; its only added effect is
+the GIE-set at the same edge.
+
+**F13 is the accept gate, literally:** blocked while `div_start_w` (raw decode — so an accept cycle
+can never be a div issue cycle and no divide is ever annulled mid-flight) or `div_busy_w` (the
+synchroniser tail — the consumer that signal was declared for in 7B2) is high.
+
+**The annul is load-bearing on the bus:** during Cycle 1 the controller drives TYPE on the shared
+data bus, so the core suppresses its own MemRead — plus RegWrite/MemWrite/DivStart, and the
+DTCM-side MemRead gate that silences the half-word misalignment `severity failure` an annulled
+`lh` would otherwise raise.
+
+**Verification — the testbench plays the controller** (INTERRUPT_CTRL's exact push timing, itself
+leaf-proven by 9A): a generated 45-instruction program builds its own vector table with two plain
+stores, then takes three interrupts — KEY1 into a poll loop, BT to a different vector, and KEY1
+raised **the moment the div appears on `instruction_o`**. Checks: gp reads 0 inside every ISR and
+1 after every reti (rules e/f in HW), tp equal in ISR and main and range-checked, 0xB7 from the BT
+vector, div/rem = 142/6 **after** the deferral, the measured deferral ≥ 12 cycles, exactly 16
+scored stores (an annul leak would break the count), one-cycle INTA pulses. The generator's
+interpreter emulates the full protocol as the second derivation and aborts on disagreement.
+
+**Adar's results — Phase 9B**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| stage `SIM\RV32IMscMCU\intr\*.hex` → `app_bin`, `do run_intr_core.do` | `VERDICT: PASS`, failed 0 | |
+| printed tp1 / tp3 | 44..48 / 100..124 | |
+| printed R3 deferral | ≥ 12 cycles (expect ~25+) | |
+| re-run Run 2 | the four benchmark counts unchanged — no benchmark contains an interrupt request, and every new arm is gated by the FSM idling | |
+
+Gaps: **G-304 closed at the core level.** Phase 9C wires the two proven halves together on the bus
+(CS_INTC, lanes 0/1/2, the TYPE-push BidirPin, `bt_ifg_set_w`, `key_pressed_w`, `gie_o`/`intr`/
+`inta` between core and controller) — after that the Interrupt-based IO benchmarks finally run.
 
 ## Phase 10 — Single-cycle benchmark progression  ·  **Adar runs**
 

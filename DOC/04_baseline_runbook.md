@@ -634,6 +634,10 @@ waiting:
 - `run_intc.do`'s verdict (Phase 9A) — zero setup. If anything fails, its footer maps each phase to
   the specific structural mistake it detects (raw-vs-masked, press-vs-release, W0C, the a-vs-d
   clearing split), so report WHICH phase, not just the count;
+- `run_intr_core.do`'s verdict (Phase 9B) — stage `SIM\RV32IMscMCU\intr\` into `app_bin` first
+  (NOT the gpio or timer images). Report the three printed numbers: tp1 (expect 44..48), tp3
+  (expect 100..124) and the R3 deferral in cycles — the deferral is the F13 measurement, expect
+  well above 12; a tiny value means interrupt entry did not wait for the divides;
 - `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
   clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
   tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —

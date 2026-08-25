@@ -473,6 +473,38 @@ source:
   (MCLK = SMCLK, one 20 MHz net) that is the same domain today. **If B3 ever splits them, this
   input needs a pulse CDC** — this sentence is the recorded reminder.
 
+### 4.4 What Phase 9B built — the CPU side
+
+**[OUR CODE]** The entry FSM and the datapath hijacks, verified by `tb_intr_core.vhd` (the
+testbench plays the controller) running a program from `tools/gen_intr_core_test.py`, whose
+interpreter emulates the whole protocol as the second derivation. Design points:
+
+- **The FSM is three states** (`I_IDLE → I_CYC1 → I_CYC2`), with the *accept cycle* being the IDLE
+  cycle in which `accept_w` fires — so `INTA = NOT accept_w` is a combinational one-cycle low
+  pulse, and the instruction executing in that cycle completes normally, leaving `pc_q` at the
+  return address. `intr_i` is registered once (`intr_q`) because REQ p15 says INTA falls "at the
+  next clock cycle after INTR is set".
+- **F13 is the accept gate**: `accept_w` requires `div_start_w = '0'` (the RAW decode — a stalled
+  div keeps it high for its whole stall, and an accept cycle can therefore never be a div issue
+  cycle, so no divide is ever annulled mid-flight) **and** `div_busy_w = '0'` (the synchroniser
+  tail after retirement — this is the consumer `div_busy_w` was declared for in Phase 7B2).
+- **Cycle 1**: PC held through the same mechanism as the divider stall (`if_hold_w`); GIE cleared
+  through IDECODE's new side door (`RF_q(3)(0)` only — gp's other 31 bits untouched); `type_q`
+  captures `dbus_rdata_i` RAW (not the region-muxed load value — the annulled instruction's
+  address must not steer the capture).
+- **Cycle 2**: the DTCM address is hijacked to `type_q(7 DOWNTO 2)` (F14: TYPE is already ×4) with
+  `MemOp` forced to `MEM_W` (DMEMORY's extract mux would otherwise slice the vector to whatever
+  width the annulled instruction decoded); the read word enters IFETCH's new top-priority vector
+  arm; `tp` takes the zero-extended return address.
+- **Annul** (`annul_w`, Cycles 1+2): RegWrite, MemWrite, DivStart and — load-bearing — the bus-side
+  MemRead are all suppressed: in Cycle 1 the controller is *driving* the shared bus with TYPE, so
+  the core must not enable a reader against it. The DTCM-side MemRead gate also silences the
+  half-word misalignment `severity failure` an annulled `lh` could otherwise raise.
+- **reti** is recognized in CONTROL as the exact word `jalr zero,0(tp)` (`INST_RETI = x"00020067"`,
+  io_map.s's own `.eqv`); the jalr redirect is the normal one, and the only added effect is the
+  GIE-set side door at the same edge (rule f). An *annulled* reti — the return address itself
+  holding one — is masked from the side door.
+
 ---
 
 ## 5. Division accelerator

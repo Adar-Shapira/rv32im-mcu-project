@@ -90,6 +90,10 @@ vcom -2008 ../../TB/RV32IMscMCU/tb_timer_mmio.vhd
 # the INTA handshake with frozen TYPE capture, BT-auto vs KEY-manual clears.
 vcom -2008 ../../TB/RV32IMscMCU/tb_interrupt_ctrl.vhd
 
+# Phase 9B: needs the generated interrupt images staged (SIM/RV32IMscMCU/intr/).
+# The CORE alone; the testbench plays the controller. Either G_ISA_REPAIR.
+vcom -2008 ../../TB/RV32IMscMCU/tb_intr_core.vhd
+
 # Phase 5A: exhaustive over all 16384 addresses of the clause 3 data address
 # space, about 16 us of simulated time, no memory images needed.
 vcom -2008 ../../TB/RV32IMscMCU/tb_addr_decoder.vhd

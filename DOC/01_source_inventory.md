@@ -247,25 +247,25 @@ supplied files, which is why the diffs are line counts rather than whole files.
 | `ADDR_DECODER.vhd` | new / other lab | **new** — Figure 5. Searched: no address decoder exists anywhere in Lab 3, 4 or 5. |
 | `BIDIRPIN.vhd` | new / other lab | **Lab 3, used as is** — body byte-identical to Lab 3's `BidirPin.vhd` (md5 `ab12d81d…`). **The source was deleted from `Auxiliary/` by the 2026-08-25 restructure; our `DUT/RV32IMscMCU/BIDIRPIN.vhd` is now the only surviving copy.** |
 | `CLOCK_TREE.vhd` | new / other lab | **new** — Figure 1. Board-level PLL placement follows `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd`; the three-instance structure is new (every ALTPLL in the tree exposes `c0` only). |
-| `CONTROL.vhd` | Lab 5 | **extended** — 60 changed line(s) vs the Lab 5 single-cycle core |
+| `CONTROL.vhd` | Lab 5 | **extended** — 70 changed line(s) vs the Lab 5 single-cycle core |
 | `DIV_ACCEL.vhd` | new / other lab | **new** — Figure 9. Subtractor alternative documented from `Auxiliary/Lab4/DUT/AdderSub.vhd`. |
 | `DIV_UNIT.vhd` | new / other lab | **new** — Figures 3 + 10b. Wraps our own `DIV_ACCEL` and `SYNC`. |
 | `DMEMORY.vhd` | Lab 5 | **extended** — 229 changed line(s) vs the Lab 5 single-cycle core |
 | `EXECUTE.vhd` | Lab 5 | **extended** — 51 changed line(s) vs the Lab 5 single-cycle core |
 | `GPO_PORT.vhd` | new / other lab | **new** — Figure 5. Register-with-enable idiom follows `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd:37-38`. |
 | `HEX_DECODER.vhd` | new / other lab | **Lab 4, used as is** — body byte-identical to `Auxiliary/Lab4/DUT/hex_decoder.vhd` (md5 `56f2f166…`). |
-| `IDECODE.vhd` | Lab 5 | **extended** — 32 changed line(s) vs the Lab 5 single-cycle core |
-| `IFETCH.vhd` | Lab 5 | **extended** — 54 changed line(s) vs the Lab 5 single-cycle core |
+| `IDECODE.vhd` | Lab 5 | **extended** — 68 changed line(s) vs the Lab 5 single-cycle core |
+| `IFETCH.vhd` | Lab 5 | **extended** — 74 changed line(s) vs the Lab 5 single-cycle core |
 | `INTERRUPT_CTRL.vhd` | new / other lab | **new, Phase 9A** — REQ p13/p14 + the falsified-A6 forum answer + the prep session's release-edge rule (`DOC/03` §C). Searched: no interrupt RTL in Lab 3, 4 or 5. Reuses `SYNC.vhd` for the KEY inputs. |
 | `MUL16.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL.vhd` | Lab 5 | **identical** — not one byte changed |
 | `PLL_GEN.vhd` | new / other lab | **derived from `PLL.vhd`** — four wizard constants promoted to generics; `PLL.vhd` itself left byte-identical. |
-| `RV32IM_CORE.vhd` | Lab 5 | **extended** — 252 changed line(s) vs the Lab 5 single-cycle core |
+| `RV32IM_CORE.vhd` | Lab 5 | **extended** — 440 changed line(s) vs the Lab 5 single-cycle core |
 | `RV32IMscMCU.vhd` | new / other lab | **new** — §3 requires a structural top. Pattern from `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd`. |
 | `SYNC.vhd` | new / other lab | **new** — Figures 10a/10b. Searched: no synchroniser in the material (`IFETCH.vhd`'s "rst_i synchronization" is a single flop, not one). |
-| `aux_package.vhd` | Lab 5 | **extended** — 327 changed line(s) vs the Lab 5 single-cycle core |
+| `aux_package.vhd` | Lab 5 | **extended** — 435 changed line(s) vs the Lab 5 single-cycle core |
 | `cond_compilation_package.vhd` | Lab 5 | **extended** — 23 changed line(s) vs the Lab 5 single-cycle core |
-| `const_package.vhd` | Lab 5 | **extended** — 130 changed line(s) vs the Lab 5 single-cycle core |
+| `const_package.vhd` | Lab 5 | **extended** — 136 changed line(s) vs the Lab 5 single-cycle core |
 
 **What genuinely did not exist in Lab 3, 4 or 5 — verified by searching every `.vhd` under
 `Auxiliary/`:** an address decoder, a GPIO port, a clock tree or any second clock domain, a
