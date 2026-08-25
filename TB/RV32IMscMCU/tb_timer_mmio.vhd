@@ -34,9 +34,7 @@
 --   periods of high 10 / low 31 -- the Lab 4 pwm.vhd semantics arriving at
 --   a board pin through every layer built since Phase 5A.
 --
---   Like the directed GPIO test, this runs at EITHER G_ISA_REPAIR setting:
---   the program is addi/slli/sw/lw-at-offset-0 plus one beq, none of which
---   touch the seven defects.
+--   The program is addi/slli/sw/lw-at-offset-0 plus one beq.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;

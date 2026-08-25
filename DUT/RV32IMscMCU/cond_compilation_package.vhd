@@ -57,25 +57,6 @@ package cond_compilation_package is
 	constant DBUS_WIDTH 				: integer	:= 32;
 	constant G_PLL_DIV		 			: NATURAL	:= 2;					-- relavant only when G_MODELSIM=0
 	constant G_PLL_MUL		 			: NATURAL	:= 1;					-- relavant only when G_MODELSIM=0
---==================================================================================================================
--- 						Final-project addition -- NOT part of the LAB5 distribution
---==================================================================================================================
--- G_ISA_REPAIR selects between the LAB5 single-cycle core exactly as submitted and the
--- same core with its seven known ISA defects repaired. Same idiom as G_MODELSIM above:
--- one constant, chosen before compilation.
---
---   FALSE : as submitted. Reproduces every defect bit-for-bit, so the directed ISA suite
---           (TB/RV32IMscMCU/tb_isa_directed.vhd) measures the documented baseline.
---   TRUE  : repaired. Each of the seven repairs is transcribed from the *pipelined* core
---           of the same LAB5 submission, which already fixes all seven and passed all four
---           benchmarks against the RARS golden DTCM:
---             Auxiliary/Lab 5/DUT/RV32IM_pipeline/
---
--- The switch exists so that both measurements come from one build tree and the before/after
--- comparison cannot drift. It is not a permanent design feature: once the repaired core is
--- the accepted baseline, TRUE becomes the only configuration exercised.
-	constant G_ISA_REPAIR				: boolean	:= FALSE;				-- options{TRUE=repaired,FALSE=as-submitted}
-
 -- Explanation:
 -----------------------------------------------------------
 --	if G_MODELSIM=1 then 

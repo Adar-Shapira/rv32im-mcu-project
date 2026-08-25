@@ -3,8 +3,7 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # NEEDS G_ISA_REPAIR = TRUE, and needs GPIO **test1** images -      #
-# # test1, NOT test0. This is the one script with different staging.  #
+# # Needs GPIO **test1** images - test1, NOT test0.                   #
 # ####################################################################
 #
 #   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\ITCM.hex" ^
@@ -14,10 +13,6 @@
 #
 # M9K-intel, not Hexadecimal-Text. And remember to put test0's images back before
 # re-running run_mmio.do or run_gpio.do.
-#
-# G_ISA_REPAIR reason: test1 reaches PORT_SW through "lui x29,0x2 / lw x29,16(x29)",
-# and at FALSE lui writes zero, so the load would read DTCM word 4 instead of
-# 0x2010. The testbench detects that and says NOT APPLICABLE.
 #
 # WHAT THIS TEST DOES, AND WHY IT IS THE STRONGEST ONE SO FAR
 #   It does not assert on the value on the read bus. It drives the switches and

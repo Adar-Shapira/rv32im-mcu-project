@@ -15,10 +15,8 @@
 -- matters: an MMIO store to 0x2004 and a DTCM store to word 1 produce the same
 -- dtcm_addr_o, so the testbench compares alu_res_o instead.
 --
--- EVERY ENTRY MUST MATCH, in both G_ISA_REPAIR configurations. The program uses
--- only addi, slli, sw, lw at offset zero, and one beq sentinel, so it touches
--- none of the seven ISA defects -- see the header of tools/gen_gpio_test.py for
--- the defect-by-defect check. There is no expected-failure count here.
+-- EVERY ENTRY MUST MATCH. The program uses only addi, slli, sw, lw at offset
+-- zero, and one beq sentinel.
 --
 -- Derived twice and cross-checked before this file was written: once while
 -- emitting the code, once by executing it on an interpreter with an independent

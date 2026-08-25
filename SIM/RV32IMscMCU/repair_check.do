@@ -16,12 +16,7 @@
 #   for. Run both.
 #
 # HOW TO RUN
-#   Set G_ISA_REPAIR := TRUE in DUT/RV32IMscMCU/cond_compilation_package.vhd,
-#   re-run compile.do, then  do repair_check.do
-#
-#   Against G_ISA_REPAIR = FALSE every check below fails except BRANCH_plus_1024,
-#   which is deliberately non-discriminating (see defect 6). That failing run is
-#   the "before" measurement and is worth capturing once.
+#   After compile.do:  do repair_check.do
 
 onerror {quit -code 1}
 
@@ -277,25 +272,9 @@ if {$::fails == 0} {
     echo "  VERDICT: all 43 checks behave as specified."
     echo "====================================================="
     quit -f
-} elseif {$::fails == 25} {
-    echo "  VERDICT: exactly 25 failures - this is the signature of"
-    echo "  a build with G_ISA_REPAIR = FALSE. That is the baseline"
-    echo "  measurement, not a bug. 18 of the 43 checks are controls"
-    echo "  that must pass in BOTH configurations, and they did:"
-    echo "    LUI_upper_select, AUIPC_immediate_unchanged,"
-    echo "    AUIPC_upper_select, SLT_signed_unchanged, SRL_unchanged,"
-    echo "    BRANCH_plus_1024_nondiscriminating, the 9 MemOp_* checks,"
-    echo "    byteena_sw_all_lanes, store_word_untouched,"
-    echo "    load_lw_untouched."
-    echo "  Set G_ISA_REPAIR := TRUE, re-run compile.do, and run again."
-    echo "====================================================="
-    quit -code 1
 } else {
-    echo "  VERDICT: $::fails check(s) failed - neither 0 nor 25."
-    echo "  This is a real finding. 0 means every repair works, 25 means"
-    echo "  none is compiled in; anything else means a specific repair is"
-    echo "  wrong, or a control check broke - and a broken control means a"
-    echo "  repair damaged behaviour that was already correct."
+    echo "  VERDICT: $::fails check(s) failed."
+    echo "  0 means every repair works; anything else is a real finding."
     echo "  Paste the FAIL lines above into the plan file."
     echo "====================================================="
     quit -code 1

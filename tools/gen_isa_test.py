@@ -596,15 +596,11 @@ package isa_expected_pkg is
 
 \tconstant STORE_COUNT : natural := {len(seq)};
 
-\t-- How many of the stores above are expected to MISMATCH, in each of the two
-\t-- configurations of cond_compilation_package.G_ISA_REPAIR. The testbench picks
-\t-- the right one and compares its own tally against it, so neither number can
-\t-- drift out of step with the suite.
-\t--
-\t--   G_ISA_REPAIR = FALSE  the core exactly as LAB5 submitted it
+\t-- How many of the stores above are expected to MISMATCH on this core.
+\t-- EXPECTED_DEFECT_COUNT is the Lab 5 as-submitted tally (historical).
+\t-- EXPECTED_DEFECT_COUNT_REPAIRED is what the ISA-repaired core must produce;
+\t-- leftovers are mul-related: {", ".join(still)}
 \tconstant EXPECTED_DEFECT_COUNT : natural := {n_def};
-\t--   G_ISA_REPAIR = TRUE   the seven Phase 3A repairs applied. The remainder are
-\t--                         blocked on work outside Phase 3A: {", ".join(still)}
 \tconstant EXPECTED_DEFECT_COUNT_REPAIRED : natural := {n_def_repaired};
 
 \tconstant EXPECTED : expected_array_t(0 to STORE_COUNT-1) := (

@@ -41,14 +41,9 @@
 --   unable to tell an MMIO store from the DTCM store it used to alias onto —
 --   which is one of the things being tested.
 --
--- NO CONFIGURATION GUARD, AND THAT IS DELIBERATE
---   Every other GPIO test needs G_ISA_REPAIR = TRUE, because the benchmarks
---   reach 0x2000 through lui and lui writes zero on the unrepaired core. This
---   program builds addresses with addi and slli only, uses lw at offset zero
---   throughout, and has no compares, no sra, no jalr and one beq sentinel at
---   offset 0 — so it touches none of the seven ISA defects. The expected
---   sequence is identical in both configurations. tools/gen_gpio_test.py carries
---   the defect-by-defect check.
+--   This program builds addresses with addi and slli only, uses lw at offset
+--   zero throughout, and has no compares, no sra, no jalr and one beq sentinel
+--   at offset 0. tools/gen_gpio_test.py carries the defect-by-defect check.
 --
 --   That makes this the one GPIO test that can be run without editing
 --   cond_compilation_package.vhd, and it means a mismatch here is a GPIO
@@ -255,8 +250,8 @@ BEGIN
 				else
 					report "  VERDICT: FAIL - " & integer'image(fails) & " problem(s). " &
 						   "Unlike the ISA suite, ZERO is the only passing number here: " &
-						   "this program avoids all seven ISA defects, so nothing is " &
-						   "expected to fail in either G_ISA_REPAIR configuration. " &
+						   "this program avoids the Lab 5 ISA defects, so nothing is " &
+						   "expected to fail. " &
 						   "Read the first failure's case name and look it up in " &
 						   "SIM/RV32IMscMCU/gpio/listing.txt, which says what that " &
 						   "case is for."

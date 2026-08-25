@@ -22,8 +22,7 @@
 --   stores are EXACT -- no ranges -- because both interrupt moments are
 --   pinned by the program (a poll loop, a timer count), not by bench timing.
 --
---   Runs at EITHER G_ISA_REPAIR setting: addi/slli/sw/lw@0/beq/and/reti --
---   note the ISR mask uses AND (register form), never ANDI (defect 1).
+--   Program uses addi/slli/sw/lw@0/beq/and/reti (AND register form, not ANDI).
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;

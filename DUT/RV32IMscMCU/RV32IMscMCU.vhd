@@ -125,9 +125,9 @@ ENTITY RV32IMscMCU IS
 		-- seven a Direction of "GPO", which contradicts the figure unless "GPO"
 		-- names the device rather than forbidding a readable register. That is
 		-- assumption A15 in DOC/02_requirements_traceability.md, and it is the one
-		-- open question this phase rests on. Same idiom as G_ISA_REPAIR: if the
-		-- answer comes back "output ports must not respond to a read", this is one
-		-- word to change and the seven tri-states disappear.
+		-- open question this phase rests on. If the answer comes back "output
+		-- ports must not respond to a read", this is one word to change and the
+		-- seven tri-states disappear.
 		GEN_GPO_READBACK	: boolean	:= TRUE;
 		-- Phase 6B built a two-stage synchroniser on SW_i, reasoning from Hanan's
 		-- own Figures 10a/10b material. HIS FORUM ANSWER SAYS IT IS NOT WANTED:

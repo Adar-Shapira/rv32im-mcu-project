@@ -4,7 +4,7 @@
 --
 -- HOW TO RUN
 --   SIM/RV32IMscMCU/run_intc.do   .. after compile.do. ZERO SETUP: no memory
---   images, no G_ISA_REPAIR setting, nothing to stage.
+--   images, nothing to stage.
 --
 -- WHAT THIS PROVES
 --   INTERRUPT_CTRL.vhd alone: raw request latches behind the MASKED view

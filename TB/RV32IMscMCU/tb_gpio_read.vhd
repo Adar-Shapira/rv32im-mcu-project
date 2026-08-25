@@ -51,10 +51,6 @@
 --   only PORT_SW's is proved. Recorded as gap G-407; closing it needs a small
 --   program of ours that stores a byte to a GPO port and loads it back.
 --
--- REQUIRES G_ISA_REPAIR = TRUE. test1 reaches PORT_SW through "lui x29,0x2", and
--- at FALSE lui writes zero (defect 2), so the lw would read DTCM word 4 instead
--- of 0x2010. The guard below reports NOT APPLICABLE rather than failing.
---
 -- STAGING: GPIO **test1**'s M9K-intel images — note, test1, not test0.
 --============================================================================
 LIBRARY IEEE;
@@ -271,15 +267,6 @@ BEGIN
 		end procedure;
 	begin
 		if falling_edge(clk_i) and rst_i = '0' then
-
-			if not G_ISA_REPAIR then
-				report "===== PHASE 6B SFR READ TEST (GPIO test1) =====" severity note;
-				report "  VERDICT: NOT APPLICABLE - G_ISA_REPAIR = FALSE, so lui writes" severity note;
-				report "  zero and test1's 'lui x29,0x2 / lw x29,16(x29)' reads DTCM word 4" severity note;
-				report "  instead of PORT_SW at 0x2010. Set it TRUE, recompile, run again." severity note;
-				report "===============================================" severity note;
-				std.env.stop;
-			end if;
 
 			cycles_v := cycles_v + 1;
 

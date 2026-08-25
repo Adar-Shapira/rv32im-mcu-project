@@ -190,6 +190,12 @@ ARCHITECTURE structure OF clock_tree IS
 	SIGNAL smclk_w		: STD_LOGIC;
 	SIGNAL accelclk_w	: STD_LOGIC;
 	SIGNAL locked_w		: STD_LOGIC;
+	-- FPGA-branch PLL lock bits. Hoisted out of the generate so Quartus 21.1
+	-- Verific never sees if/else generate with an inner declarative region
+	-- (PushScope Internal Error). Unused when MODELSIM /= 0.
+	SIGNAL lock_m_w		: STD_LOGIC;
+	SIGNAL lock_s_w		: STD_LOGIC;
+	SIGNAL lock_a_w		: STD_LOGIC;
 
 BEGIN
 	--=======================================================================
@@ -241,45 +247,55 @@ BEGIN
 	--=======================================================================
 	-- Hardware: one pll_gen per clock, each fed from the same 50 MHz base, per
 	-- forum answer F6.
+	--
+	-- TWO SEPARATE if-generates (not if/else). Quartus 21.1 Lite Verific
+	-- Internal-Errors on if/else generate with nested generates / declarative
+	-- regions (vhdltreenode.cpp PushScope). Same netlist either way when
+	-- MODELSIM is a compile-time constant.
 	--=======================================================================
-	CLKGEN:
+	CLK_FPGA:
 	if (MODELSIM = 0) generate
-		-- Declared inside the branch so they do not sit undriven at 'U' in the
-		-- other one. Same pattern as SYNC.vhd's launch_q.
-		SIGNAL lock_m_w	: STD_LOGIC;
-		SIGNAL lock_s_w	: STD_LOGIC;
-		SIGNAL lock_a_w	: STD_LOGIC;
-	begin
+		-- Distinct CBX prefixes so the two megafunctions stay separate at
+		-- Analysis & Synthesis. That is NOT enough: the Fitter still merges
+		-- them into one physical PLL (clk[0]/clk[1] under P_ACCEL) unless
+		-- AUTO_MERGE_PLLS is OFF in the .qsf. LPM_HINT_STR is the generic
+		-- PLL_GEN.vhd already documents for colliding megafunction names.
 		P_MCLK : pll_gen
 		generic map(DIVIDE_BY => MCLK_DIV, MULTIPLY_BY => MCLK_MUL,
-					IN_PERIOD_PS => IN_PERIOD_PS)
+					IN_PERIOD_PS => IN_PERIOD_PS,
+					LPM_HINT_STR => "CBX_MODULE_PREFIX=PLL_MCLK")
 		PORT MAP(areset => rst_i, inclk0 => clk_i,
 				 c0 => mclk_w, locked => lock_m_w);
 
 		P_ACCEL : pll_gen
 		generic map(DIVIDE_BY => ACCEL_DIV, MULTIPLY_BY => ACCEL_MUL,
-					IN_PERIOD_PS => IN_PERIOD_PS)
+					IN_PERIOD_PS => IN_PERIOD_PS,
+					LPM_HINT_STR => "CBX_MODULE_PREFIX=PLL_ACCEL")
 		PORT MAP(areset => rst_i, inclk0 => clk_i,
 				 c0 => accelclk_w, locked => lock_a_w);
 
-		SHARE:
+		-- SMCLK shares MCLK (default) vs independent PLL — also split, no else.
+		SHARE_YES:
 		if (SMCLK_SHARES_MCLK) generate
-			-- One net. See the conflict note in the header: this is the choice
-			-- that keeps the core-to-peripheral bus a single synchronous domain.
 			smclk_w  <= mclk_w;
 			lock_s_w <= '1';
-		else generate
+		end generate SHARE_YES;
+
+		SHARE_NO:
+		if (not SMCLK_SHARES_MCLK) generate
 			P_SMCLK : pll_gen
 			generic map(DIVIDE_BY => SMCLK_DIV, MULTIPLY_BY => SMCLK_MUL,
-						IN_PERIOD_PS => IN_PERIOD_PS)
+						IN_PERIOD_PS => IN_PERIOD_PS,
+						LPM_HINT_STR => "CBX_MODULE_PREFIX=PLL_SMCLK")
 			PORT MAP(areset => rst_i, inclk0 => clk_i,
 					 c0 => smclk_w, locked => lock_s_w);
-		end generate SHARE;
+		end generate SHARE_NO;
 
 		locked_w <= lock_m_w AND lock_s_w AND lock_a_w;
+	end generate CLK_FPGA;
 
-	else generate
-		--===================================================================
+	CLK_SIM:
+	if (MODELSIM /= 0) generate
 		-- Simulation. altpll is a black box needing altera_mf, and the core
 		-- already bypasses it exactly this way, so the clocks are produced
 		-- behaviourally instead.
@@ -287,15 +303,15 @@ BEGIN
 		-- MCLK IS clk_i, not a generated clock. That is the whole reason Phase
 		-- 4C can wire this in without moving a benchmark count -- see note 1 in
 		-- the header.
-		--===================================================================
 		mclk_w <= clk_i;
 
-		SIMSHARE:
+		SIMSHARE_YES:
 		if (SMCLK_SHARES_MCLK) generate
 			smclk_w <= clk_i;
-		else generate
-			-- Independent, so a design that assumes SMCLK = MCLK fails here
-			-- rather than on the board.
+		end generate SIMSHARE_YES;
+
+		SIMSHARE_NO:
+		if (not SMCLK_SHARES_MCLK) generate
 			sim_smclk : process
 			begin
 				smclk_w <= '0';
@@ -303,7 +319,7 @@ BEGIN
 				smclk_w <= '1';
 				wait for SIM_SMCLK_HALF_NS * 1 ns;
 			end process sim_smclk;
-		end generate SIMSHARE;
+		end generate SIMSHARE_NO;
 
 		sim_accel : process
 		begin
@@ -332,8 +348,7 @@ BEGIN
 			locked_w <= '1';
 			wait;
 		end process sim_lock;
-
-	end generate CLKGEN;
+	end generate CLK_SIM;
 
 	--=======================================================================
 	mclk_o		<= mclk_w;

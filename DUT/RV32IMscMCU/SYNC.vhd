@@ -105,6 +105,8 @@ ARCHITECTURE structure OF sync IS
 
 	SIGNAL boundary_w	: STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);	-- Din in Figure 10a
 	SIGNAL sync_q		: stage_array;								-- Ds .. Dout
+	-- Hoisted so Quartus 21.1 Verific never sees if/else generate + SIGNAL.
+	SIGNAL launch_q		: STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
 
 BEGIN
 	-- Two stages is the specified minimum and the point of the whole entity.
@@ -116,14 +118,11 @@ BEGIN
 
 	--=======================================================================
 	-- Clock domain A — the launch register (Figure 10a, left half)
+	-- Two separate if-generates (no else): same Quartus 21.1 workaround as
+	-- CLOCK_TREE.vhd.
 	--=======================================================================
-	SRCREG:
+	SRCREG_YES:
 	if (GEN_SRC_REG) generate
-		-- Declared inside the generate so it does not exist at all in the other
-		-- branch. An architecture-level signal would sit there undriven at 'U',
-		-- which is exactly the kind of thing that looks like a bug in a waveform.
-		SIGNAL launch_q : STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
-	begin
 		process (src_clk_i, rst_i)
 		begin
 			if rst_i = '1' then
@@ -133,11 +132,14 @@ BEGIN
 			end if;
 		end process;
 		boundary_w <= launch_q;
-	else generate
+	end generate SRCREG_YES;
+
+	SRCREG_NO:
+	if (not GEN_SRC_REG) generate
 		-- The source is already registered in domain A, so adding a second flop
 		-- here would only add latency. src_clk_i is unused in this branch.
 		boundary_w <= d_i;
-	end generate SRCREG;
+	end generate SRCREG_NO;
 
 	--=======================================================================
 	-- Clock domain B — the synchronizer chain (Figure 10a, right half)

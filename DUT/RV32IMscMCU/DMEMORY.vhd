@@ -58,7 +58,6 @@ USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_SIGNED.ALL;
 USE work.const_package.all;					-- MEM_B / MEM_H / MEM_W / MEM_BU / MEM_HU
-USE work.cond_compilation_package.all;		-- G_ISA_REPAIR (defect-repair switch)
 
 LIBRARY altera_mf;
 USE altera_mf.altera_mf_components.all;
@@ -171,13 +170,9 @@ BEGIN
 		(15 DOWNTO 0 => '0')			& half_w	when MEM_HU,
 		q_w											when others;
 
-	--=====================================================================
-	-- The switch. G_ISA_REPAIR = FALSE must reproduce the submitted module
-	-- exactly: every lane always written, the raw word always returned.
-	--=====================================================================
-	store_data_w	<= store_sub_w		WHEN G_ISA_REPAIR ELSE dtcm_data_wr_i;
-	byteena_w		<= byteena_sub_w	WHEN G_ISA_REPAIR ELSE (others => '1');
-	dtcm_data_rd_o	<= extend_w			WHEN G_ISA_REPAIR ELSE q_w;
+	store_data_w	<= store_sub_w;
+	byteena_w		<= byteena_sub_w;
+	dtcm_data_rd_o	<= extend_w;
 
 	--=====================================================================
 	-- PHASE 5B (G-305): the write enable is gated by the chip select
@@ -186,14 +181,9 @@ BEGIN
 	-- address decoder can be perfectly correct and still change nothing, because
 	-- MemWrite reaches wren_a regardless of which region the address named.
 	--
-	-- It is deliberately NOT conditional on G_ISA_REPAIR. That switch selects
-	-- between the LAB5 core as submitted and the same core with its seven ISA
-	-- defects repaired; the missing region decode is not one of those seven and
-	-- is not an ISA conformance question -- it is a Final Project requirement
-	-- (clause 3 and Figure 2) that LAB5 had no reason to implement. Putting it
-	-- behind the same switch would mean the as-submitted measurement silently
-	-- also lost the decode, which would make the two measurements differ in two
-	-- ways at once.
+	-- The missing region decode is not an ISA defect from Lab 5 -- it is a Final
+	-- Project requirement (clause 3 and Figure 2) that LAB5 had no reason to
+	-- implement.
 	--
 	-- Nothing gates the READ side. An altsyncram read is unconditional and
 	-- harmless: q_a always presents the addressed word, and RV32IM_CORE selects

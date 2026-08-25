@@ -141,7 +141,14 @@ set_global_assignment -name POWER_PRESET_COOLING_SOLUTION "23 MM HEAT SINK WITH 
 set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
 set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
-set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+# F6: two pll_gen instances (MCLK + ACCEL; SMCLK shares MCLK). Analysis &
+# Synthesis already reports Total PLLs = 2 with distinct CBX prefixes
+# (PLL_MCLK / PLL_ACCEL). The Fitter then merges them into one physical PLL
+# with clk[0]=50 MHz and clk[1]=20 MHz -- fit.rpt Info (176132) and
+# "Auto Merge PLLs = On" (the Quartus default). That is exactly the one-module
+# tree Hanan forbade. Intel KB: set AUTO_MERGE_PLLS OFF.
+# Assignments -> Settings -> Fitter Settings -> More Fitter Settings.
+set_global_assignment -name AUTO_MERGE_PLLS OFF
 
 # ============================================================================
 # PIN ASSIGNMENTS -- STILL MISSING, DELIBERATELY. READ THIS BEFORE THE FIRST
@@ -181,3 +188,5 @@ set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_
 # ADAR: when you add them, add them as a separate commit that touches only this
 # file, so a pin mistake never gets tangled up with an RTL change.
 # ============================================================================
+
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

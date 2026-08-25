@@ -2,21 +2,7 @@
 #
 # Run compile.do first.
 #
-# ####################################################################
-# # THIS TEST NEEDS G_ISA_REPAIR = TRUE. Set it in                    #
-# # DUT/RV32IMscMCU/cond_compilation_package.vhd and recompile.       #
-# ####################################################################
-#
-# WHY, and it is worth knowing: at G_ISA_REPAIR = FALSE the core reproduces the
-# LAB5 submission, in which lui writes zero (defect 2). Every one of test0's
-# stores is reached by "lui t4,0x2 / addi t4,t4,offset / sw t0,0(t4)", so with lui
-# broken t4 = offset and the stores land on byte addresses 0, 4, 5, 8, 9, 12, 13 -
-# all inside the DTCM, never reaching 0x2000. There is then nothing for this test
-# to measure, and the testbench says NOT APPLICABLE instead of failing.
-#
-# That is a finding in its own right: THE TWO DEFECTS MASKED EACH OTHER. The
-# missing region decode was invisible on the GPIO benchmarks because lui never
-# produced an SFR address in the first place. Repairing lui is what exposes it.
+# Needs GPIO test0's M9K-intel images staged as app_bin\ITCM.hex and DTCM.hex.
 #
 # STAGING - THIS ONE NEEDS IMAGES
 #   Unlike run_sync.do and run_decode.do, this test runs a real program, so the

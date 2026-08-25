@@ -34,8 +34,7 @@
 --   depends on this bench's timing) -- the ISR's copy and main's copy must
 --   still be EQUAL, which is the protocol claim.
 --
---   Runs at EITHER G_ISA_REPAIR setting: addi/sw/lw@0/beq/div/rem/reti
---   touch none of the seven defects.
+--   Program uses addi/sw/lw@0/beq/div/rem/reti.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;

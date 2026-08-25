@@ -65,30 +65,6 @@
 --   134 / 1514 / 2725 / 2735 cycles. Read those results together with this one;
 --   neither is sufficient alone.
 --
--- THIS TEST REQUIRES G_ISA_REPAIR = TRUE, AND THE REASON IS INTERESTING
---   At G_ISA_REPAIR = FALSE the core reproduces the LAB5 submission, in which
---   lui writes zero (defect 2 -- IDECODE.vhd:111 forces lui_imm_w to all zeros
---   in that configuration). Disassembling the shipped image
---   Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/ITCM.hex, every one of
---   test0's seven stores is reached as:
---
---       lui  t4,0x2        -- word 4, 0x00002eb7
---       addi t4,t4,offset  -- word 5
---       sw   t0,0(t4)      -- word 6
---
---   With lui broken, t4 = 0 + offset. The stores go to byte addresses
---   0, 4, 5, 8, 9, 12, 13 -- all inside the DTCM, none of them ever reaching
---   0x2000. So in that configuration this testbench measures nothing: P1 can
---   never fire and P3 fails because none of the seven MMIO addresses is seen.
---
---   That is worth stating plainly in the report, because it means THE TWO
---   DEFECTS MASKED EACH OTHER. The missing region decode was invisible on the
---   GPIO benchmarks precisely because lui never produced an SFR address in the
---   first place. Repairing lui is what exposes the aliasing.
---
---   Rather than fail confusingly, the checker below detects G_ISA_REPAIR = FALSE
---   and reports NOT APPLICABLE with this explanation.
---
 -- STAGING
 --   Needs GPIO test0's images as app_bin\ITCM.hex and app_bin\DTCM.hex, the same
 --   mechanism every benchmark run uses (IFETCH.vhd and DMEMORY.vhd carry the
@@ -270,28 +246,6 @@ BEGIN
 		end procedure;
 	begin
 		if falling_edge(clk_i) and rst_i = '0' then
-			--==========================================================
-			-- Configuration guard. See the header: at G_ISA_REPAIR = FALSE the
-			-- lui defect keeps every store below 0x2000, so there is nothing here
-			-- to measure. Reported as NOT APPLICABLE rather than failed, because
-			-- a FAIL here would send someone hunting a decoder bug that is not
-			-- there.
-			--==========================================================
-			if not G_ISA_REPAIR then
-				report "===== PHASE 5B MMIO ALIASING TEST (GPIO test0) =====" severity note;
-				report "  VERDICT: NOT APPLICABLE - this build has G_ISA_REPAIR = FALSE." severity note;
-				report "  In that configuration lui writes zero (defect 2), so test0's" severity note;
-				report "  'lui t4,0x2 / addi / sw' sequences store to byte addresses 0, 4," severity note;
-				report "  5, 8, 9, 12 and 13 - inside the DTCM, never reaching 0x2000. The" severity note;
-				report "  aliasing this test looks for cannot occur, so a PASS would be" severity note;
-				report "  meaningless and a FAIL would be misleading." severity note;
-				report "  Set G_ISA_REPAIR := TRUE in cond_compilation_package.vhd, recompile," severity note;
-				report "  and run again. Note for the report: the two defects masked each" severity note;
-				report "  other - repairing lui is what exposes the missing region decode." severity note;
-				report "====================================================" severity note;
-				std.env.stop;
-			end if;
-
 			cycles_v := cycles_v + 1;
 
 			--==========================================================

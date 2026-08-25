@@ -10,7 +10,6 @@ USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_SIGNED.ALL;
 USE work.const_package.all;
 USE work.aux_package.all;
-USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 
 
 ENTITY  Execute IS
@@ -41,8 +40,6 @@ ARCHITECTURE struct OF Execute IS
 	SIGNAL 	bin_w 				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL 	sub_res_w 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL 	ltu_res_w 			: STD_LOGIC;
-	SIGNAL	ltu_fixed_w			: STD_LOGIC;	-- defect 5: true unsigned compare
-	SIGNAL	ltu_orig_w			: STD_LOGIC;	-- defect 5: as-submitted signed compare
 	SIGNAL 	eq_res_w			: STD_LOGIC;
 	SIGNAL	msbneq_res_w		: STD_LOGIC;
 	SIGNAL	alu_res_r 			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -77,8 +74,7 @@ BEGIN
 --   Auxiliary/Lab 5/DUT/RV32IM_pipeline/EXECUTE.vhd:181
 --     addr_gen_w <= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');
 --------------------------------------------------------------------------------------------------------
-addr_gen_o	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0')	WHEN G_ISA_REPAIR ELSE
-			   pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-3 DOWNTO 0) & '0');
+addr_gen_o	<= pc_i(PC_WIDTH-1 DOWNTO 0) + (sign_extend_i(PC_WIDTH-2 DOWNTO 0) & '0');
 
 --------------------------------------------------------------------------------------------------------
 --ALU
@@ -101,9 +97,7 @@ sub_res_w			<= ain_w - bin_w;
 -- Prefixing a '0' widens both operands to 33 bits with a clear sign bit, which makes the
 -- signed-package comparison give the unsigned answer -- so the fix needs no library change
 -- and cannot disturb the genuinely signed slt / blt / bge paths.
-ltu_fixed_w			<= '1' WHEN ('0' & ain_w) < ('0' & bin_w)	ELSE '0';
-ltu_orig_w			<= '1' WHEN ain_w < bin_w 					ELSE '0';
-ltu_res_w			<= ltu_fixed_w WHEN G_ISA_REPAIR ELSE ltu_orig_w;
+ltu_res_w			<= '1' WHEN ('0' & ain_w) < ('0' & bin_w)	ELSE '0';
 eq_res_w			<= '1' WHEN ain_w = bin_w 			ELSE '0'; 
 msbneq_res_w		<= '1' WHEN ain_w(31) /= bin_w(31) 	ELSE '0';
 
@@ -229,11 +223,7 @@ BEGIN
 			--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/EXECUTE.vhd
 			--     brl_shr_pad_r <= (others => '1');
 			if (ain_w(31) = '1' and (ALUOp_ctrl_i = ALU_SHIFTR_ARITH)) then
-				if G_ISA_REPAIR then
-					brl_shr_pad_r <= (OTHERS => '1');
-				else
-					brl_shr_pad_r <= 32x"FFFF";
-				end if;
+				brl_shr_pad_r <= (OTHERS => '1');
 			else
 				brl_shr_pad_r <= 32x"0000";
 			end if;

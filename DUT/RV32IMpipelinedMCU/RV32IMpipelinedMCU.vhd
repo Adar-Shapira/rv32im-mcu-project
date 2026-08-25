@@ -58,10 +58,8 @@
 --   wrapper must be behaviourally transparent so the pipeline baseline
 --   reproduces through it unchanged.
 --
---   The pipeline needs no G_ISA_REPAIR switch. It is the core that already
---   repairs all seven ISA defects, and it is the repair reference the
---   single-cycle side transcribes from — so there is no defective
---   configuration of it to reproduce.
+--   The pipeline already includes the Lab 5 ISA repairs (it is the repair
+--   reference the single-cycle side was transcribed from).
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;

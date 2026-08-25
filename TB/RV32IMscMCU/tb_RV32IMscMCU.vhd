@@ -3,38 +3,46 @@
 -- Final Project 2026 — testbench for the single-cycle RV32IM MCU
 --
 -- Filename and entity name are mandated by the submission table (§10):
--- TB/RV32IMscMCU/tb_RV32IMscMCU.vhd.
+--   TB/RV32IMscMCU/tb_RV32IMscMCU.vhd
+--
+-- THE SPEC REQUIRES THIS ONE FILE. Clause 10 Table 1: "In folder RV32IMscMCU
+-- insert the tb_RV32IMscMCU.vhd file". Same shape as Lab 5: one TB, clock +
+-- reset, every observation port brought out for the wave window. GPIO / KEY /
+-- PWM / HEX are added because this project has board I/O that Lab 5 did not.
 --
 -- REFERENCE
---   Auxiliary/Lab 5/TB/RV32IM_sc/tb_RV32IM_sc.vhd, itself based
---   on Hanan's Auxilary/TB/tb_RV32I.vhd.
+--   Auxiliary/Lab 5/TB/RV32IM_sc/tb_RV32IM_sc.vhd, itself based on Hanan's
+--   Auxilary/TB/tb_RV32I.vhd.
 --
--- CHANGES FROM THE REFERENCE, AND WHY EACH ONE IS NECESSARY
---   1. Drives RV32IMscMCU instead of RV32IM_CORE — the MCU top is what the
---      project delivers, and §3 requires that outer structural level.
---   2. RST_ACTIVE_LOW => FALSE. The MCU top defaults to TRUE because on the
---      board rst_i is KEY0, which is active-low. The supplied stimulus below
---      drives rst_i active-high ('1' then '0' after 80 ns) and is kept
---      byte-for-byte so the Lab 5 baseline reproduces; passing FALSE tells the
---      wrapper not to invert it. Nothing about the reset waveform changed.
---   3. GEN_DEBUG_PORTS => TRUE, so the observation ports carry real values in
---      simulation. Quartus performance revisions pass FALSE (§7).
+-- HOW WE SIMULATE (course convention, not a .do-driven flow)
+--   1. Set G_MODELSIM := 1 in cond_compilation_package.vhd, then compile.
+--      Set it back to 0 before a Quartus compile.
+--   2. Copy the chosen test's M9K-intel ITCM.hex and DTCM.hex into
+--      C:\TestPrograms\Quartus21_1\app_bin\  (hardcoded init_file in IFETCH
+--      and DMEMORY). Never use Hexadecimal-Text/*.h — those are a different
+--      program.
+--   3. Simulate work.tb_rv32imscmcu. Load SIM/RV32IMscMCU/golden.do (all
+--      signals) or wave.do (compact daily set).
+--   4. Force SW_i / KEY_i from the wave window for GPIO and interrupt apps.
+--      KEY0 is rst_i. KEY1..3 are active-low; interrupt request is RELEASE.
+--   5. There is no auto-stop. GPIO and interrupt apps loop forever. RV32IM
+--      test1 ends in beq x0,x0,finish (0x00000063) — stop by hand, dump DTCM,
+--      compare to that test's RARS DTCM.h (clause 8.c.i).
 --
---   Everything else — the 100 ns clock, the reset waveform, the generic list
---   and the auto-stop process — is unchanged from the reference. The Phase 1
---   exit criterion is that this testbench still yields mclk_cnt_o =
---   134 / 1514 / 2725 / 2735 for Lab 5 test1..test4.
---
--- NOTE ON MODELSIM
---   MODELSIM is a generic here, defaulting to the package constant. Override it
---   from the .do script with  vsim -gMODELSIM=1  — no source edit is ever
---   needed to switch between simulation and synthesis.
+-- WHICH IMAGES GO WITH WHICH PART  (Auxiliary/Benchmark Apps/, not Lab 5)
+--   RV32IM/test1          core: div / mul / rem arrays, then while(1)
+--   GPIO/test0            GPO write path (LEDR + HEX0..5 count)
+--   GPIO/test1            PORT_SW read: SW0 count up, SW1 count down, else idle
+--   GPIO/test2            same switches, six-digit HEX number
+--   Intrrupt-based IO/test1  KEY1/2/3 FSM + div/rem on KEY3
+--   Intrrupt-based IO/test2  1 s Basic Timer + KEYs
+--   Intrrupt-based IO/test3  four timer periods
+--   Intrrupt-based IO/test4  compare / PWM / capture
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 use ieee.std_logic_unsigned.all;
-use std.env.all;
 USE work.cond_compilation_package.all;
 USE work.aux_package.all;
 
@@ -54,11 +62,26 @@ ENTITY tb_RV32IMscMCU IS
 END tb_RV32IMscMCU;
 --============================================================================
 ARCHITECTURE struct OF tb_RV32IMscMCU IS
-	--Inputs
+	--Inputs (Lab 5 shape: clock + reset)
 	SIGNAL rst_i				: STD_LOGIC;
 	SIGNAL clk_i				: STD_LOGIC;
 
-	--Outputs (Verification and Signal-Tap validation)
+	-- Board I/O — Final Project clauses 4–6. Forced from the wave window
+	-- for GPIO / interrupt apps; defaults are "switches down, keys released".
+	SIGNAL SW_i					: STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+	SIGNAL KEY_i				: STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');	-- active-low, idle = 1
+	SIGNAL CAPIN1_i				: STD_LOGIC := '0';
+	SIGNAL CAPIN2_i				: STD_LOGIC := '0';
+	SIGNAL PWM_o				: STD_LOGIC;
+	SIGNAL LEDR_o				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL HEX0_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL HEX1_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL HEX2_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL HEX3_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL HEX4_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL HEX5_o				: STD_LOGIC_VECTOR(6 DOWNTO 0);
+
+	-- Observation ports (Verification and Signal-Tap), same set as Lab 5
 	SIGNAL pc_o					: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL instruction_o		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
@@ -77,12 +100,16 @@ ARCHITECTURE struct OF tb_RV32IMscMCU IS
 	SIGNAL dtcm_data_wr_o		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL dtcm_data_rd_o		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
+	SIGNAL dtcm_cs_o			: STD_LOGIC;
+	SIGNAL unmapped_o			: STD_LOGIC;
+	SIGNAL dtcm_wren_o			: STD_LOGIC;
+
 	SIGNAL mclk_cnt_o			: STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
 
 BEGIN
 	MCU : RV32IMscMCU
 	generic map(
-		RST_ACTIVE_LOW		=> FALSE,	-- stimulus below is already active-high
+		RST_ACTIVE_LOW		=> FALSE,	-- stimulus below is already active-high, as Lab 5
 		GEN_DEBUG_PORTS		=> TRUE,
 		WORD_GRANULARITY	=> WORD_GRANULARITY,
 		MODELSIM			=> MODELSIM,
@@ -95,11 +122,22 @@ BEGIN
 		CLK_CNT_WIDTH		=> CLK_CNT_WIDTH
 	)
 	PORT MAP (
-		--Inputs
 		clk_i				=> clk_i,
 		rst_i				=> rst_i,
 
-		--Outputs
+		SW_i				=> SW_i,
+		KEY_i				=> KEY_i,
+		CAPIN1_i			=> CAPIN1_i,
+		CAPIN2_i			=> CAPIN2_i,
+		PWM_o				=> PWM_o,
+		LEDR_o				=> LEDR_o,
+		HEX0_o				=> HEX0_o,
+		HEX1_o				=> HEX1_o,
+		HEX2_o				=> HEX2_o,
+		HEX3_o				=> HEX3_o,
+		HEX4_o				=> HEX4_o,
+		HEX5_o				=> HEX5_o,
+
 		pc_o				=> pc_o,
 		instruction_o		=> instruction_o,
 
@@ -118,10 +156,14 @@ BEGIN
 		dtcm_data_wr_o		=> dtcm_data_wr_o,
 		dtcm_data_rd_o		=> dtcm_data_rd_o,
 
+		dtcm_cs_o			=> dtcm_cs_o,
+		unmapped_o			=> unmapped_o,
+		dtcm_wren_o			=> dtcm_wren_o,
+
 		mclk_cnt_o			=> mclk_cnt_o
 	);
 --------------------------------------------------------------------
-	gen_clk : -- MCLK cycle = 100nsec = 0.1usec
+	gen_clk : -- MCLK cycle = 100nsec = 0.1usec  (Lab 5 TB, unchanged)
 	process
 	begin
 		clk_i <= '1';
@@ -136,17 +178,5 @@ BEGIN
 		rst_i <='1','0' after 80 ns;
 		wait;
 	end process;
---------------------------------------------------------------------
-	-- Auto-stop, carried forward from repo commit c1e9e64. Every Lab 5
-	-- benchmark ends in an unconditional self-jump - beq x0,x0,0 (0x00000063,
-	-- man_compiled) or jal x0,0 (0x0000006F, gcc_compiled) - reached at
-	-- instruction_o. Single-cycle write-back completes the same clock, so no
-	-- retire delay is needed before stopping.
-	monitor_end_of_program : process
-	begin
-		wait until instruction_o = X"00000063" or instruction_o = X"0000006F";
-		report "Program finished (while(1) reached) - stopping simulation" severity note;
-		std.env.stop;
-	end process monitor_end_of_program;
 --------------------------------------------------------------------
 END struct;

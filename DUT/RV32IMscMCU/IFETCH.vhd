@@ -8,7 +8,6 @@ LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_UNSIGNED.ALL;
-USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 LIBRARY altera_mf;
 USE altera_mf.altera_mf_components.all;
 
@@ -113,8 +112,7 @@ END PROCESS;
 	-- address carry the odd value. Repair reference:
 	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd:190
 	--     redirect_addr_w <= mem_alu_res_w(PC_WIDTH-1 DOWNTO 1) & '0' WHEN mem_Jalr_w = '1'
-	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0'	WHEN G_ISA_REPAIR ELSE
-						alu_res_i(PC_WIDTH-1 DOWNTO 0);
+	jalr_target_w	<=	alu_res_i(PC_WIDTH-1 DOWNTO 1) & '0';
 
 	-- PHASE 7B2 -- THE STALL.
 	--

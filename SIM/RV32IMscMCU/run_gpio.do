@@ -2,14 +2,7 @@
 #
 # Run compile.do first.
 #
-# ####################################################################
-# # NEEDS G_ISA_REPAIR = TRUE, and needs GPIO test0's images staged.  #
-# ####################################################################
-#
-# Same G_ISA_REPAIR reason as run_mmio.do: at FALSE, lui writes zero (defect 2),
-# so test0's "lui t4,0x2 / addi / sw" sequences never form an address at or above
-# 0x2000 and no GPIO port is ever addressed. The testbench detects that and says
-# NOT APPLICABLE instead of failing.
+# Needs GPIO test0's M9K-intel images staged.
 #
 # STAGING - identical to run_mmio.do, so if you have just run that, nothing to do:
 #

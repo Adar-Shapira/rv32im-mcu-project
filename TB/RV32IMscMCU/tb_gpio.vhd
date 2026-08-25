@@ -56,10 +56,6 @@
 --   the two ports of a pair, which no supplied benchmark does -- GPIO test1 and
 --   test2 also write one value to all seven. Recorded as gap G-406.
 --
--- REQUIRES G_ISA_REPAIR = TRUE, for the same reason tb_mmio_alias does: at FALSE
--- the lui defect keeps every store below 0x2000 and no GPIO port is ever
--- addressed. The guard below reports NOT APPLICABLE rather than failing.
---
 -- STAGING
 --   GPIO test0's M9K-intel images as app_bin\ITCM.hex and app_bin\DTCM.hex.
 --   run_gpio.do gives the exact copy commands.
@@ -277,19 +273,6 @@ BEGIN
 		end procedure;
 	begin
 		if falling_edge(clk_i) and rst_i = '0' then
-
-			--==========================================================
-			-- Configuration guard -- see the header.
-			--==========================================================
-			if not G_ISA_REPAIR then
-				report "===== PHASE 6A GPIO TEST (GPIO test0) =====" severity note;
-				report "  VERDICT: NOT APPLICABLE - this build has G_ISA_REPAIR = FALSE," severity note;
-				report "  so lui writes zero (defect 2) and test0's stores never reach" severity note;
-				report "  0x2000. No GPIO port is ever addressed, so there is nothing to" severity note;
-				report "  check. Set G_ISA_REPAIR := TRUE, recompile, and run again." severity note;
-				report "===========================================" severity note;
-				std.env.stop;
-			end if;
 
 			cycles_v := cycles_v + 1;
 

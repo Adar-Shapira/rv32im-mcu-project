@@ -12,7 +12,6 @@ USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_UNSIGNED.ALL;
 USE work.const_package.all;
-USE work.cond_compilation_package.all;	-- G_ISA_REPAIR (defect-repair switch)
 
 
 ENTITY Idecode IS
@@ -87,9 +86,6 @@ TYPE register_file IS ARRAY (0 TO 31) OF STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNT
 	SIGNAL SignExt_SBimm_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL SignExt_Uimm_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL SignExt_UJimm_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	-- G_ISA_REPAIR-gated immediates for defects 3 (loads) and 2 (lui)
-	SIGNAL load_imm_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-	SIGNAL lui_imm_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 
 BEGIN
 	opc_w	<= instruction_i(6 DOWNTO 0); 
@@ -127,26 +123,18 @@ BEGIN
 	SignExt_UJimm_w	<=	ZEROS_IMM12 & UJimm_w 	WHEN 	not UJimm_w(19) ELSE ONES_IMM12 & UJimm_w;
 
 	
-	-- Defect 3 (load offsets): the as-submitted select has no LOAD_OPC arm, so every
-	-- lb/lh/lw/lbu/lhu falls through to (others => '0') and addresses rs1+0 regardless of
-	-- its immediate. Defect 2 (lui): the UTYPE_OPC arm is an exact match against
-	-- ("0010111" and "0110111") = "0010111" = auipc's opcode, so auipc matches and lui
-	-- never does -- lui's immediate is 0, and since CONTROL forces ALU input A to zero for
-	-- lui, lui writes 0. Repair reference, both defects:
+	-- Lab 5 SC as-submitted had no LOAD_OPC arm (every load used offset 0) and
+	-- matched UTYPE as auipc only, so lui's immediate was 0. Repair reference:
 	--   Auxiliary/Lab 5/DUT/RV32IM_pipeline/IDECODE.vhd:178,181,182
-	-- which splits UTYPE_OPC into AUIPC_OPC/LUI_OPC and adds the LOAD_OPC arm.
-	-- AUIPC_OPC = UTYPE_OPC's effective value, so the auipc path is unchanged either way.
-	load_imm_w	<=	SignExt_Iimm_w								WHEN G_ISA_REPAIR ELSE (others => '0');
-	lui_imm_w	<=	SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	WHEN G_ISA_REPAIR ELSE (others => '0');
-
+	-- AUIPC_OPC = UTYPE_OPC's effective value, so the auipc path is unchanged.
 	with	opc_w select
 		SignExt_o 	<=	SignExt_Iimm_w				when ITYPE_OPC,
 		SignExt_Iimm_w								when INST_JALR(6 DOWNTO 0),
-		load_imm_w									when LOAD_OPC,
+		SignExt_Iimm_w								when LOAD_OPC,
 		SignExt_Simm_w								when STYPE_OPC,
 		SignExt_SBimm_w 							when SBTYPE_OPC,
 		SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	when AUIPC_OPC,
-		lui_imm_w									when LUI_OPC,
+		SignExt_Uimm_w(19 DOWNTO 0) & ZEROS_IMM12	when LUI_OPC,
 		SignExt_UJimm_w								when UJTYPE_OPC,
 		(others => '0')								when others;
 	--==============================================================================
