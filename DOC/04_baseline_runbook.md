@@ -435,56 +435,40 @@ addresses 0, 4, 5, 8, 9, 12, 13, inside the DTCM, **never reaching `0x2000`**. *
 masked each other:** the missing region decode was invisible on the GPIO benchmarks precisely
 because `lui` never formed an SFR address. Repairing `lui` is what exposed the aliasing.
 
-**Stage GPIO test0's images.** The `M9K-intel` files, **not** `Hexadecimal-Text` — they are different
-programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
-
-```
-copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-```
+**Nothing to stage** (since Phase 13 — §10): each script below copies its own images into `app_bin`,
+so the order you run them in no longer matters and nothing has to be put back. The first two use
+GPIO test0, `run_gpio_read.do` uses GPIO **test1**, and all three take the `M9K-intel` files — never
+`Hexadecimal-Text`, which is a different program carrying a stale `−0x3000` `auipc` bias, and which
+`tools/check_staging.py` now asserts no script can reach for.
 
 A warning that `DTCM.hex` supplies 1024 words for a 2048-word memory is the shipped file's own
 length, not a staging mistake.
 
-| Script | Phase | Expect |
-| --- | --- | --- |
-| `do run_mmio.do` | 5B — MMIO aliasing | `VERDICT: PASS`; **`DTCM WRITES ACCEPTED: 0`**; ~126 MMIO stores; `DTCM stores seen 0` |
-| `do run_gpio.do` | 6A — the seven GPO ports | `VERDICT: PASS`; ~**18 writes to each** of the seven ports; ≥ 3 distinct `LEDR` values |
+| Script | Phase | Images | Expect |
+| --- | --- | --- | --- |
+| `do run_mmio.do` | 5B — MMIO aliasing | GPIO test0 | `VERDICT: PASS`; **`DTCM WRITES ACCEPTED: 0`**; ~126 MMIO stores; `DTCM stores seen 0` |
+| `do run_gpio.do` | 6A — the seven GPO ports | GPIO test0 | `VERDICT: PASS`; ~**18 writes to each** of the seven ports; ≥ 3 distinct `LEDR` values |
+| `do run_gpio_read.do` | 6B — the SFR read path | GPIO **test1** | `VERDICT: PASS`; **phase 3 writes exactly 0**; ≥ 2 increments and ≥ 2 decrements |
 
-**Then one more, with different images.** `run_gpio_read.do` (Phase 6B) runs GPIO **`test1`**, not
-`test0`. Restage:
-
-```
-copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-```
-
-| Script | Phase | Expect |
-| --- | --- | --- |
-| `do run_gpio_read.do` | 6B — the SFR read path | `VERDICT: PASS`; **phase 3 writes exactly 0**; ≥ 2 increments and ≥ 2 decrements |
-
-**Put `test0`'s images back afterwards**, or `run_mmio.do` and `run_gpio.do` will not reproduce.
+Phase 6B is the strongest evidence in this set: it does not assert on the value on the read bus, it
+drives the switches and checks that the *program's own branches* follow what it read.
 
 ### 8.1d The directed GPIO test — the one that needs nothing from you
 
 `run_gpio_directed.do` (Phase 6D) closes gaps G-406 and G-407. It is the only GPIO test that needs
 **no benchmark image** — its images are generated and committed — so it can be run at any point.
 
-Stage the **generated** images, not a benchmark:
-
-```
-copy <repo>\SIM\RV32IMscMCU\gpio\ITCM.hex  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-copy <repo>\SIM\RV32IMscMCU\gpio\DTCM.hex  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-```
+It stages its own **generated** images from `SIM\RV32IMscMCU\gpio\` (regenerate with
+`python3 tools/gen_gpio_test.py` only if the map or the cases change — the files are committed).
 
 | Script | Closes | Expect |
 | --- | --- | --- |
 | `do run_gpio_directed.do` | G-406, G-407, and Phase 6C | `VERDICT: PASS`; **35 of 35** stores; **0** mismatches; ~332 cycles |
 
 **Zero is the only passing number here**, unlike `run_isa.do`. The program uses only `addi`, `slli`,
-`sw` and `lw`-at-offset-zero plus one `beq` sentinel, so it touches none of the seven ISA defects and
-nothing is expected to fail in either configuration. A mismatch here is a GPIO problem, never an ISA
-one.
+`sw` and `lw`-at-offset-zero plus one `beq` sentinel, so it touches none of the seven
+(since-repaired) Lab 5 ISA defects. That isolation is what makes a mismatch here a GPIO problem and
+never an ISA one.
 
 **Every mismatch names its case.** Look the case up in `SIM\RV32IMscMCU\gpio\listing.txt`, which
 says in words what that case is for and what its failure means. Quick reading:
@@ -624,8 +608,8 @@ waiting:
   cycle counter starts when reset releases so holding reset longer shifts the start and the count
   together. If a count **does** move, set `GEN_RESET_ON_LOCK => FALSE` and re-run: that separates the
   reset change from the clock change in one run instead of bisecting the phase;
-- `run_timer_mmio.do`'s verdict (Phase 8B) — needs the `SIM\RV32IMscMCU\timer\` images staged
-  into `app_bin` (they are committed; do NOT reuse the gpio ones). Report the captured K it prints —
+- `run_timer_mmio.do`'s verdict (Phase 8B) — it stages its own `SIM\RV32IMscMCU\timer\` images
+  (committed; since Phase 13 a stale gpio set can no longer reach it). Report the captured K it prints —
   the generator's interpreter predicts 10, and a value that is stable-but-different is fine (range
   1..60), while S6 ≠ S7 is a real failure;
 - `run_timer.do`'s verdict (Phase 8A) — and note its P8 line PRINTS a finding on purpose: FREQ_5K's

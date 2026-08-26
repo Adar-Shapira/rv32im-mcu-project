@@ -275,6 +275,23 @@ Run 2. Report the ModelSim version and the transcript.
 
 Working directory: `SIM\RV32IMscMCU`
 
+> **THE FAST PATH, added 2026-08-26 (Phase 13): all of Run 2 in one command.**
+>
+> ```
+> vsim -c -do regress.do
+> echo %ERRORLEVEL%          REM 0 = everything passed, 1 = something did not
+> ```
+>
+> That compiles once, runs **all 18 self-checking tests and the four benchmarks**, stages every
+> image itself, scores each test, and **exits non-zero if anything failed**. Per-test transcripts
+> land in `SIM\RV32IMscMCU\logs\`. Do this first; it is the whole of Run 2 and it takes one
+> command. `python3 tools\check_staging.py` is its static companion and runs anywhere in a second.
+>
+> **The step-by-step list below is still worth having** — it carries the expected *numbers* per
+> test, which the pass/fail table does not, and it is what to read when `regress.do` names a
+> failing row. Run individual scripts from it while chasing a failure. **Ignore any "copy the
+> images" instruction in it: every script stages its own now** (see §1.7 and Phase 13).
+
 **No source edit.** `run_test.do` and `run_isa.do` both pass `-gMODELSIM=1`, which the testbench
 forwards to the wrapper and the core. Quartus keeps the package default of `0` and also needs no
 edit. If you ever find yourself editing `cond_compilation_package.vhd` in our tree, something is
@@ -330,13 +347,9 @@ wrong — say so. *(Since 2026-08-26 there is also nothing else in that package 
    `lui t4,0x2 / addi / sw` sequences never formed an address at or above `0x2000`, so the missing
    MMIO decode was invisible on the GPIO benchmarks precisely because `lui` was also broken.
 
-   First stage GPIO test0's images. **The `M9K-intel` ones, not `Hexadecimal-Text`** — they are
-   different programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
-
-   ```
-   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex"  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-   ```
+   **Nothing to stage — the two scripts below copy GPIO test0's `M9K-intel` images themselves**
+   (since Phase 13; `tools\check_staging.py` asserts no script ever stages a `Hexadecimal-Text`
+   `.h`, which is a different program carrying a stale `−0x3000` `auipc` bias).
 
    Expect a warning that `DTCM.hex` supplies 1024 words for a 2048-word memory. That is the shipped
    file's own length, not a staging mistake.
@@ -346,17 +359,17 @@ wrong — say so. *(Since 2026-08-26 there is also nothing else in that package 
      store. Also expect ~126 MMIO stores and `DTCM stores seen 0`.
    - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
-   - **`do run_gpio_directed.do`** → **Phase 6D**, the directed GPIO test. Stage the *generated*
-     images from `SIM\RV32IMscMCU\gpio\` instead of a benchmark — it needs nothing else, so it can
-     also be run outside this step entirely. Expect **35 of 35** stores
+   - **`do run_gpio_directed.do`** → **Phase 6D**, the directed GPIO test. It uses the *generated*
+     images from `SIM\RV32IMscMCU\gpio\` rather than a benchmark, and stages them itself, so it can
+     be run outside this step entirely. Expect **35 of 35** stores
      and **zero** mismatches — there is no expected-failure count here. It also carries Phase 6C's two
      `PORT_PB` cases.
-   - **Then restage for the last one — this is the only test that wants a different program.**
-     Copy GPIO **`test1`**'s `M9K-intel` `ITCM.hex` and `DTCM.hex` over the same two `app_bin` files,
-     and `do run_gpio_read.do` → **Phase 6B**. Expect `VERDICT: PASS`, and specifically **phase 3
-     writes exactly 0** with ≥ 2 increments and ≥ 2 decrements. That test drives the switches and
-     checks the *program's branches* follow what it read, which is why it is the strongest evidence
-     in the set. **Put `test0`'s images back afterwards** or the two earlier tests will not reproduce.
+   - **`do run_gpio_read.do`** → **Phase 6B**, the only test that wants a *different* program: GPIO
+     **`test1`**, which it now stages itself — so there is nothing to put back afterwards, and the
+     earlier two tests reproduce whatever order you run them in. Expect `VERDICT: PASS`, and
+     specifically **phase 3 writes exactly 0** with ≥ 2 increments and ≥ 2 decrements. That test
+     drives the switches and checks the *program's branches* follow what it read, which is why it is
+     the strongest evidence in the set.
    - **Notes from the wrapper — corrected 2026-08-24, the earlier wording was wrong.** Since Phase 6A
      the wrapper prints at most two notes, once each: an SFR **read** has no path yet and returns zero
      (that is Phase 6B), and an SFR **write** landed on one of the eight words that still have no
@@ -368,8 +381,20 @@ wrong — say so. *(Since 2026-08-26 there is also nothing else in that package 
      store `PORT_LEDR` now latches, and said the write was discarded immediately before `tb_gpio`
      printed that all seven ports held what was stored. Found by review.
 
-5. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
-   pipeline — new file list in `compile.do`, and `golden.do` is now the wave script to prefer.
+5. **The pipeline's four benchmarks — also one command** (Phase 13, 2026-08-26):
+
+   ```
+   cd SIM\RV32IMpipelinedMCU
+   vsim -c -do batch_verify.do
+   echo %ERRORLEVEL%
+   ```
+
+   It stages, runs test1..4, **diffs each DTCM against the reference's own capture**, fails a run
+   that never reached its final `while(1)`, and exits non-zero. **Write down the four
+   `CLKCNT`/`STCNT`/`FHCNT` triples it prints** — they are gap **G-205** and Phase 11's IPC input,
+   and they are reported rather than asserted on purpose (§8.6's figures include the testbench
+   drain, so they are a range). This directory was rebuilt for the revised pipeline — new file list
+   in `compile.do`, and `golden.do` is the wave script to prefer for a GUI run.
 
 ### Run 3 — Quartus (still Phase 1).
 
@@ -427,10 +452,10 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
 | **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
 | **8A Basic Timer core** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_timer.do`.** B4 mostly settled from the benchmarks; B2 still open for `SEC_PERIOD` |
-| **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `timer/` images, `do run_timer_mmio.do`** |
+| **8B Timer onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_timer_mmio.do` (stages its own `timer/` images)** |
 | **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
-| **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — stage `intr/` images, `do run_intr_core.do`.** Report tp1/tp3 and the R3 deferral (the F13 number) |
-| **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `intrmmio/` images, `do run_intr_mmio.do`.** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
+| **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_core.do` (stages its own `intr/` images).** Report tp1/tp3 and the R3 deferral (the F13 number) |
+| **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_mmio.do` (stages its own `intrmmio/` images).** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
@@ -1980,9 +2005,9 @@ that stores a byte to a GPO port and loads it back — the same shape of gap as 
 
 #### ▸ Adar's results — Phase 6B
 
-**Different staging from every other test: GPIO `test1`, not `test0`.** Then
-`do run_gpio_read.do`. Put test0's images back before re-running `run_mmio.do` or
-`run_gpio.do`.
+**Different images from every other test: GPIO `test1`, not `test0`** — the script stages them
+itself (since Phase 13), so there is nothing to put back and the run order does not matter. Just
+`do run_gpio_read.do`.
 
 - phase 1 `SW=0x01`: writes ____ , increments ____ (need ≥ 2)
 - phase 2 `SW=0x02`: writes ____ , decrements ____ (need ≥ 2)
