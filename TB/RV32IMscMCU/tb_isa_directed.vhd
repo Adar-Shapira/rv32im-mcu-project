@@ -227,21 +227,24 @@ BEGIN
 				report "  expected here   : " & integer'image(PREDICTED) &
 					" mismatch(es) (ISA-repaired core; leftovers are mul-related)" severity note;
 
+				-- The VERDICT line always starts with PASS or FAIL, like every
+				-- other testbench in the set, so regress.do can score this one
+				-- by the same rule. The mismatch count follows on the same line.
 				if fails = PREDICTED and PREDICTED = 0 then
-					report "  VERDICT: zero mismatches, as predicted - full PASS." severity note;
+					report "  VERDICT: PASS - zero mismatches, as predicted." severity note;
 				elsif fails = PREDICTED then
-					report "  VERDICT: " & integer'image(fails) &
-						" mismatch(es) - exactly the predicted set." severity note;
+					report "  VERDICT: PASS - " & integer'image(fails) &
+						" mismatch(es), exactly the predicted set." severity note;
 					report "  The seven Lab 5 SC ISA repairs are in. What remains is " &
 						"blocked on G-326/G-308 (mul width)." severity note;
 				elsif fails = 0 then
-					report "  VERDICT: zero mismatches, but " & integer'image(PREDICTED) &
+					report "  VERDICT: FAIL - zero mismatches, but " & integer'image(PREDICTED) &
 						" were predicted. This is a FAILURE OF THE SUITE, not a pass." severity note;
 					report "  The usual cause is that isa/ITCM.hex never reached " &
 						"C:/TestPrograms/Quartus21_1/app_bin, so a different program ran."
 						severity note;
 				else
-					report "  VERDICT: " & integer'image(fails) & " mismatch(es), but " &
+					report "  VERDICT: FAIL - " & integer'image(fails) & " mismatch(es), but " &
 						integer'image(PREDICTED) & " were predicted." severity note;
 					report "  The difference is the interesting part: a mismatch on a case " &
 						"not marked DEFECT in the listing is a NEW finding, and a case " &

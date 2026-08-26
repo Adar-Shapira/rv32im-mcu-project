@@ -3,16 +3,12 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # Needs GPIO **test1** images - test1, NOT test0.                   #
+# # Uses GPIO **test1** images - test1, NOT test0. STAGED AUTOMATICALLY #
+# # (since Phase 13), and every other script stages its own too, so    #
+# # nothing has to be put back afterwards.                             #
 # ####################################################################
 #
-#   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\ITCM.hex" ^
-#        C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-#   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\DTCM.hex" ^
-#        C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-#
-# M9K-intel, not Hexadecimal-Text. And remember to put test0's images back before
-# re-running run_mmio.do or run_gpio.do.
+# M9K-intel, not Hexadecimal-Text - they are different programs.
 #
 # WHAT THIS TEST DOES, AND WHY IT IS THE STRONGEST ONE SO FAR
 #   It does not assert on the value on the read bus. It drives the switches and
@@ -69,6 +65,11 @@
 #   should be about 1 per boundary.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: GPIO test1 (benchmark) -- note test1, not test0
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test1/bin/M9K-intel/ITCM.hex} C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test1/bin/M9K-intel/DTCM.hex} C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

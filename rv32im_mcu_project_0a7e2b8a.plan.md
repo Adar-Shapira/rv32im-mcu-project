@@ -435,7 +435,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
-| 13 Regression | Yehonatan | Adar | |
+| **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — `python3 tools/check_staging.py` (clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
 | 16 Report + ZIP | both | Adar checks the clean-room build | |
@@ -2800,17 +2800,66 @@ sentence in the report's interrupt chapter.
 
 Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
 
-## Phase 13 — Regression and evidence  ·  **Adar runs**
+## Phase 13 — Regression and evidence  ·  **built 2026-08-26 · Adar runs**
 
-- Scripts per core × configuration × benchmark: select images, run bounded stimuli, dump memory,
-  compare, **return a non-zero exit status on mismatch**. `batch_verify.do` currently only echoes —
-  **G-203**.
-- Keep `bin/M9K-intel/*.hex` for ITCM and ISMCE, `bin/Hexadecimal-Text/*.h` as the DTCM golden text.
-  Assert that `ITCM.h` is never loaded as an ITCM source — the two formats are **different
-  programs**, `.hex` at text base 0 and `.h` retaining RARS's `0x3000`.
-- Capture report-ready waveforms for interrupt tests 1–4.
-- **Exit:** one regression summary covering every required test, with no manual source edits anywhere
-  in the flow.
+**Goal.** One command that runs the whole single-cycle suite, scores it, and **fails loudly** —
+closing **G-203**, which was that `batch_verify.do` only ever echoed, so a failing regression
+looked exactly like a passing one to anything but a careful human reader.
+
+**Existing references found.** `SIM/RV32IMpipelinedMCU/batch_verify.do` (the loop-and-examine
+shape, and its own missing exit status); `SIM/RV32IMscMCU/run_test.do` (the `when` stop condition
+and the staging idiom); `mem_dump.do` (the 2048-word dump); `Auxiliary/Lab 5/SIM/RV32IM_sc/
+DTCM_test{1,2,3,4}_MS.mem` (the reference's own full-range captures — all four present, 2051 lines
+each); the 18 existing `run_*.do` scripts and their testbenches' `VERDICT` lines.
+
+**What was built — `SIM/RV32IMscMCU/regress.do`.** Headless: `vsim -c -do regress.do`, then read
+the exit status (0 / 1). It compiles once, then:
+
+- **Part A — all 18 self-checking tests**, scored by one uniform rule that needs no per-test
+  knowledge: a log containing `VERDICT: FAIL` or `VERDICT: INCOMPLETE` failed, `VERDICT: PASS`
+  passed, and **no `VERDICT` line at all also fails** ("never reached its summary" — the failure
+  mode a grep-for-PASS regression misses). Per-test transcripts go to `logs\<name>.log`; the table
+  is the summary, the log is the evidence. Two extra machine-checkable facts are folded in:
+  test4's capture-event count (must be 3) and Part B below.
+- **Part B — the four RV32IM benchmarks, actually compared.** `mclk_cnt_o` against
+  134 / 1514 / 2725 / 2735, **and** the DTCM dump diffed word by word against the reference's own
+  2048-word capture, reporting the first differing word and its two values. If the one-time
+  `C:\TestPrograms\Quartus21_1\test1..4` layout is absent it **skips Part B with a named reason**
+  and says so again in the summary — it never silently reports a partial pass as complete.
+
+**Two supporting changes so the flow has no manual step** (Phase 13's own exit criterion):
+
+- **Seven scripts now stage their own images** — `run_mmio`, `run_gpio`, `run_gpio_read`,
+  `run_gpio_directed`, `run_timer_mmio`, `run_intr_core`, `run_intr_mmio`. They used to instruct
+  the operator to copy files by hand, which is the likeliest way to get a wrong-but-plausible
+  result (a stale image set from the previous test). `run_isa.do` already did this; all 18 now do.
+- **`repair_check.do` no longer takes the tool down** when sourced (`quit` guarded by `::REGRESS`),
+  and its verdict line gained the `PASS`/`FAIL` keyword the uniform rule needs — as did
+  `tb_isa_directed.vhd`, the one testbench whose verdict did not start with either.
+
+**`tools/check_staging.py` — the static half.** Phase 13 also asks to *assert* that `ITCM.h` is
+never loaded as an ITCM source. This lint reads every `.do`, checks every `app_bin` staging copy
+is an existing `.hex`, and rejects `Hexadecimal-Text` sources. It runs on the Mac in a second,
+**passes clean today (34 copies across 33 scripts)**, and was self-tested against three
+deliberately bad lines to prove it can fail. It also catches path rot — which is not
+hypothetical: it is exactly the class of bug found the same day in `DOC/04` §3, whose staging
+table still pointed at `Auxilary/testN/…` after Adar's restructure moved it to
+`Auxilary/Benchmarks/testN/…` (fixed; all four paths verified present).
+
+**Still to do here.** Report-ready waveform captures for interrupt tests 1–4 (needs a run), and
+the pipeline's own regression once Phase 11 lands — `batch_verify.do` has the same missing exit
+status and can take the same treatment.
+
+**Adar's results — Phase 13**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `python3 tools/check_staging.py` (either machine) | `clean`, exit 0 | |
+| `vsim -c -do regress.do` in `SIM\RV32IMscMCU`, then `echo %ERRORLEVEL%` | the summary table all `passed`, and **exit status 0** | |
+| deliberately, once: break one thing and re-run | exit status **1**, and the table names the broken row — proves G-203 is really closed | |
+
+- **Exit:** one regression summary covering every required test, with no manual source edits
+  anywhere in the flow.
 
 ## Phase 14 — Quartus PPA  ·  **Adar only** — six revisions
 
@@ -2880,7 +2929,7 @@ Gaps: G-501…G-505.
 | --- | --- |
 | **G-201** | `G_MODELSIM` is a manual source edit in both cores. Convert to a generic with `-g` override; keep the package constant as the Quartus default. |
 | **G-202** | **Baseline never reproduced.** Runbook and all inputs are ready; nobody has run it. Gate on Phase 1. |
-| **G-203** | `batch_verify.do` never returns a failing exit status. |
+| **G-203** | ~~`batch_verify.do` never returns a failing exit status.~~ **CLOSED for the single-cycle side 2026-08-26 (Phase 13)** — `SIM/RV32IMscMCU/regress.do` scores all 18 tests plus the four benchmarks and `quit -code 1`s on any failure, and `tools/check_staging.py` is the static half. The **pipeline's** `batch_verify.do` still only echoes; same treatment when Phase 11 lands. |
 | **G-205** | Pipeline cycle counts recorded nowhere; needed for the IPC check. |
 | **G-206** | Quartus never compiled from this repo. |
 | **G-207** | `finalProj` Quartus project exists on the Windows machine and in no local copy. Contents unknown. |

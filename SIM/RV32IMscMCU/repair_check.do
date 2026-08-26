@@ -269,13 +269,15 @@ echo "========== PHASE 3A + 3B CONFORMANCE CHECK =========="
 echo "  passed : $::passes  of 43"
 echo "  failed : $::fails"
 if {$::fails == 0} {
-    echo "  VERDICT: all 43 checks behave as specified."
+    echo "  VERDICT: PASS - all 43 checks behave as specified."
     echo "====================================================="
-    quit -f
+    # regress.do sources this file and scores it like every other test, so it
+    # must not take the tool down with it. Standalone, the quit is kept.
+    if {![info exists ::REGRESS]} { quit -f }
 } else {
-    echo "  VERDICT: $::fails check(s) failed."
+    echo "  VERDICT: FAIL - $::fails check(s) failed."
     echo "  0 means every repair works; anything else is a real finding."
     echo "  Paste the FAIL lines above into the plan file."
     echo "====================================================="
-    quit -code 1
+    if {![info exists ::REGRESS]} { quit -code 1 }
 }

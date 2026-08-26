@@ -2,21 +2,15 @@
 #
 # Run compile.do first.
 #
-# Needs GPIO test0's M9K-intel images staged as app_bin\ITCM.hex and DTCM.hex.
+# STAGING IS AUTOMATIC (since Phase 13): this script copies GPIO test0's
+#   M9K-intel images into app_bin itself, so there is nothing to do by hand and
+#   nothing left over from a previous test.
 #
-# STAGING - THIS ONE NEEDS IMAGES
 #   Unlike run_sync.do and run_decode.do, this test runs a real program, so the
 #   two init files have to be on disk where IFETCH.vhd and DMEMORY.vhd look for
-#   them. Copy GPIO test0's images:
-#
-#     copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex" ^
-#          C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-#     copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex" ^
-#          C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-#
-#   Use the M9K-intel .hex files, NOT the Hexadecimal-Text .h files. They are
-#   different programs - the .h copy carries a stale -0x3000 auipc bias. This is
-#   the same rule DOC/04_baseline_runbook.md states for every benchmark run.
+#   them. The M9K-intel .hex files are used, NOT the Hexadecimal-Text .h files:
+#   they are different programs, and the .h copy carries a stale -0x3000 auipc
+#   bias. Same rule DOC/04_baseline_runbook.md states for every benchmark run.
 #
 #   Expect a warning that DTCM.hex supplies 1024 words for a 2048-word memory.
 #   That is the shipped file's own length, not a staging mistake; the upper half
@@ -61,6 +55,11 @@
 #   the run itself with RUN_CYCLES and stops.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: GPIO test0 (benchmark)
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/ITCM.hex} C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/DTCM.hex} C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

@@ -3,14 +3,12 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # NEEDS THE GENERATED TIMER IMAGES - like the directed GPIO test,   #
-# # and like it, runs at EITHER G_ISA_REPAIR setting.                 #
+# # Uses the GENERATED timer images from SIM\RV32IMscMCU\timer\ -      #
+# # STAGED AUTOMATICALLY (since Phase 13), and every other script     #
+# # stages its own, so nothing has to be put back afterwards.         #
 # ####################################################################
 #
-#   copy "<repo>\SIM\RV32IMscMCU\timer\ITCM.hex" C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-#   copy "<repo>\SIM\RV32IMscMCU\timer\DTCM.hex" C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-#
-# Remember to put the right images back before re-running any other MCU test.
+# Regenerate them with:  python3 tools/gen_timer_test.py
 #
 # WHAT THIS PROVES: the Phase 8B WIRING only. The timer core itself was proven
 # cycle-exact by run_timer.do (tb_basic_timer + model_basic_timer, eight
@@ -30,6 +28,11 @@
 #   exact 10/31 PWM periods.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: generated: tools/gen_timer_test.py
+file copy -force timer/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force timer/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

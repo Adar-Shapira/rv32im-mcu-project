@@ -3,10 +3,10 @@
 # Run compile.do first.
 #
 # ######################################################################
-# # STAGING REQUIRED, like run_mmio/run_gpio/run_timer_mmio:           #
-# #   copy SIM\RV32IMscMCU\intrmmio\ITCM.hex and DTCM.hex into app_bin #
-# #   (C:\TestPrograms\Quartus21_1\app_bin\). NOT any other image set. #
-# # Runs at EITHER G_ISA_REPAIR setting.                               #
+# # STAGING IS AUTOMATIC (since Phase 13): this script copies          #
+# # SIM\RV32IMscMCU\intrmmio\{ITCM,DTCM}.hex into app_bin itself, so   #
+# # no other image set can reach this test.                            #
+# # Regenerate with: python3 tools/gen_intr_mmio_test.py               #
 # ######################################################################
 #
 # WHAT THIS IS
@@ -45,6 +45,11 @@
 #   whose 12 + 8 mutations were all caught at their leaf phases.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: generated: tools/gen_intr_mmio_test.py
+file copy -force intrmmio/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force intrmmio/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

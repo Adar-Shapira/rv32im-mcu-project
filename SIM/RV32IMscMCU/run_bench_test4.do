@@ -81,6 +81,10 @@ onbreak {resume}
 
 run -all
 
+# Deregister the watch so it cannot keep counting into a later test when this
+# script is sourced from regress.do.
+nowhen *
+
 echo ""
 if {$::cap_events == 3} {
     echo "CAPTURE EVENTS SEEN: 3 of 3 - the patched BTCTL2 write (0x07->0x06,"

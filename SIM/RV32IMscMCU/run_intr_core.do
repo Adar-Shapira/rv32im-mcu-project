@@ -3,11 +3,10 @@
 # Run compile.do first.
 #
 # ######################################################################
-# # STAGING REQUIRED, like run_mmio/run_gpio/run_timer_mmio:           #
-# #   copy SIM\RV32IMscMCU\intr\ITCM.hex and DTCM.hex into app_bin     #
-# #   (C:\TestPrograms\Quartus21_1\app_bin\). NOT the gpio or timer    #
-# #   images - the first FAIL line will say so if they are stale.      #
-# # Runs at EITHER G_ISA_REPAIR setting.                               #
+# # STAGING IS AUTOMATIC (since Phase 13): this script copies          #
+# # SIM\RV32IMscMCU\intr\{ITCM,DTCM}.hex into app_bin itself, so a     #
+# # stale gpio/timer image set can no longer reach this test.          #
+# # Regenerate with: python3 tools/gen_intr_core_test.py               #
 # ######################################################################
 #
 # WHAT THIS IS
@@ -40,6 +39,11 @@
 #   9C, whose test drives the REAL controller and the REAL CS_INTC.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: generated: tools/gen_intr_core_test.py
+file copy -force intr/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force intr/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

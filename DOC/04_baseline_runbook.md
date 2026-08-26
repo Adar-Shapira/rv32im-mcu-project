@@ -128,16 +128,18 @@ C:\TestPrograms\Quartus21_1\
 ```
 
 Every file comes from the repository. Source paths, relative to the repo root
-(`Auxiliary/Lab 5/Auxilary/` abbreviated as `AUX/`):
+(`Auxiliary/Lab 5/Auxilary/Benchmarks/` abbreviated as `BM/` — the `Benchmarks/` level came with
+Adar's `Auxiliary` restructure and this table lost it until 2026-08-26; all four paths verified
+present):
 
 | Destination | Source |
 | --- | --- |
-| `test1\bin\ITCM.hex` | `AUX/test1/RV32IM/man_compiled/bin/M9K-intel/ITCM.hex` |
-| `test1\bin\DTCM.hex` | `AUX/test1/RV32IM/man_compiled/bin/M9K-intel/DTCM.hex` |
-| `test1\RARS\DTCM.h` | `AUX/test1/RV32IM/man_compiled/output/RARS/DTCM.h` |
-| `test2\…` | `AUX/test2/RV32IM/man_compiled/…` (same three files) |
-| `test3\…` | `AUX/test3/RV32IM/man_compiled/…` |
-| `test4\…` | `AUX/test4/RV32IM/man_compiled/…` |
+| `test1\bin\ITCM.hex` | `BM/test1/RV32IM/man_compiled/bin/M9K-intel/ITCM.hex` |
+| `test1\bin\DTCM.hex` | `BM/test1/RV32IM/man_compiled/bin/M9K-intel/DTCM.hex` |
+| `test1\RARS\DTCM.h` | `BM/test1/RV32IM/man_compiled/output/RARS/DTCM.h` |
+| `test2\…` | `BM/test2/RV32IM/man_compiled/…` (same three files) |
+| `test3\…` | `BM/test3/RV32IM/man_compiled/…` |
+| `test4\…` | `BM/test4/RV32IM/man_compiled/…` |
 
 Use the **`RV32IM/man_compiled`** variant, not `RV32I` and not `gcc_compiled`. The guide's expected
 values assume it (`res2` holds products, so the program must contain `mul`), and `gcc_compiled`
@@ -155,7 +157,7 @@ $dst = "C:\TestPrograms\Quartus21_1"
 New-Item -ItemType Directory -Force -Path "$dst\app_bin" | Out-Null
 foreach ($n in 1..4) {
     New-Item -ItemType Directory -Force -Path "$dst\test$n\bin","$dst\test$n\RARS" | Out-Null
-    $src = "$aux\test$n\RV32IM\man_compiled"
+    $src = "$aux\Benchmarks\test$n\RV32IM\man_compiled"
     Copy-Item "$src\bin\M9K-intel\ITCM.hex"  "$dst\test$n\bin\ITCM.hex"  -Force
     Copy-Item "$src\bin\M9K-intel\DTCM.hex"  "$dst\test$n\bin\DTCM.hex"  -Force
     Copy-Item "$src\output\RARS\DTCM.h"      "$dst\test$n\RARS\DTCM.h"   -Force
@@ -259,8 +261,10 @@ and no longer lists `MUL16.vhd`, which is present in the folder but not instanti
 is `tb_RV32IM_pipeline`.
 
 `batch_verify.do` was **deleted** in the replacement, so gap **G-203** (it never returned a failing
-exit status) is moot on the reference side; our own copy at `SIM/RV32IMpipelinedMCU/batch_verify.do`
-still has that weakness.
+exit status) is moot on the reference side. On our side it is **closed for the single-cycle MCU**
+since 2026-08-26: `SIM/RV32IMscMCU/regress.do` runs everything and exits non-zero on any failure
+(see §9). Our pipeline copy at `SIM/RV32IMpipelinedMCU/batch_verify.do` still has the weakness and
+gets the same treatment when Phase 11 lands.
 
 What the reference gained instead is more useful: **`SIM/RV32IM_pipeline/directed_isa.do`**, its own
 directed regression for the ISA repairs. `SIM/RV32IMscMCU/repair_check.do` is the single-cycle port
@@ -713,3 +717,58 @@ the required sections exist.
 screenshot needs), and re-confirms that `ENABLE_RUNTIME_MOD = YES` + the `ITCM`/`DTCM` instance
 names (inherited from Lab 5 and already carried through every phase) are load-bearing demo
 machinery — the ISMCE check already in section 7's record list is the guard.
+
+---
+
+## 10. The regression — one command, and it fails loudly (added 2026-08-26, Phase 13)
+
+Everything in sections 8 and 8.1a–8.1d can be run in one shot, scored automatically, with a real
+exit status. That last part is the point: gap **G-203** was that the old batch script only echoed,
+so a failing regression looked exactly like a passing one to anything but a careful reader.
+
+```
+cd SIM\RV32IMscMCU
+vsim -c -do regress.do
+echo %ERRORLEVEL%        REM 0 = everything passed, 1 = something did not
+```
+
+It compiles once, then runs **all 18 self-checking tests** followed by **the four RV32IM
+benchmarks**, and prints one summary table. Per-test transcripts go to `SIM\RV32IMscMCU\logs\`.
+**The table is the summary; the log named in a failing row is the evidence** — read that, not the
+table, when something fails.
+
+**Nothing has to be staged by hand any more.** Every `run_*.do` now copies its own images into
+`app_bin`, so a stale image set from the previous test cannot reach the next one. That was the
+likeliest way to get a wrong-but-plausible result, and it is gone by construction. The seven
+scripts that changed on 2026-08-26: `run_mmio`, `run_gpio`, `run_gpio_read`, `run_gpio_directed`,
+`run_timer_mmio`, `run_intr_core`, `run_intr_mmio`.
+
+**Scoring rule, uniform across every test.** A log containing `VERDICT: FAIL` or
+`VERDICT: INCOMPLETE` failed; `VERDICT: PASS` passed; **no `VERDICT` line at all also fails**,
+because a test that never reached its own summary has not passed — that is the failure a
+grep-for-PASS regression silently swallows. Two tests carry one extra machine-checked fact each:
+`run_bench_test4.do`'s capture-event count (must be 3), and the benchmarks below.
+
+**Part B — the four benchmarks are actually compared, not just run.** `mclk_cnt_o` against
+134 / 1514 / 2725 / 2735, **and** each DTCM dump diffed word by word against the reference's own
+2048-word capture (`Auxiliary\Lab 5\SIM\RV32IM_sc\DTCM_testN_MS.mem`), reporting the first
+differing word and both values. Part B needs the one-time `C:\TestPrograms\Quartus21_1\test1..4`
+layout from section 3; without it the script **skips Part B, names the reason, and repeats the
+warning in the summary** rather than reporting a partial pass as complete.
+
+**The static half — run it on either machine, it needs no simulator:**
+
+```
+python3 tools/check_staging.py
+```
+
+It reads every `.do`, asserts each `app_bin` staging copy is an existing `.hex` M9K-intel or
+generated image, and rejects any `Hexadecimal-Text` source — the two formats are different
+programs (§3), and loading the wrong one produces a plausible wrong answer instead of an error. It
+also catches path rot, which is not hypothetical: section 3's own staging table pointed at
+`Auxilary\testN\…` for weeks after the `Auxiliary` restructure moved it to
+`Auxilary\Benchmarks\testN\…`. Clean today: 34 copies across 33 scripts.
+
+**Worth doing once, deliberately:** break something small, re-run, and confirm the exit status is
+**1** and the table names the broken row. A regression nobody has seen fail is a regression nobody
+should trust.

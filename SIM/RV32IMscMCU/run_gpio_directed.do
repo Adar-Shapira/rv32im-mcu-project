@@ -7,10 +7,8 @@
 # # generated and committed under SIM\RV32IMscMCU\gpio\.              #
 # ####################################################################
 #
-# STAGING - generated images, not a benchmark:
-#
-#   copy <repo>\SIM\RV32IMscMCU\gpio\ITCM.hex  C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-#   copy <repo>\SIM\RV32IMscMCU\gpio\DTCM.hex  C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
+# STAGING IS AUTOMATIC (since Phase 13) - generated images from
+# SIM\RV32IMscMCU\gpio\, staged by this script itself.
 #
 # Regenerate them with:  python3 tools/gen_gpio_test.py
 # (Only needed if the map or the cases change; the files are committed.)
@@ -66,6 +64,11 @@
 #   decode, the read enables, or the terminator.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: generated: tools/gen_gpio_test.py
+file copy -force gpio/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force gpio/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.

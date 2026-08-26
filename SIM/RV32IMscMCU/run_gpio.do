@@ -2,17 +2,10 @@
 #
 # Run compile.do first.
 #
-# Needs GPIO test0's M9K-intel images staged.
-#
-# STAGING - identical to run_mmio.do, so if you have just run that, nothing to do:
-#
-#   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\ITCM.hex" ^
-#        C:\TestPrograms\Quartus21_1\app_bin\ITCM.hex
-#   copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test0\bin\M9K-intel\DTCM.hex" ^
-#        C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex
-#
-# Use the M9K-intel .hex files, NOT the Hexadecimal-Text .h files - they are
-# different programs, and the .h copy carries a stale -0x3000 auipc bias.
+# STAGING IS AUTOMATIC (since Phase 13): the script stages GPIO test0's
+# M9K-intel images itself, the same set run_mmio.do uses. The M9K-intel .hex
+# files, NOT the Hexadecimal-Text .h files - they are different programs, and
+# the .h copy carries a stale -0x3000 auipc bias.
 #
 # WHAT PASS MEANS
 #   P1  CONTENT       every one of the seven ports holds the byte the program
@@ -75,6 +68,11 @@
 #   oversight.
 
 onerror {quit -code 1}
+
+# Staging, done here so the flow has no manual copy step (Phase 13).
+# Images: GPIO test0 (benchmark)
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/ITCM.hex} C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force {../../Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/DTCM.hex} C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 # Development-only testbench: compile.do compiles just the clause 10
 # official testbench (tb_RV32IMscMCU), so this script compiles its own.
