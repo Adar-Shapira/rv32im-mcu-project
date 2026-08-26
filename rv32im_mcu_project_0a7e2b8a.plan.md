@@ -2846,9 +2846,24 @@ hypothetical: it is exactly the class of bug found the same day in `DOC/04` §3,
 table still pointed at `Auxilary/testN/…` after Adar's restructure moved it to
 `Auxilary/Benchmarks/testN/…` (fixed; all four paths verified present).
 
-**Still to do here.** Report-ready waveform captures for interrupt tests 1–4 (needs a run), and
-the pipeline's own regression once Phase 11 lands — `batch_verify.do` has the same missing exit
-status and can take the same treatment.
+**The pipeline half, done the same day.** `SIM/RV32IMpipelinedMCU/batch_verify.do` had the identical
+weakness — it ran the four benchmarks, echoed the counters, compared nothing, and always exited 0.
+It now diffs each DTCM dump against `Auxiliary/Lab 5/SIM/RV32IM_pipeline/DTCM_testN_MS.mem` word by
+word, **fails a test whose program never reached its final `while(1)`** (the run hitting the 5 ms
+bound rather than the stop condition — previously indistinguishable from success), and exits
+non-zero. Its counters stay **reported, not asserted**, and that is deliberate: the
+`PROJECT_EXPLANATION.md` §8.6 figures include the testbench drain, so they are a range, and
+asserting on them would manufacture false failures. They are still the G-205 evidence to copy into
+Phase 11.
+
+Making that comparison possible needed one more fix, which turned out to be **the last open half of
+G-204**: the pipeline's `mem_dump.do` was still dumping 1024 of 2048 words — the single-cycle copy
+was widened on 2026-08-24 and this one was missed — so it could not be diffed against a 2048-word
+reference capture at all. Now 2047, with the same reasoning recorded at the constant.
+
+**Still to do here.** Report-ready waveform captures for interrupt tests 1–4 (needs a run), and a
+self-checking suite for the pipeline itself — `batch_verify.do` is benchmark-only because the
+pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this phase's.
 
 **Adar's results — Phase 13**
 
@@ -2856,6 +2871,7 @@ status and can take the same treatment.
 | --- | --- | --- |
 | `python3 tools/check_staging.py` (either machine) | `clean`, exit 0 | |
 | `vsim -c -do regress.do` in `SIM\RV32IMscMCU`, then `echo %ERRORLEVEL%` | the summary table all `passed`, and **exit status 0** | |
+| `vsim -c -do batch_verify.do` in `SIM\RV32IMpipelinedMCU`, then the exit status | all four `passed`, exit 0 — **and write the four CLKCNT/STCNT/FHCNT triples into Phase 11 (G-205)** | |
 | deliberately, once: break one thing and re-run | exit status **1**, and the table names the broken row — proves G-203 is really closed | |
 
 - **Exit:** one regression summary covering every required test, with no manual source edits
@@ -2929,13 +2945,13 @@ Gaps: G-501…G-505.
 | --- | --- |
 | **G-201** | `G_MODELSIM` is a manual source edit in both cores. Convert to a generic with `-g` override; keep the package constant as the Quartus default. |
 | **G-202** | **Baseline never reproduced.** Runbook and all inputs are ready; nobody has run it. Gate on Phase 1. |
-| **G-203** | ~~`batch_verify.do` never returns a failing exit status.~~ **CLOSED for the single-cycle side 2026-08-26 (Phase 13)** — `SIM/RV32IMscMCU/regress.do` scores all 18 tests plus the four benchmarks and `quit -code 1`s on any failure, and `tools/check_staging.py` is the static half. The **pipeline's** `batch_verify.do` still only echoes; same treatment when Phase 11 lands. |
+| **G-203** | ~~`batch_verify.do` never returns a failing exit status.~~ **CLOSED 2026-08-26 (Phase 13), both cores.** Single-cycle: `SIM/RV32IMscMCU/regress.do` scores all 18 tests plus the four benchmarks and `quit -code 1`s on any failure; `tools/check_staging.py` is the static half. Pipeline: `SIM/RV32IMpipelinedMCU/batch_verify.do` now diffs each DTCM against the reference capture, fails a run that never reached its final `while(1)`, and exits non-zero — it used to only echo. Counters stay reported-not-asserted there on purpose (G-205's figures include the testbench drain). |
 | **G-205** | Pipeline cycle counts recorded nowhere; needed for the IPC check. |
 | **G-206** | Quartus never compiled from this repo. |
 | **G-207** | `finalProj` Quartus project exists on the Windows machine and in no local copy. Contents unknown. |
 | **G-208** | "Use smart compilation" and "Advanced Physical Optimization = Off" circled in staff photos; both change PPA numbers. Instruction or observation? |
 | **G-332** | The reference folder no longer ships `run_test.do`, `mem_dump.do` or `batch_verify.do`, and never had a single-cycle `compile.do` (§0.e). **CLOSED 2026-08-24:** replacements written at `SIM/baseline_reference/`, reaching into `Auxiliary/` read-only; `DOC/04_baseline_runbook.md` rewritten around them. |
-| **G-204** | `mem_dump.do` exported 1024 of 2048 DTCM words, leaving the upper half unchecked. **CLOSED on the single-cycle side 2026-08-24:** the reference's own captures are now full 2048-word dumps and `SIM/baseline_reference/mem_dump.do` exports the same range. `SIM/RV32IMscMCU/mem_dump.do` widened to 2047 in the same pass. Set it back to 1023 only to diff against a 1024-word RARS golden. |
+| **G-204** | ~~`mem_dump.do` exported 1024 of 2048 DTCM words, leaving the upper half unchecked.~~ **CLOSED 2026-08-26.** Single-cycle side closed 2026-08-24: the reference's own captures are full 2048-word dumps, and both `SIM/baseline_reference/mem_dump.do` and `SIM/RV32IMscMCU/mem_dump.do` export that range. The **pipeline's** `mem_dump.do` was the last 1024-word dump; widened to 2047 on 2026-08-26, which is also the change that lets its `batch_verify.do` diff against `Auxiliary/Lab 5/SIM/RV32IM_pipeline/DTCM_testN_MS.mem` at all. Set either back to 1023 only to diff against a 1024-word RARS golden. |
 | **G-333** | **NEW.** The reference single-cycle testbench lost its `std.env.stop` auto-stop process, so a plain GUI *Run -All* never terminates there. Our `tb_RV32IMscMCU.vhd` and `tb_isa_directed.vhd` are unaffected — the ISA testbench stops itself at the sentinel and has a watchdog. |
 
 ## Design — no supplied code exists
@@ -2984,7 +3000,7 @@ pipeline — see §0.a for the before/after line pairs.
 | --- | --- |
 | **G-401** | No self-checking testbench anywhere. The whole reference tree contains two assertions, both in `Auxilary/Lab3/TB/tb_top.vhd`, both used as a stop mechanism. |
 | **G-402** | Directed ISA testbench — built in Phase 2, and two bugs in it found and fixed in Phase 3B (a one-off store-count shift, and a sub-word case that could not fail). Awaiting its first real run. |
-| **G-204** | `mem_dump.do` exports 1024 of 2048 DTCM words; the upper half is never checked. |
+| **G-204** | *(duplicate row — see the tooling section above, where this gap is tracked. **Fully closed 2026-08-26**: the pipeline's `mem_dump.do` was the last 1024-word dump and is now 2047, which is also what lets its `batch_verify.do` diff against the reference's 2048-word captures.)* |
 | **G-403** | Per-component test plans not written. |
 | **G-404** | `Benchmark Apps/RV32IM/test1/output/RARS/DTCM.hex` is a stale golden — 16 words disagree with `DTCM.h`. Would fail a correct CPU. |
 | **G-407** | The seven GPO read-back tri-states of Figure 5 were exercised by nothing — no supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn`. **CLOSED 2026-08-24** by the directed GPIO test, which reads all seven back. Read-back is also what closed G-406, since it is what makes a port's content observable. The paths still rest on assumption **A15**; if Hanan says an output port must not answer a read, the action is `GEN_GPO_READBACK => FALSE` and this suite's read-back cases go with it. |

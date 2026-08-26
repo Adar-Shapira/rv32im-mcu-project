@@ -769,6 +769,22 @@ also catches path rot, which is not hypothetical: section 3's own staging table 
 `Auxilary\testN\…` for weeks after the `Auxiliary` restructure moved it to
 `Auxilary\Benchmarks\testN\…`. Clean today: 34 copies across 33 scripts.
 
-**Worth doing once, deliberately:** break something small, re-run, and confirm the exit status is
-**1** and the table names the broken row. A regression nobody has seen fail is a regression nobody
-should trust.
+**The pipeline has its own, same contract:**
+
+```
+cd SIM\RV32IMpipelinedMCU
+vsim -c -do batch_verify.do
+echo %ERRORLEVEL%
+```
+
+It runs the four benchmarks, diffs each DTCM against the reference's own capture
+(`Auxiliary\Lab 5\SIM\RV32IM_pipeline\DTCM_testN_MS.mem`), fails a test whose program never reached
+its final `while(1)`, and exits non-zero. Two things to know: its `CLKCNT`/`STCNT`/`FHCNT` figures
+are **reported, not asserted** — `PROJECT_EXPLANATION.md` §8.6's numbers include the testbench
+drain, so they are a range, not a target — and they are exactly the **G-205** evidence to copy into
+the plan file. Also note its `mem_dump.do` was widened from 1024 to 2048 words on 2026-08-26 (the
+last open half of **G-204**); a 1024-word dump cannot be compared to the reference capture at all.
+
+**Worth doing once, deliberately:** break something small, re-run either script, and confirm the
+exit status is **1** and the table names the broken row. A regression nobody has seen fail is a
+regression nobody should trust.
