@@ -35,6 +35,7 @@ ENTITY Idecode IS
 		clk_i				: IN 	STD_LOGIC;
 		rst_i				: IN 	STD_LOGIC;
 		stall_i				: IN 	STD_LOGIC;										-- from HAZARD_UNIT: bubble into EX, ID instruction replayed
+		hold_i				: IN 	STD_LOGIC := '0';								-- slice 3: freeze ID/EX (div in EX); do not bubble
 		flush_i				: IN 	STD_LOGIC;										-- from top (MEM stage): kill the ID-stage instruction
 		-- IF/ID inputs (ID-stage view produced by IFETCH)
 		pc_i				: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -46,6 +47,11 @@ ENTITY Idecode IS
 		MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
 		MemRead_ctrl_i 		: IN 	STD_LOGIC;
 		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
+		MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
+		DivStart_ctrl_i		: IN 	STD_LOGIC := '0';
+		DivSigned_ctrl_i	: IN 	STD_LOGIC := '0';
+		DivRem_ctrl_i		: IN 	STD_LOGIC := '0';
+		Reti_ctrl_i			: IN 	STD_LOGIC := '0';
 		Branch_ctrl_i 		: IN 	STD_LOGIC;
 		Jal_ctrl_i 			: IN 	STD_LOGIC;
 		Jalr_ctrl_i 		: IN 	STD_LOGIC;
@@ -56,6 +62,13 @@ ENTITY Idecode IS
 		wb_RegWrite_ctrl_i 	: IN 	STD_LOGIC;
 		wb_rd_i				: IN 	STD_LOGIC_VECTOR(4 DOWNTO 0);
 		wb_write_data_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		-- Slice 4. Transcribed from DUT/RV32IMscMCU/IDECODE.vhd:41-51, 62.
+		-- Side doors fire in cycles where the normal WB port is idle (entry
+		-- bubbles; reti's rd is x0). Defaulted so slice 3 instantiations hold.
+		IntrGieWr_i			: IN	STD_LOGIC := '0';
+		IntrGieVal_i		: IN	STD_LOGIC := '0';
+		IntrTpWr_i			: IN	STD_LOGIC := '0';
+		IntrTpVal_i			: IN	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 		
 		--Outputs
 		-- ID-stage (combinational) - for HAZARD_UNIT
@@ -81,10 +94,16 @@ ENTITY Idecode IS
 		ex_Jalr_ctrl_o 		: OUT	STD_LOGIC;
 		ex_MemRead_ctrl_o 	: OUT	STD_LOGIC;
 		ex_MemWrite_ctrl_o 	: OUT	STD_LOGIC;
+		ex_MemOp_ctrl_o		: OUT	STD_LOGIC_VECTOR(2 DOWNTO 0);
+		ex_DivStart_ctrl_o	: OUT	STD_LOGIC;
+		ex_DivSigned_ctrl_o	: OUT	STD_LOGIC;
+		ex_DivRem_ctrl_o	: OUT	STD_LOGIC;
+		ex_Reti_ctrl_o		: OUT	STD_LOGIC;
 		-- carried control bits: WB stage
 		ex_RegDst_ctrl_o 	: OUT	STD_LOGIC;
 		ex_RegWrite_ctrl_o 	: OUT	STD_LOGIC;
-		ex_MemtoReg_ctrl_o 	: OUT	STD_LOGIC
+		ex_MemtoReg_ctrl_o 	: OUT	STD_LOGIC;
+		gie_o				: OUT	STD_LOGIC
 	);
 END Idecode;
 
@@ -135,6 +154,11 @@ TYPE register_file IS ARRAY (0 TO 31) OF STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNT
 	SIGNAL id_ex_Jalr_q					: STD_LOGIC;
 	SIGNAL id_ex_MemRead_q				: STD_LOGIC;
 	SIGNAL id_ex_MemWrite_q				: STD_LOGIC;
+	SIGNAL id_ex_MemOp_q				: STD_LOGIC_VECTOR(2 DOWNTO 0);
+	SIGNAL id_ex_DivStart_q				: STD_LOGIC;
+	SIGNAL id_ex_DivSigned_q			: STD_LOGIC;
+	SIGNAL id_ex_DivRem_q				: STD_LOGIC;
+	SIGNAL id_ex_Reti_q					: STD_LOGIC;
 	SIGNAL id_ex_RegDst_q				: STD_LOGIC;
 	SIGNAL id_ex_RegWrite_q				: STD_LOGIC;
 	SIGNAL id_ex_MemtoReg_q				: STD_LOGIC;
@@ -196,16 +220,24 @@ BEGIN
 				RF_q(CONV_INTEGER(wb_rd_i)) <= wb_write_data_i;
 				-- index type is integer so we must use conv_integer for type casting
 			end if;
+			-- Slice 4: protocol side doors AFTER the normal write so they win
+			-- if both ever named the same register -- which cannot happen
+			-- (entry bubbles; reti's rd is x0). From SC IDECODE.vhd:154-165.
+			if (IntrGieWr_i = '1') then
+				RF_q(3)(0) <= IntrGieVal_i;
+			end if;
+			if (IntrTpWr_i = '1') then
+				RF_q(4) <= IntrTpVal_i;
+			end if;
 		end if;
 	end process;
 
 	--==============================================================================
 	--	ID/EX pipeline register
-	--	stall (load-use) -> the ID instruction is replayed from IF/ID, so a
-	--	bubble is injected here; flush (taken branch/jump resolved in MEM)
-	--	kills the ID-stage instruction the same way
+	--	flush -> bubble; hold (EX-stage divide) -> freeze (do not kill the div);
+	--	stall (load-use) -> bubble so the load proceeds and the consumer replays.
 	--==============================================================================
-	bubble_w	<= stall_i or flush_i;
+	bubble_w	<= flush_i or (stall_i and (not hold_i));
 	
 	process(clk_i,rst_i)
 	begin
@@ -227,6 +259,11 @@ BEGIN
 			id_ex_Jalr_q		<= '0';
 			id_ex_MemRead_q		<= '0';
 			id_ex_MemWrite_q	<= '0';
+			id_ex_MemOp_q		<= MEM_W;
+			id_ex_DivStart_q	<= '0';
+			id_ex_DivSigned_q	<= '0';
+			id_ex_DivRem_q		<= '0';
+			id_ex_Reti_q		<= '0';
 			id_ex_RegDst_q		<= '0';
 			id_ex_RegWrite_q	<= '0';
 			id_ex_MemtoReg_q	<= '0';
@@ -251,9 +288,16 @@ BEGIN
 				id_ex_Jalr_q		<= '0';
 				id_ex_MemRead_q		<= '0';
 				id_ex_MemWrite_q	<= '0';
+				id_ex_MemOp_q		<= MEM_W;
+				id_ex_DivStart_q	<= '0';
+				id_ex_DivSigned_q	<= '0';
+				id_ex_DivRem_q		<= '0';
+				id_ex_Reti_q		<= '0';
 				id_ex_RegDst_q		<= '0';
 				id_ex_RegWrite_q	<= '0';
 				id_ex_MemtoReg_q	<= '0';
+			elsif hold_i = '1' then
+				null;	-- freeze ID/EX: the dividing instruction stays in EX
 			else
 				id_ex_pc_q			<= pc_i;
 				id_ex_pc_plus4_q	<= pc_plus4_i;
@@ -272,6 +316,11 @@ BEGIN
 				id_ex_Jalr_q		<= Jalr_ctrl_i;
 				id_ex_MemRead_q		<= MemRead_ctrl_i;
 				id_ex_MemWrite_q	<= MemWrite_ctrl_i;
+				id_ex_MemOp_q		<= MemOp_ctrl_i;
+				id_ex_DivStart_q	<= DivStart_ctrl_i;
+				id_ex_DivSigned_q	<= DivSigned_ctrl_i;
+				id_ex_DivRem_q		<= DivRem_ctrl_i;
+				id_ex_Reti_q		<= Reti_ctrl_i;
 				id_ex_RegDst_q		<= RegDst_ctrl_i;
 				id_ex_RegWrite_q	<= RegWrite_ctrl_i;
 				id_ex_MemtoReg_q	<= MemtoReg_ctrl_i;
@@ -302,7 +351,13 @@ BEGIN
 	ex_Jalr_ctrl_o		<= id_ex_Jalr_q;
 	ex_MemRead_ctrl_o	<= id_ex_MemRead_q;
 	ex_MemWrite_ctrl_o	<= id_ex_MemWrite_q;
+	ex_MemOp_ctrl_o		<= id_ex_MemOp_q;
+	ex_DivStart_ctrl_o	<= id_ex_DivStart_q;
+	ex_DivSigned_ctrl_o	<= id_ex_DivSigned_q;
+	ex_DivRem_ctrl_o	<= id_ex_DivRem_q;
+	ex_Reti_ctrl_o		<= id_ex_Reti_q;
 	ex_RegDst_ctrl_o	<= id_ex_RegDst_q;
+	gie_o				<= RF_q(3)(0);
 	ex_RegWrite_ctrl_o	<= id_ex_RegWrite_q;
 	ex_MemtoReg_ctrl_o	<= id_ex_MemtoReg_q;
 ---------------------------------------------------------------------------------------

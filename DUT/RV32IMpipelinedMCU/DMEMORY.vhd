@@ -22,6 +22,7 @@ LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.STD_LOGIC_ARITH.ALL;
 USE IEEE.STD_LOGIC_SIGNED.ALL;
+USE work.const_package.all;
 
 LIBRARY altera_mf;
 USE altera_mf.altera_mf_components.all;
@@ -42,6 +43,17 @@ ENTITY dmemory IS
 		dtcm_data_wr_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- store data (forwarded rs2 value)
 		MemRead_ctrl_i  	: IN 	STD_LOGIC;
 		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
+		-- Slice 2: access width. Default MEM_W keeps older instantiations word-only.
+		MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
+		byte_sel_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";
+		-- Slice 1 (G-305). Default '1' so a core-only TB still writes DTCM.
+		dtcm_cs_i			: IN 	STD_LOGIC := '1';
+		-- Slice 1: MMIO read data, captured into MEM/WB when dtcm_cs_i = '0'.
+		dbus_rdata_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+		-- Slice 4: entry Cycle 2 vector fetch. Forces the load mux onto the
+		-- raw RAM word even if the decoder's dtcm_cs is 0 on the leftover MEM
+		-- address. Defaulted so a pre-interrupt instantiation is unchanged.
+		vec_fetch_i			: IN	STD_LOGIC := '0';
 		-- MEM-stage values carried through to the MEM/WB register
 		pc_i				: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		pc_plus4_i			: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- WB value for jal/jalr
@@ -62,6 +74,7 @@ ENTITY dmemory IS
 		--Outputs
 		-- MEM-stage (combinational) - debug/Signal-Tap
 		dtcm_data_rd_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		dtcm_wren_o			: OUT	STD_LOGIC;
 		mem_forward_data_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		-- MEM/WB pipeline register outputs (WB-stage view, to IDECODE + FORWARD_UNIT)
 		wb_pc_o				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -80,6 +93,7 @@ END dmemory;
 
 ARCHITECTURE behavior OF dmemory IS
 	CONSTANT NOP_INSTRUCTION		: STD_LOGIC_VECTOR(31 DOWNTO 0) := X"00000013";
+	CONSTANT NBYTES					: integer := DATA_BUS_WIDTH/8;
 	COMPONENT multiplier_2 IS
 		PORT(
 			p0_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
@@ -91,9 +105,18 @@ ARCHITECTURE behavior OF dmemory IS
 	END COMPONENT;
 
 	SIGNAL wrclk_w 				: STD_LOGIC;
-	SIGNAL dtcm_data_rd_w 		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL wren_w				: STD_LOGIC;
+	SIGNAL q_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL load_data_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mul_res_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_result_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL store_sub_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL store_data_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL byteena_sub_w		: STD_LOGIC_VECTOR(NBYTES-1 DOWNTO 0);
+	SIGNAL byteena_w			: STD_LOGIC_VECTOR(NBYTES-1 DOWNTO 0);
+	SIGNAL byte_w				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL half_w				: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL extend_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 	-- MEM/WB pipeline register
 	SIGNAL mem_wb_pc_q			: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL mem_wb_pc_plus4_q	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -106,6 +129,10 @@ ARCHITECTURE behavior OF dmemory IS
 	SIGNAL mem_wb_MemtoReg_q	: STD_LOGIC;
 	
 BEGIN
+	assert DATA_BUS_WIDTH = 32
+		report "DMEMORY: the sub-word logic assumes a 32-bit data bus (4 byte lanes)"
+		severity failure;
+
 	-- Figure 7 multiplier stage 2 (MEM): combine the partial products that
 	-- crossed the EX/MEM register. The selected result is used for both
 	-- MEM forwarding and the MEM/WB ALU-result field.
@@ -120,8 +147,54 @@ BEGIN
 
 	mem_result_w <= mul_res_w WHEN Mul_ctrl_i = '1' ELSE alu_res_i;
 
+	-- Slice 1 (G-305): SFR stores must not write the DTCM. Same gate as
+	-- DUT/RV32IMscMCU/DMEMORY.vhd:192.
+	wren_w <= MemWrite_ctrl_i AND dtcm_cs_i;
+
+	-- Slice 2 store path. Transcribed from DUT/RV32IMscMCU/DMEMORY.vhd:138-151.
+	with MemOp_ctrl_i select store_sub_w <=
+		dtcm_data_wr_i( 7 DOWNTO 0) & dtcm_data_wr_i( 7 DOWNTO 0) &
+		dtcm_data_wr_i( 7 DOWNTO 0) & dtcm_data_wr_i( 7 DOWNTO 0)	when MEM_B,
+		dtcm_data_wr_i(15 DOWNTO 0) & dtcm_data_wr_i(15 DOWNTO 0)	when MEM_H,
+		dtcm_data_wr_i												when others;
+
+	byteena_sub_w <=	"0001"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "00")	ELSE
+						"0010"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "01")	ELSE
+						"0100"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "10")	ELSE
+						"1000"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "11")	ELSE
+						"0011"	WHEN (MemOp_ctrl_i = MEM_H and byte_sel_i(1) = '0')	ELSE
+						"1100"	WHEN (MemOp_ctrl_i = MEM_H and byte_sel_i(1) = '1')	ELSE
+						(others => '1');
+
+	store_data_w	<= store_sub_w;
+	byteena_w		<= byteena_sub_w;
+
+	-- Slice 2 load extract-and-extend. Transcribed from
+	-- DUT/RV32IMscMCU/DMEMORY.vhd:156-171. Applied to the RAM word only;
+	-- MMIO already returns a right-justified 32-bit value on the bus.
+	with byte_sel_i select byte_w <=
+		q_w( 7 DOWNTO  0)	when "00",
+		q_w(15 DOWNTO  8)	when "01",
+		q_w(23 DOWNTO 16)	when "10",
+		q_w(31 DOWNTO 24)	when others;
+
+	half_w <= q_w(31 DOWNTO 16) WHEN byte_sel_i(1) = '1' ELSE q_w(15 DOWNTO 0);
+
+	with MemOp_ctrl_i select extend_w <=
+		(23 DOWNTO 0 => byte_w(7))		& byte_w	when MEM_B,
+		(23 DOWNTO 0 => '0')			& byte_w	when MEM_BU,
+		(15 DOWNTO 0 => half_w(15))		& half_w	when MEM_H,
+		(15 DOWNTO 0 => '0')			& half_w	when MEM_HU,
+		q_w											when others;
+
+	-- Load-data region mux. DTCM (extracted) when A13=0; MMIO bus otherwise.
+	-- Reference: DUT/RV32IMscMCU/RV32IM_CORE.vhd:554.
+	-- Slice 4: vec_fetch overrides so Mem[TYPE] is the whole DTCM word.
+	load_data_w <= q_w WHEN vec_fetch_i = '1' ELSE
+				   extend_w WHEN dtcm_cs_i = '1' ELSE dbus_rdata_i;
+
 	--=======================================
-	-- DTCM (RAM) connection - unchanged
+	-- DTCM (RAM) connection
 	--=======================================
 	data_memory : altsyncram
 	GENERIC MAP  (
@@ -129,6 +202,8 @@ BEGIN
 		width_a					=> DATA_BUS_WIDTH,
 		widthad_a				=> DTCM_ADDR_WIDTH,
 		numwords_a 				=> WORDS_NUM,
+		byte_size				=> 8,
+		width_byteena_a			=> NBYTES,
 		lpm_hint 				=> "ENABLE_RUNTIME_MOD = YES,INSTANCE_NAME = DTCM",
 		lpm_type 				=> "altsyncram",
 		outdata_reg_a 			=> "UNREGISTERED",
@@ -136,14 +211,28 @@ BEGIN
 		intended_device_family 	=> "Cyclone"
 	)
 	PORT MAP (
-		wren_a 					=> MemWrite_ctrl_i,
+		wren_a 					=> wren_w,
 		clock0					=> wrclk_w,
 		address_a				=> dtcm_addr_i,
-		data_a					=> dtcm_data_wr_i,
-		q_a						=> dtcm_data_rd_w	
+		data_a					=> store_data_w,
+		byteena_a				=> byteena_w,
+		q_a						=> q_w
 	);
 
 	wrclk_w <= NOT clk_i;	-- Load memory address register with write clock
+
+	misalign_check : process(all)
+	begin
+		if dtcm_cs_i = '1'
+		   and (MemRead_ctrl_i = '1' or MemWrite_ctrl_i = '1')
+		   and (MemOp_ctrl_i = MEM_H or MemOp_ctrl_i = MEM_HU)
+		   and byte_sel_i(0) = '1' then
+			report "DMEMORY: misaligned half-word access at byte offset " &
+				integer'image(CONV_INTEGER(byte_sel_i)) &
+				" - aligned down to the even offset. RV32I would trap here."
+				severity warning;
+		end if;
+	end process misalign_check;
 
 --------------------------------------------------------------------------------------------------------
 -- MEM/WB pipeline register
@@ -167,7 +256,7 @@ BEGIN
 		mem_wb_pc_plus4_q	<= pc_plus4_i;
 		mem_wb_instruction_q	<= instruction_i;
 		mem_wb_alu_res_q	<= mem_result_w;
-		mem_wb_dtcm_data_q	<= dtcm_data_rd_w;
+		mem_wb_dtcm_data_q	<= load_data_w;
 		mem_wb_rd_q			<= rd_i;
 		mem_wb_RegDst_q		<= RegDst_ctrl_i;
 		mem_wb_RegWrite_q	<= RegWrite_ctrl_i;
@@ -177,7 +266,8 @@ END PROCESS;
 
 --------------------------------------------------------------------------------------------------------
 	-- MEM-stage output (combinational)
-	dtcm_data_rd_o		<= dtcm_data_rd_w;
+	dtcm_data_rd_o		<= load_data_w;
+	dtcm_wren_o			<= wren_w;
 	mem_forward_data_o	<= mem_result_w;
 	
 	-- MEM/WB register outputs (WB-stage view)

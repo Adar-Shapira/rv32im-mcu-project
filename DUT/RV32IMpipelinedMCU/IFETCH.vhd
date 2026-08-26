@@ -32,6 +32,10 @@ ENTITY Ifetch IS
 		stall_i				: IN 	STD_LOGIC;										-- from HAZARD_UNIT: freeze PC + IF/ID
 		flush_i				: IN 	STD_LOGIC;										-- from top (MEM stage): taken branch/jal/jalr
 		redirect_addr_i		: IN 	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- redirect target resolved in MEM
+		-- Slice 4. Interrupt entry Cycle 2: vector word from DTCM becomes next PC.
+		-- Above flush, matching DUT/RV32IMscMCU/IFETCH.vhd:154-156. Defaulted.
+		IntrVec_ctrl_i		: IN	STD_LOGIC := '0';
+		intr_vector_i		: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 
 		--Outputs
 		if_pc_o 			: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- IF-stage PC (breakpoint/Signal-Tap)
@@ -102,10 +106,13 @@ END PROCESS;
 	-- instruction is older than the stalled one, so the stall is cancelled.
 	-- On stall the PC recirculates, which also keeps the synchronous ITCM
 	-- re-reading the same address so the IF-stage instruction is held.
-	next_pc_w	<=	(others => '0') 					WHEN	rst_q 		ELSE
-					redirect_addr_i						WHEN	flush_i		ELSE	-- taken branch/jal/jalr resolved in MEM
-					pc_q(PC_WIDTH-1 DOWNTO 0)			WHEN	stall_i		ELSE	-- freeze PC (hazard stall)
-					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);								-- sequential fetch
+	-- Slice 4: vector arm sits ABOVE flush. During entry Cycle 2 the MEM-stage
+	-- bubble's redirect must lose to Mem[TYPE]. Reset still wins over both.
+	next_pc_w	<=	(others => '0') 					WHEN	rst_q 					ELSE
+					intr_vector_i						WHEN	IntrVec_ctrl_i = '1'	ELSE	-- slice 4: entry Cycle 2
+					redirect_addr_i						WHEN	flush_i					ELSE	-- taken branch/jal/jalr / entry
+					pc_q(PC_WIDTH-1 DOWNTO 0)			WHEN	stall_i					ELSE	-- freeze PC (hazard stall)
+					pc_plus4_q(PC_WIDTH-1 DOWNTO 0);											-- sequential fetch
 -----------------------------------------------------------------------------------
 -- pc_plus4 register
 -------------------------------------------------------------------------------------

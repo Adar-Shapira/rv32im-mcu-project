@@ -40,27 +40,40 @@ USE IEEE.STD_LOGIC_1164.ALL;
 ENTITY HAZARD_UNIT IS
 	PORT(
 		--Inputs
-		-- ID-stage source registers (combinational, from IDECODE)
 		id_rs1_i			: IN	STD_LOGIC_VECTOR(4 DOWNTO 0);
 		id_rs2_i			: IN	STD_LOGIC_VECTOR(4 DOWNTO 0);
 		-- EX-stage instruction info (from the ID/EX register in IDECODE)
 		ex_MemRead_ctrl_i	: IN	STD_LOGIC;						-- EX-stage instruction is a load
 		ex_rd_i				: IN	STD_LOGIC_VECTOR(4 DOWNTO 0);	-- EX-stage destination register
+		-- Slice 3: EX-stage divide handshake. Stall while the divide is in EX
+		-- and not done. hold_o freezes ID/EX (must NOT bubble the divide away).
+		ex_DivStart_ctrl_i	: IN	STD_LOGIC := '0';
+		div_done_i			: IN	STD_LOGIC := '1';
 
 		--Outputs
-		stall_o				: OUT	STD_LOGIC						-- freeze PC + IF/ID, bubble into ID/EX
+		stall_o				: OUT	STD_LOGIC;						-- freeze PC + IF/ID
+		hold_o				: OUT	STD_LOGIC						-- freeze ID/EX; bubble EX/MEM until done
 	);
 END HAZARD_UNIT;
 
 
 ARCHITECTURE behavior OF HAZARD_UNIT IS
 	CONSTANT R0	: STD_LOGIC_VECTOR(4 DOWNTO 0) := "00000";	-- x0, hard-wired to zero
+	SIGNAL load_use_w	: STD_LOGIC;
+	SIGNAL div_hold_w	: STD_LOGIC;
 BEGIN
 
 	-- load-use interlock: load in EX, dependent consumer in ID
-	stall_o	<=	'1'	WHEN (	ex_MemRead_ctrl_i = '1'	AND
+	load_use_w	<=	'1'	WHEN (	ex_MemRead_ctrl_i = '1'	AND
 							ex_rd_i /= R0			AND
 							(ex_rd_i = id_rs1_i OR ex_rd_i = id_rs2_i))	ELSE
 				'0';
+
+	-- Slice 3. Same stall term as DUT/RV32IMscMCU/RV32IM_CORE.vhd:408
+	-- (DIVstart AND NOT done). hold_o keeps the divide in EX.
+	div_hold_w	<=	ex_DivStart_ctrl_i AND (NOT div_done_i);
+
+	stall_o	<= load_use_w OR div_hold_w;
+	hold_o	<= div_hold_w;
 
 END behavior;
