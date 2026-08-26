@@ -4,9 +4,11 @@
 # just the official tb_RV32IMscMCU; this script vcom's its own testbench).
 #
 # ######################################################################
-# # STAGE THE CORRECTED IMAGES:                                         #
-# #   copy SIM\RV32IMscMCU\bench_fixed\test1\ITCM.hex and DTCM.hex      #
-# #   into app_bin. NOT the originals from Auxiliary - see below.       #
+# # STAGING IS AUTOMATIC: this script copies the CORRECTED images from  #
+# # bench_fixed\test1 into app_bin itself (run_test.do's own idiom).    #
+# # To reproduce the shipped B5 bug ONCE for the report, set            #
+# # `set ORIGINAL 1` below and re-run - it stages the untouched         #
+# # Auxiliary originals instead.                                        #
 # ######################################################################
 #
 # WHY THE CORRECTED IMAGE - A DOCUMENTED BENCHMARK BUG (DOC/03)
@@ -42,11 +44,32 @@
 
 onerror {quit -code 1}
 
+# 0 = the corrected copy (the normal run); 1 = the shipped originals, which
+# reproduces B5: everything after init fails with the displays frozen at 0.
+set ORIGINAL 0
+
+if {$ORIGINAL} {
+    file copy -force {../../Auxiliary/Benchmark Apps/Intrrupt-based IO/test1/bin/M9K-intel/ITCM.hex} C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+    file copy -force {../../Auxiliary/Benchmark Apps/Intrrupt-based IO/test1/bin/M9K-intel/DTCM.hex} C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
+    echo "STAGED THE ORIGINAL (bugged) test1 images - this run documents B5."
+} else {
+    file copy -force bench_fixed/test1/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+    file copy -force bench_fixed/test1/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
+}
+
 # Development-only testbench: compile.do stopped compiling dev TBs when it was
 # restricted to the clause 10 official testbench, so it is compiled here.
 vcom -2008 ../../TB/RV32IMscMCU/tb_bench_test1.vhd
 
-vsim -t ns work.tb_bench_test1
+# MODELSIM=1 is mandatory: at the committed package default (G_MODELSIM=0)
+# the clock tree instantiates real pll_gen megafunctions and the behavioral
+# clocks never exist. Found in Phase 10B review; run_timer_mmio.do's form.
+vsim -t ns -gMODELSIM=1 work.tb_bench_test1
+
+# The testbench ends with std.env.stop, which is a BREAK; without this the
+# macro halts there and the diagnostics below never print (run_test.do:25).
+onbreak {resume}
+
 run -all
 
 echo ""

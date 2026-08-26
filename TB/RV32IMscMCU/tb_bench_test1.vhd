@@ -3,8 +3,8 @@
 -- Final Project 2026 -- Phase 10A: Interrupt benchmark test1, self-checking
 --
 -- HOW TO RUN
---   SIM/RV32IMscMCU/run_bench_test1.do -- needs the CORRECTED test1 images
---   staged (SIM/RV32IMscMCU/bench_fixed/test1/).
+--   SIM/RV32IMscMCU/run_bench_test1.do -- it stages the CORRECTED images
+--   (SIM/RV32IMscMCU/bench_fixed/test1/) itself and passes MODELSIM=1.
 --
 -- WHY THE CORRECTED IMAGE, AND WHAT WAS CORRECTED
 --   The shipped test1 gates EINT on SW0: the SW0=0 short-delay path -- the

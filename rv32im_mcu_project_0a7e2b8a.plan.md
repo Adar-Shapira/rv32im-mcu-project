@@ -431,8 +431,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
 | **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — stage `intr/` images, `do run_intr_core.do`.** Report tp1/tp3 and the R3 deferral (the F13 number) |
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `intrmmio/` images, `do run_intr_mmio.do`.** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
-| **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — stage `bench_fixed\test1`, `do run_bench_test1.do`** (harness updated 2026-08-26 for the retired switch and the 10-bit `SW`/`LEDR` ports). Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
-| 10B tests 2/3/4 | Yehonatan | Adar | test2/3 not simulatable as shipped (B2's 20M-tick period) — FPGA material; test4 corrected copy ready (`bench_fixed/test4`), harness next |
+| **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
+| **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
 | 13 Regression | Yehonatan | Adar | |
@@ -2667,8 +2667,90 @@ harness (compare / PWM / capture with the corrected copy) is 10B.
 
 | Check | Expect | Result |
 | --- | --- | --- |
-| stage `bench_fixed\test1`, `do run_bench_test1.do` | `VERDICT: PASS`, failed 0 | |
-| once, for the report: stage the ORIGINAL test1, re-run | everything after init fails, displays frozen at 0 — the B5 bug reproduced | |
+| `do run_bench_test1.do` (it stages `bench_fixed\test1` itself) | `VERDICT: PASS`, failed 0 | |
+| once, for the report: `set ORIGINAL 1` at the top of the script, re-run | everything after init fails, displays frozen at 0 — the B5 bug reproduced | |
+
+*(2026-08-26: `run_bench_test1.do`'s `vsim` line was missing `-gMODELSIM=1` — at the committed
+package default the clock tree instantiates real `pll_gen` megafunctions. Fixed before the script
+was ever run; found by the Phase 10B source review.)*
+
+### Phase 10B — test4, self-checking, on the corrected copy  ·  **built 2026-08-26, awaiting verification**
+
+**Goal.** Run the supplied test4 application — the ReadMe's compare / output-compare-PWM /
+input-capture contract — on the full MCU in ModelSim, self-checking, using the one-word corrected
+copy `bench_fixed/test4` (the G-327 CAPISEL fix, Phase 10A's audit).
+
+**Relevant requirements.** Clause 8's benchmark validation; the ReadMe.txt test4 contract
+(§1.5.d); the Benchmarks-are-a-Contract rule (originals untouched, corrected copies separate and
+marked).
+
+**Existing references found.** `test4/asm-code/{00_main.s,01_func.s,io_map.s}` +
+`Intrrupt-based IO/ReadMe.txt:102–135` (the program and its intent comments);
+`bin/M9K-intel/*.hex` and `bench_fixed/test4` (images — re-verified word-identical except ITCM
+word 265); `BASIC_TIMER.vhd`/`INTERRUPT_CTRL.vhd`/`RV32IMscMCU.vhd` (the RTL the program lands
+on); `tb_bench_test1.vhd` (the 10A harness pattern), `tb_intr_mmio.vhd` (the exact-store
+scoreboard), `tb_timer_mmio.vhd` (the PWM pin-measurement loop, copied verbatim);
+`mem_dump.do` (the hierarchical-reach precedent the capture spy uses).
+
+**What was reused.** The 10A entity/procedures/verdict shape; tb_intr_mmio's debug-tap scoreboard
+hardened to a full ordered 83-store trace; tb_timer_mmio's PWM measurement; the staging and
+script conventions.
+
+**What was developed.** `TB/RV32IMscMCU/tb_bench_test4.vhd` (the harness),
+`SIM/RV32IMscMCU/run_bench_test4.do` (staging, own `vcom`, `-gMODELSIM=1`, and a Tcl `when`
+counter on `/tb_bench_test4/MCU/TIMER/cap_ev_w` — expected exactly 3, one per KEY3 press). The
+83-entry expected-store trace was derived instruction by instruction from the shipped sources for
+the press sequence **KEY3, KEY3, KEY1, KEY3, KEY2, KEY2** — chosen so that (a) the PWM only ever
+starts from a parked-and-cleared BTCNT (EQU0 is an equality compare; starting above BTCMPR0
+strands the PWM until 32-bit wrap), and (b) no latched raw BTIFG ever precedes an IE write that
+re-enables BTIE, so the A22 masked-pending reappearance and a nested BT entry inside a KEY ISR
+are structurally avoided. a7's per-mode read phase (KEY2's config reads it *before* its ISR
+increments; STATE1/STATE3 read *after*) is tracked press by press: parities 1,2,4 → rem, div,
+div; KEY1 sees `a7&3 = 3` → the 0.125 s arm; KEY2 sees 4 then 5 → BTCMPR1 = 250 then 125.
+
+**⚠ TWO NEW BENCHMARK FINDINGS — test4's runtime measurement is structurally zero, beyond G-327
+(question B6).** Found while deriving the expected values; verified in both the sources and the
+RTL, and nowhere previously recorded:
+
+1. **`capture_init` clobbers BTINT.** `bt_capture_config` arms BTINT=2 (`BTCTL1←0x26`,
+   `01_func.s:156–158`) but `capture_init` then writes `BTCTL1←0x24` (`01_func.s:177–179`) —
+   BTINT="00", so `btifg_set_o` is routed from EQU0 (`BASIC_TIMER.vhd:355–359`), and the capture
+   event the one-word fix creates **raises no BT interrupt**. `BT_ISR`'s state-3 arm
+   (`00_main.s:187–192`, `MEM[a6]←BTCAPR`) never executes.
+2. **BTCNT is pinned at zero through the measured window.** Both capture-flow BTCTL1 values
+   (0x26, 0x24) keep BTHOLD=1 **and** BTCLR=1; BTCLR zeroes BTCNT every edge
+   (`BASIC_TIMER.vhd:287–288`), so BTCAPR latches **0** even when the edge fires. A "runtime"
+   measured with the counter held and cleared is 0 by construction.
+
+   So even the CORRECTED copy leaves `runtime_div`/`runtime_rem` at their `.data` zeros — the
+   only expectation the sources support, and what the harness asserts. The capture EDGE itself
+   (what the one-word fix exists to create) is proven by the run script's `cap_ev_w` counter.
+   Per the Benchmarks-are-a-Contract rule the copy stays at ONE audited word; making the
+   measurement actually work needs `capture_init` to preserve BTINT and release the counter —
+   a different program, not a patch we invent silently. Asked as **B6** in `DOC/05`.
+
+**Open questions.** B6 (above); B2 unchanged (affects only mode 1's real-time meaning — every
+mode-1 interval is ≥ 2.5M ticks, so the compare-mode *cadence* is FPGA material exactly like
+tests 2/3, and the harness proves the mode-1 configuration path only).
+
+**A verification nugget worth keeping (found by the adversarial review of the 83-entry trace,
+2026-08-26):** between reset and `intr_config`, the timer's reset state (BTCTL1 = 0x00 → counting
+enabled, BTCNT = BTCL0 = 0) makes `equ0_ev` fire **every cycle**, silently latching raw BTIFG.
+It is invisible (IE = 0, GIE = 0) and the shipped program happens to clean it up in its own first
+three stores — `BTCTL1←0x24` stops the set-pulse and `IFG←0` W0C-clears the residue. The
+harness's expected IFG-read values (all zero) depend on exactly that; a program that skipped
+`intr_config`'s IFG clear would take a phantom BT interrupt the moment it set BTIE. Worth a
+sentence in the report's interrupt chapter.
+
+**Verification plan / files.** Below; `compile.do` untouched.
+
+**Adar's results — Phase 10B**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_bench_test4.do` (it stages `bench_fixed\test4` itself) | `VERDICT: PASS`, failed 0, **and** `CAPTURE EVENTS SEEN: 3 of 3` | |
+| once, for the report: `set ORIGINAL 1` at the top of the script, re-run | first scoreboard mismatch at store #28 (`201D` = 06 expected, 07 got) and `CAPTURE EVENTS SEEN: 0` — G-327 reproduced | |
+
 - **Exit:** all mandatory checks pass with saved logs, memory diffs and report-ready waveforms.
   **G-204**: `mem_dump.do` exports 1024 of 2048 DTCM words — extend it or document the limit.
 

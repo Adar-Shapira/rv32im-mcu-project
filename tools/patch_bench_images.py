@@ -103,6 +103,13 @@ def main():
         "are byte-identical copies. Full reasoning: the tool's own header and",
         "DOC/03 (test1: the SW0-gated EINT; test4: Q10 / G-327).",
         "",
+        "test4's one word makes the capture EDGE real, and no more than that:",
+        "the shipped flow also zeroes BTINT in `capture_init` and holds",
+        "BTHOLD=1,BTCLR=1 through the measured window, so no BT interrupt",
+        "fires and BTCAPR latches 0 -- runtime_div/runtime_rem stay 0 even",
+        "with this fix. Deliberately NOT patched further (question B6 in",
+        "DOC/05; details in DOC/03's Q10 update and the plan's Phase 10B).",
+        "",
         "| test | byte addr | original | patched | why |",
         "| --- | --- | --- | --- | --- |",
     ]

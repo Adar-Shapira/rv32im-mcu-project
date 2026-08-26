@@ -411,6 +411,30 @@ at `Auxiliary/Benchmark Apps/_superseded/` with a full diff.
 **Provisional decision.** Leave the supplied source untouched. Verify capture separately with a
 clearly-marked corrected copy that writes `0x06` in `capture`, and report both.
 
+**UPDATE 2026-08-26 (Phase 10B): the 0x06 fix is necessary but NOT sufficient — two further
+defects in the same flow make the measurement structurally zero.** Found while deriving
+`tb_bench_test4`'s expected values; verified in the sources and the RTL:
+
+1. **`capture_init` clobbers `BTINT`.** `bt_capture_config` arms `BTCTL1 = 0x26` (BTINT = 2,
+   capture event → BTIFG; `01_func.s:156–158`), but `capture_init` — which runs *after* it, at the
+   start of every measurement — writes `BTCTL1 = 0x24` (`01_func.s:177–179`), zeroing BTINT. When
+   the (now real) capture edge fires, `btifg_set_o` is routed from EQU0 (`BASIC_TIMER.vhd:355–359`),
+   so **no BT interrupt is raised** and `BT_ISR`'s state-3 arm (`MEM[a6] ← BTCAPR`,
+   `00_main.s:187–192`) never executes.
+2. **`BTCNT` is held at zero through the measured window.** Both capture-flow BTCTL1 values (0x26
+   and 0x24) keep `BTHOLD = 1` **and** `BTCLR = 1`. BTCLR zeroes BTCNT on every clock
+   (`BASIC_TIMER.vhd:287–288`), so even when the edge fires, `BTCAPR` latches **0**. A "runtime"
+   measured with the counter cleared and held cannot be anything but 0. (Neither `capture_init`
+   nor `capture` ever writes a BTCTL1 with BTHOLD = 0 — verified over the whole file.)
+
+So `runtime_div`/`runtime_rem` stay at their `.data` zeros **in the shipped image and in the
+one-word corrected copy alike** — that zero is the only expectation the sources support, and it is
+what `tb_bench_test4` asserts, while the run script proves the capture edge itself by counting
+`cap_ev_w` pulses. Making the measurement genuinely work would need `capture_init` to preserve
+BTINT and release the counter (e.g. `0x26` → then a run value) — a rewrite of the flow, not an
+auditable one-word patch, so per the Benchmarks-are-a-Contract rule it is **asked, not fixed**:
+question **B6** in `DOC/05`.
+
 ---
 
 ### Q11 — `UCTL` or `UTCL`?

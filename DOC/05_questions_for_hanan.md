@@ -58,6 +58,25 @@ untouched; `SIM/RV32IMscMCU/bench_fixed/test1/` carries a one-word corrected cop
 retargeted to the EINT itself, audited in `bench_fixed/PATCHES.md`), and Phase 10A's ModelSim run
 uses it. On the board with SW0=1 the shipped image works as-is, so nothing hardware-facing blocks.
 
+### B6 — test4's capture measurement cannot produce a nonzero runtime (added 2026-08-26, Phase 10B)
+
+> **Ask:** In `Intrrupt-based IO/test4/asm-code/01_func.s`, `capture_init` writes
+> `BTCTL1 = BTHOLD_BTCLR = 0x24` at the start of every measurement. That does two things to the
+> measurement it is initializing: (a) it zeroes `BTINT`, which `bt_capture_config` had just set to
+> 2, so the capture event does not raise `BTIFG` and `BT_ISR` never stores `BTCAPR`; and (b) it
+> holds `BTHOLD = 1, BTCLR = 1` through the whole measured window — and no later write ever
+> releases them — so `BTCNT` is pinned at 0 and a capture would latch 0 anyway. Together with the
+> `CAPISEL` value that never changes (our earlier question on `capture` writing `0x07` twice),
+> `runtime_div`/`runtime_rem` can never receive a nonzero value. Is a revised test4 planned, or
+> should we validate capture with our own directed program and document test4's capture mode as
+> configuration-only?
+
+**Meanwhile:** the original is untouched; `bench_fixed/test4` carries only the audited one-word
+`0x07 → 0x06` fix (which does make the capture *edge* real — our testbench counts it firing), and
+`tb_bench_test4` asserts `runtime_div = runtime_rem = 0`, the only expectation the sources
+support. Capture as a *mechanism* is already verified independently by `tb_basic_timer` (P6) and
+`tb_timer_mmio` (S5–S7), so nothing is blocked.
+
 ### B2 — `SEC_PERIOD` and `BTSSEL` disagree by a factor of 8
 
 > **Ask:** `test2` and `test3` set `BTCTL1 = 0x18` (`BTSSEL = 11`, ÷8) and then load
