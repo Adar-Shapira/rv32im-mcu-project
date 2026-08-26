@@ -3,9 +3,9 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # ZERO SETUP. No memory images, no G_ISA_REPAIR setting, nothing to #
-# # stage. Like run_sync.do and run_decode.do, this one runs the      #
-# # moment compile.do finishes. It is a leaf test.                    #
+# # ZERO SETUP. No memory images, nothing to stage. Like run_sync.do #
+# # and run_decode.do, this one runs the moment compile.do finishes.  #
+# # It is a leaf test.                                                #
 # ####################################################################
 #
 # WHAT THIS TEST DOES
@@ -110,6 +110,10 @@
 #   of having both.
 
 onerror {quit -code 1}
+
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/tb_div_accel.vhd
 
 vsim -t ns work.tb_div_accel
 run -all

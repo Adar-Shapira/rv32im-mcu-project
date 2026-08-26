@@ -42,6 +42,10 @@
 
 onerror {quit -code 1}
 
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/tb_addr_decoder.vhd
+
 vsim -t ns work.tb_addr_decoder
 run -all
 

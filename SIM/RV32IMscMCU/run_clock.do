@@ -3,9 +3,8 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # ZERO SETUP. No memory images, no G_ISA_REPAIR setting, nothing to #
-# # stage. A leaf test, like run_sync.do, run_decode.do and           #
-# # run_div.do.                                                       #
+# # ZERO SETUP. No memory images, nothing to stage. A leaf test,     #
+# # like run_sync.do, run_decode.do and run_div.do.                   #
 # ####################################################################
 #
 # READ THIS FIRST: WHAT A PASS HERE DOES **NOT** MEAN
@@ -80,6 +79,10 @@
 #   Report whatever happens; none of it blocks this simulation.
 
 onerror {quit -code 1}
+
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/tb_clock_tree.vhd
 
 vsim -t ns work.tb_clock_tree
 run -all

@@ -11,6 +11,11 @@
 file copy -force isa/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
 file copy -force isa/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/isa_expected_pkg.vhd
+vcom -2008 ../../TB/RV32IMscMCU/tb_isa_directed.vhd
+
 vsim -t ns -gMODELSIM=1 work.tb_isa_directed
 
 # The testbench stops itself at the sentinel after printing the summary, and the

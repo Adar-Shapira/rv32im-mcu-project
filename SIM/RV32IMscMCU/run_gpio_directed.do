@@ -3,8 +3,8 @@
 # Run compile.do first.
 #
 # ####################################################################
-# # THE ONE GPIO TEST THAT NEEDS NEITHER a benchmark NOR              #
-# # G_ISA_REPAIR = TRUE. Run it in whatever configuration you have.   #
+# # THE ONE GPIO TEST THAT NEEDS NO benchmark - the images are        #
+# # generated and committed under SIM\RV32IMscMCU\gpio\.              #
 # ####################################################################
 #
 # STAGING - generated images, not a benchmark:
@@ -15,14 +15,13 @@
 # Regenerate them with:  python3 tools/gen_gpio_test.py
 # (Only needed if the map or the cases change; the files are committed.)
 #
-# WHY IT WORKS AT EITHER G_ISA_REPAIR SETTING
-#   Every other GPIO test needs TRUE, because the benchmarks reach 0x2000 through
-#   lui and lui writes zero on the unrepaired core. This program builds addresses
-#   from addi and slli only (li32 in the generator), loads at offset zero, and has
-#   no compares, no sra, no jalr and one beq sentinel at offset 0 - so it touches
-#   none of the seven ISA defects. The expected sequence is identical in both
-#   configurations, which means a mismatch here is a GPIO problem, never an ISA
-#   one.
+# WHY THE PROGRAM AVOIDS MOST OF THE ISA
+#   Written when the core still carried the seven Lab 5 ISA defects: it builds
+#   addresses from addi and slli only (li32 in the generator), loads at offset
+#   zero, and has no compares, no sra, no jalr and one beq sentinel at offset 0
+#   - so it touched none of the defects and a mismatch here was a GPIO problem,
+#   never an ISA one. The repairs are unconditional now, but that isolation is
+#   still what makes this the GPIO test to trust first.
 #
 # WHAT IT CLOSES
 #   G-406  tb_gpio's cross-talk check was ONE-SIDED: GPIO test0 writes the same
@@ -67,6 +66,11 @@
 #   decode, the read enables, or the terminator.
 
 onerror {quit -code 1}
+
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/gpio_expected_pkg.vhd
+vcom -2008 ../../TB/RV32IMscMCU/tb_gpio_directed.vhd
 
 vsim -t ns -gMODELSIM=1 work.tb_gpio_directed
 run -all

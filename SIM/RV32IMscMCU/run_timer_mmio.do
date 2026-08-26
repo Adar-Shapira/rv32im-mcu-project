@@ -31,6 +31,10 @@
 
 onerror {quit -code 1}
 
+# Development-only testbench: compile.do compiles just the clause 10
+# official testbench (tb_RV32IMscMCU), so this script compiles its own.
+vcom -2008 ../../TB/RV32IMscMCU/tb_timer_mmio.vhd
+
 vsim -t ns -gMODELSIM=1 work.tb_timer_mmio
 run -all
 

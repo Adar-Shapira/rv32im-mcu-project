@@ -20,11 +20,12 @@ WHY THIS EXISTS
     value. Neither gap needs an answer from anyone — only a program, which no
     supplied benchmark provides.
 
-WHY THIS RUNS AT EITHER G_ISA_REPAIR SETTING
-    Every other GPIO test needs G_ISA_REPAIR = TRUE, because the benchmarks reach
-    0x2000 through `lui` and `lui` writes zero on the unrepaired core. This
-    program builds addresses with li32() from gen_isa_test.py, which assembles a
-    constant from addi and slli only. Checked against all seven defects:
+WHY THE PROGRAM AVOIDS MOST OF THE ISA
+    Written when the core still carried the seven Lab 5 ISA defects (repaired
+    unconditionally since Adar's commit 1d16fe2): the benchmarks reach 0x2000
+    through `lui`, which then wrote zero. This program builds addresses with
+    li32() from gen_isa_test.py, which assembles a constant from addi and slli
+    only. Checked against all seven (historical) defects:
 
       1 andi writes 0 / ori computes AND ..... not used (no andi, no ori)
       2 lui writes 0 ......................... not used (li32 instead)
@@ -290,14 +291,15 @@ def build():
 
             elif kind == "drd":
                 word, why2 = step[1], step[2]
-                # Every load in this program must use offset 0, so that it behaves
-                # identically at G_ISA_REPAIR = FALSE (defect 3 zeroes a load's
-                # offset). Word 0 is the only DTCM word read back here, and
-                # offset 0 on a zero base is exactly what addresses it.
+                # Every load in this program uses offset 0 -- originally so it
+                # behaved identically on the unrepaired core (defect 3 zeroed a
+                # load's offset), kept so the test's ISA footprint stays minimal.
+                # Word 0 is the only DTCM word read back here, and offset 0 on a
+                # zero base is exactly what addresses it.
                 if word != 0:
                     raise AssertionError(
                         "a DTCM read-back above word 0 would need a non-zero load "
-                        "offset, which breaks at G_ISA_REPAIR = FALSE")
+                        "offset, widening the test's ISA footprint")
                 emit("lw", "t2", 0, "zero")
                 emit("sw", "t2", slot * 4, "zero")
                 seq.append((len(seq), slot * 4, dtcm.get(word, 0) & M32,
@@ -418,10 +420,8 @@ def main():
 -- matters: an MMIO store to 0x2004 and a DTCM store to word 1 produce the same
 -- dtcm_addr_o, so the testbench compares alu_res_o instead.
 --
--- EVERY ENTRY MUST MATCH, in both G_ISA_REPAIR configurations. The program uses
--- only addi, slli, sw, lw at offset zero, and one beq sentinel, so it touches
--- none of the seven ISA defects -- see the header of tools/gen_gpio_test.py for
--- the defect-by-defect check. There is no expected-failure count here.
+-- EVERY ENTRY MUST MATCH. The program uses only addi, slli, sw, lw at offset
+-- zero, and one beq sentinel.
 --
 -- Derived twice and cross-checked before this file was written: once while
 -- emitting the code, once by executing it on an interpreter with an independent
@@ -466,8 +466,8 @@ end package gpio_expected_pkg;
          f"{len(words)} instructions, {len(seq)} stores, SW_i = 0x{SW_VALUE:02X}, "
          f"KEY_i = {KEY_RAW:03b} -> PORT_PB = 0x{KEY_VALUE:02X}",
          "",
-         "Runs at either G_ISA_REPAIR setting: the program uses only addi, slli,",
-         "sw and lw-at-offset-zero, so it touches none of the seven ISA defects.",
+         "The program uses only addi, slli, sw and lw-at-offset-zero, so it",
+         "touches none of the seven (since-repaired) Lab 5 ISA defects.",
          "", "=" * 74, ""]
     for nm, why in listing:
         L.append(f"{nm}")

@@ -507,3 +507,32 @@ Q1–Q3 should be asked first. Q4–Q8 are needed before their respective periph
 against real constants. Q9 and Q11–Q13 affect wording and packaging, not behaviour.
 
 **Send first: Q6 and Q14.** Those two are the only ones now blocking implementation — together they decide what, if anything, happens to `mul` width, `mulh*` and `div*`, which is nine of the ten remaining ISA-suite mismatches. Q1–Q3 remain the next most valuable.
+
+---
+
+## FOUND 2026-08-25, Phase 10A — test1's EINT is unreachable at SW0=0 (question B5)
+
+`Intrrupt-based IO/test1/asm-code/00_main.s`:
+
+```
+	bne  t1,zero,if_l        # if SW0='1' jump to if_l
+	li   a3, short_delay     # "used for ModelSim based verification"
+	j    STATE1              # <-- skips the EINT below
+if_l:
+	li   a3, long_delay
+	ori  gp,gp,0x01          # EINT, GIE=gp[0]=1
+```
+
+With SW0=0, `ori gp,gp,1` never executes: GIE stays 0, no KEY ever interrupts, and the whole
+application idles dead — in exactly the configuration its own comments designate for ModelSim.
+tests 2/3/4 all set EINT **unconditionally** at init (verified: `00_main.s` of each), so test1
+alone gating it marks a regression, not intent. Confirmed at image level: the `jal x0` at byte
+`0xBC` of the shipped `ITCM.hex` is `0x01C0006F`, targeting `0xD8` (STATE1) past the `ori` at
+`0xC8`.
+
+**Handling, per the benchmarks-are-a-contract rule:** original untouched; a ONE-WORD corrected
+copy (`jal` retargeted to the `ori` itself, so the short path becomes `li short → EINT → STATE0`,
+matching the other three tests' flow) lives at `SIM/RV32IMscMCU/bench_fixed/test1/`, generated and
+audited by `tools/patch_bench_images.py` alongside test4's `0x06` capture fix (Q10/G-327). No
+instruction moves, so the vector table's absolute handler addresses stay valid. Asked as **B5** in
+`DOC/05`.

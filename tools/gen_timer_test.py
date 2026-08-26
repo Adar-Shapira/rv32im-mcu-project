@@ -39,11 +39,12 @@ WHY S6 IS RANGE-CHECKED, NOT EXACT
     (it really held), and both reads agree. Exactness for capture semantics
     already lives in tb_basic_timer's P6, where the counter is frozen.
 
-WHY THIS RUNS AT EITHER G_ISA_REPAIR SETTING
-    Same discipline as gen_gpio_test.py: addresses and constants come from
-    li32() (addi+slli only -- lui is broken at FALSE), every load has offset 0
-    (defect G-323), stores have offset 0, and the only branch is the sentinel
-    with offset 0. No other instruction class appears.
+WHY THE PROGRAM AVOIDS MOST OF THE ISA
+    Same discipline as gen_gpio_test.py, from when the core still carried the
+    seven Lab 5 defects (repaired unconditionally since): addresses and
+    constants come from li32() (addi+slli only), every load has offset 0,
+    stores have offset 0, and the only branch is the sentinel with offset 0.
+    No other instruction class appears.
 
 THE SECOND DERIVATION
     The expected values are not just the constants the program wrote: the

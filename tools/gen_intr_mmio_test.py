@@ -8,8 +8,8 @@ WHY THIS EXISTS
     exactly the WIRING: CS_INTC and the three lanes, the TYPE push as a real
     bus driver, bt_ifg_set_w and key_pressed_w as real sources, and gie/intr/
     inta between core and controller. The supplied interrupt benchmarks then
-    run in Phase 10; this directed program isolates the wiring first, at
-    either G_ISA_REPAIR setting, with EXACT expectations throughout.
+    run in Phase 10; this directed program isolates the wiring first, with
+    EXACT expectations throughout.
 
 WHAT IT PROVES (with tb_intr_mmio.vhd, which only presses KEY1 and watches)
       [0x010]=ISR_BT, [0x014]=ISR_KEY1   the program built its vector table

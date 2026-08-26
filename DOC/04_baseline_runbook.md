@@ -333,9 +333,11 @@ default of `0` so Quartus needs no edit either.
 `0070` / `0070` / `00CC` / `004C` with `instruction_o = 00000063`, and the DTCM dump matching the
 reference capture word for word.
 
-This holds because the tree ships with `G_ISA_REPAIR = FALSE`, which reproduces the submitted core
-expression by expression. **Leave it alone for this section** — Phase 1 is about the wrapper being
-transparent, and changing two things at once would tell you nothing about either.
+This holds even though the seven ISA repairs are now compiled in unconditionally (the
+`G_ISA_REPAIR` switch was removed on 2026-08-26 once the repaired core became the accepted
+baseline): the repairs touch instructions these four benchmarks either already use correctly or
+never use, which is exactly what the switch's before/after measurement established before it was
+retired.
 
 If a dump comes out **empty**, the hierarchical path in `mem_dump.do` is wrong. It must be
 `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the wrapper and
@@ -349,8 +351,10 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 
 ### 8.1a Seven tests that need nothing — run them first
 
-No memory image, no `app_bin` staging, and they do not care what `G_ISA_REPAIR` is set to. Run them
-straight after `compile.do`; if any fails, nothing after it is meaningful.
+No memory image, no `app_bin` staging. Run them straight after `compile.do`; if any fails, nothing
+after it is meaningful. (Since the clause 10 rewrite `compile.do` compiles only the official
+`tb_RV32IMscMCU`; every `run_*.do` script now compiles its own development testbench first, so
+nothing extra is needed.)
 
 | Script | Phase | Expect |
 | --- | --- | --- |
@@ -401,38 +405,31 @@ Note what this does **not** cover: it is the unsigned engine alone. Signed `div`
 crossings, the stall and the write-back mux are Phase 7B, and 7B needs the `DIVCLK` that Phase 4B
 produces.
 
-### 8.1b Phases 3A and 3B — the "after" measurement
+### 8.1b Phases 3A and 3B — the repaired core, now the only configuration
 
-Only once 8.1 has reproduced the baseline. **One edit, then two runs.**
+> **The `G_ISA_REPAIR` switch no longer exists.** It was removed on 2026-08-26 (Adar, commit
+> `1d16fe2`), exactly as its own comment planned: "once the repaired core is the accepted baseline,
+> TRUE becomes the only configuration exercised." The seven repairs are compiled in unconditionally.
+> The before/after measurements below were taken while the switch existed and are the recorded
+> baseline; nothing here needs a source edit any more.
 
-1. In `DUT\RV32IMscMCU\cond_compilation_package.vhd`, set `G_ISA_REPAIR := TRUE`.
-   This is the one source edit the project asks for, and it is the switch's whole purpose: both the
-   before and the after measurement come out of one build tree, so they cannot disagree about
-   anything except the repair.
-2. Re-run `compile.do` — a package change invalidates everything, so it is a full recompile.
-3. `do repair_check.do` → **43 of 43 PASS**. Against `FALSE` it reports exactly **25** failures and
-   names the 18 control checks that must pass either way, so the script itself tells you which
-   configuration you compiled.
-4. `do run_isa.do` → **exactly 9 mismatches.** Not zero. The 9 that remain are `mul_wide`,
-   `mul_hi_low`, `mulh`, `mulhu`, `mulhsu`, `div`, `divu`, `rem`, `remu` — every one blocked on a
-   question for Hanan rather than on effort, which is why none is implemented.
-5. Re-run the four benchmarks with the repair on. **The four cycle counts should not move**, and all
-   four DTCM dumps should still match. The repairs touch instructions the benchmarks either already
-   use correctly or never use. A count that *does* move is a finding worth stopping for.
+1. `do repair_check.do` → **43 of 43 PASS.** (Historical: against the as-submitted expressions it
+   reported exactly 25 failures — that "before" capture is the recorded baseline measurement.)
+2. `do run_isa.do` → **exactly 5 mismatches.** Not zero. All five are mul-related (`mul` is 16-bit
+   by Hanan's own answer — G-308/G-326), so 5 is the floor, not a to-do list. (Historical tallies:
+   21 as-submitted / 5 repaired since Phase 7B2; 25/9 before the divider.)
+3. Re-run the four benchmarks. **The four cycle counts must not move** (134 / 1514 / 2725 / 2735)
+   and all four DTCM dumps must still match — the repairs touch instructions the benchmarks either
+   already use correctly or never use. A count that *does* move is a finding worth stopping for.
 
-### 8.1c Phases 5B and 6A — while `G_ISA_REPAIR` is still `TRUE`
+### 8.1c Phases 5B and 6A — the GPIO benchmarks
 
-Do these **before** setting the switch back, so there is no second full recompile.
-
-**Both need `G_ISA_REPAIR = TRUE`, and the reason is worth knowing.** At `FALSE` the core reproduces
-the LAB5 submission, in which `lui` writes zero (defect 2). Every one of GPIO test0's stores is
-reached by `lui t4,0x2 / addi t4,t4,offset / sw t0,0(t4)`, so with `lui` broken `t4 = offset` and the
-stores land on byte addresses 0, 4, 5, 8, 9, 12, 13 — inside the DTCM, **never reaching `0x2000`**.
-Neither test can measure anything, and both print `VERDICT: NOT APPLICABLE` instead of failing.
-
-That is a finding for the report in its own right: **the two defects masked each other.** The missing
-region decode was invisible on the GPIO benchmarks precisely because `lui` never formed an SFR
-address. Repairing `lui` is what exposes the aliasing.
+**A finding for the report, from when the repairs were switchable:** on the as-submitted core `lui`
+writes zero (defect 2), and every one of GPIO test0's stores is reached by
+`lui t4,0x2 / addi t4,t4,offset / sw t0,0(t4)` — so with `lui` broken the stores landed on byte
+addresses 0, 4, 5, 8, 9, 12, 13, inside the DTCM, **never reaching `0x2000`**. **The two defects
+masked each other:** the missing region decode was invisible on the GPIO benchmarks precisely
+because `lui` never formed an SFR address. Repairing `lui` is what exposed the aliasing.
 
 **Stage GPIO test0's images.** The `M9K-intel` files, **not** `Hexadecimal-Text` — they are different
 programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
@@ -467,8 +464,7 @@ copy "<repo>\Auxiliary\Benchmark Apps\GPIO\test1\bin\M9K-intel\DTCM.hex"  C:\Tes
 ### 8.1d The directed GPIO test — the one that needs nothing from you
 
 `run_gpio_directed.do` (Phase 6D) closes gaps G-406 and G-407. It is the only GPIO test that needs
-**neither a benchmark image nor `G_ISA_REPAIR = TRUE`**, so it can be run at any point, in whatever
-configuration you happen to have compiled.
+**no benchmark image** — its images are generated and committed — so it can be run at any point.
 
 Stage the **generated** images, not a benchmark:
 
@@ -597,9 +593,10 @@ elements are expected; a large jump is not.
 Into the plan file's own results blocks — Phase 0, Phase 1, Phase 2 and Phase 3A each have one
 waiting:
 
-- the four SC cycle counts, at `G_ISA_REPAIR = FALSE` **and** at `TRUE`;
+- the four SC cycle counts (the before/after pair per configuration existed while `G_ISA_REPAIR`
+  did; since 2026-08-26 there is one configuration — the repaired core);
 - the four pipeline `CLKCNT`/`STCNT`/`FHCNT` triples (G-205);
-- `repair_check.do` passed/failed, and `run_isa.do` mismatches, in both configurations;
+- `repair_check.do` passed/failed, and `run_isa.do` mismatches;
 - compile error and warning counts;
 - the memory-bit figure **and Fmax** from both perf revisions;
 - `run_sync.do` and `run_decode.do` verdicts (Phases 4A and 5A) — and `run_decode.do`'s three totals;
@@ -609,13 +606,12 @@ waiting:
   synthesis prunes it and it has no area row and no `DIVCLK` to report an Fmax on; an earlier version
   of the plan asked for those two numbers and was wrong to;
 - **Phase 7B2 changed two expected numbers ON PURPOSE, and you should not read them as breakage.**
-  `run_isa.do` now expects **21** mismatches at `G_ISA_REPAIR = FALSE` and **5** at `TRUE`, where it
-  used to say 25 and 9. `div`, `divu`, `rem` and `remu` were four of the mismatches — they were not
-  decoded at all and the core wrote zero — and they now go through the Figure 9 accelerator. They
-  pass at **either** setting, because the divider is not behind that switch. The **5 that remain are
-  all mul-related and all out of scope** by Hanan's own answer, so 5 is the floor. `repair_check.do`
-  is unaffected — it does not touch the divider, and its own "25 failures" signature is a different
-  test's number that happens to share the digits;
+  `run_isa.do` expects **5** mismatches on the repaired core (21 on the as-submitted expressions,
+  while the switch existed), where it used to say 9 (and 25). `div`, `divu`, `rem` and `remu` were
+  four of the mismatches — they were not decoded at all and the core wrote zero — and they now go
+  through the Figure 9 accelerator. The **5 that remain are all mul-related and all out of scope**
+  by Hanan's own answer, so 5 is the floor. `repair_check.do` is unaffected — it does not touch the
+  divider;
 - **Phase 4C is the one that most needs your numbers.** It moved the clock tree from inside the core
   up to `RV32IMscMCU` per Figure 1, removed the core's `mclk_o`, put the peripherals on `smclk`, and
   now holds reset until the PLLs lock. That changed the clocking of **every** test at once. **Re-run
@@ -666,3 +662,54 @@ waiting:
   to the same `altsyncram` that carries `ENABLE_RUNTIME_MOD = YES`, and ISMCE is the mandatory §8
   validation loop. If the instance is gone, **report it and change nothing** — sub-word access and
   ISMCE are both required, so a conflict between them is a question for Hanan.
+
+---
+
+## 9. The demo-day protocol — decoded from Hanan's inspection guide (added 2026-08-25)
+
+**Source:** `Auxiliary/מבנה הצגה ובדיקת פרויקט מסכם.md` — the instructor-facing protocol for the
+final-project presentation and inspection. The file is a garbled PDF extraction (Hebrew stored
+character-reversed, column order scrambled); this section is the decoded reconstruction. Where the
+scramble left something unrecoverable, that is said explicitly rather than guessed.
+
+**Part 1 — download and burn, in real time [5–10 min].** At the start of the meeting the students
+download **their own submission** from the Moodle box (VPL) — *"the goal is to verify that the
+submitted code is what is being tested"* — compile it in the personal Quartus environment **with no
+file edited**, and burn the design to the FPGA. Dev environments (Quartus, ModelSim, RARS) are
+opened in parallel.
+
+Consequence for us: **the clean-room build of Phase 16 is not a nicety — it is literally the first
+ten minutes of the grade.** The ZIP must compile untouched on a machine that has only the ZIP.
+
+**Part 2 — one application, per readiness level [~7+ min].** The MCU design is burned **once
+only**; the applications (`ITCM.hex`, `DTCM.hex`, downloaded from Moodle in real time) are loaded
+**through ISMCE** — the protocol itself stresses the separation between the MCU design and the
+applications that run on it. The students choose the application **according to their system's
+readiness level** out of **six inspection levels** (רמת בדיקה 1–6). The level table's geometry was
+destroyed by the extraction; what is certain from the fragments: level 1 is the **full system**
+(*"באופן מלא"*), the gradations pass through *"without interrupt support"* (twice — two adjacent
+levels differ on interrupts), through combinations of the DIVIDER accelerator / BT Timer / GPIO,
+down to *"GPIO בלבד"* (GPIO only) at the bottom. **The exact feature list of levels 2–5 is NOT
+fully recoverable from this file** — ask Hanan or a classmate for the original table if the choice
+ever matters; we build for level 1 regardless.
+
+After the run, **two things per level tested**: (i) a detailed manual log of the execution
+description (against the `ReadMe`'s described behaviour), and (ii) **a screenshot of the ISMCE
+window showing the DTCM content**. Our golden-model DTCM comparisons are exactly this check done
+in advance.
+
+**Part 3 — a personal question, each student separately [5 min × 2].** A question on the HDL code
+at the presented level, based on the development chain (Quartus / ModelSim / RARS), and a request
+that the student **show the relevant part in the design code** (VHDL, a ModelSim wave window).
+Consequence: **both of us must be able to navigate and justify every module** — the traceability
+docs (DOC/02) and each file's header citations are the preparation material for exactly this.
+
+**Part 4 — submission-folder inspection [3–5 min].** The instructor checks the Moodle submission
+tree against the project requirements and asks the students to open the documentation ZIP and show
+the required sections exist.
+
+**What this changes in our plan:** nothing structural — it *confirms* Phase 16's clean-room gate
+(the full-2048-word DTCM dumps that closed G-204 are exactly the coverage the inspection
+screenshot needs), and re-confirms that `ENABLE_RUNTIME_MOD = YES` + the `ITCM`/`DTCM` instance
+names (inherited from Lab 5 and already carried through every phase) are load-bearing demo
+machinery — the ISMCE check already in section 7's record list is the guard.

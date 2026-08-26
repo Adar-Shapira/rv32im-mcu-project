@@ -278,13 +278,15 @@ Working directory: `SIM\RV32IMscMCU`
 **No source edit.** `run_test.do` and `run_isa.do` both pass `-gMODELSIM=1`, which the testbench
 forwards to the wrapper and the core. Quartus keeps the package default of `0` and also needs no
 edit. If you ever find yourself editing `cond_compilation_package.vhd` in our tree, something is
-wrong — say so.
+wrong — say so. *(Since 2026-08-26 there is also nothing else in that package to flip:
+`G_ISA_REPAIR` was retired — §1.7.)*
 
-1. Execute `compile.do`. Expect 0 errors and the same three warnings.
+1. Execute `compile.do`. Expect 0 errors and the same three warnings. Since the clause 10 rewrite
+   it compiles **only the official `tb_RV32IMscMCU`**; every `run_*.do` script compiles its own
+   development testbench first, so nothing extra is needed.
 
-   **Then seven tests that need nothing at all** — no images, no `app_bin`, and they do not care
-   what `G_ISA_REPAIR` is set to. Run them first, because if any fails, nothing after it is
-   meaningful:
+   **Then seven tests that need nothing at all** — no images, no `app_bin`. Run them first, because
+   if any fails, nothing after it is meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
    - `do run_decode.do` → **Phase 5A**, the address decoder, exhaustive over all 16,384 addresses.
@@ -310,36 +312,23 @@ wrong — say so.
    - *An empty `DTCM.mem` means the hierarchical path in `mem_dump.do` is wrong.* It must be
      `/tb_rv32imscmcu/MCU/CORE/MEM/data_memory/MEMORY/m_mem_data_a` — the `MCU` level is the new
      wrapper. `mem save` does not report this as an error.
-3. **Phase 2 — the "before" measurement.** Run `run_isa.do` with the tree exactly as cloned
-   (`G_ISA_REPAIR = FALSE`). Expect **exactly 21 mismatches**, then a `SUMMARY` block.
-   *(Was 25 before Phase 7B2, which made div/divu/rem/remu work and so removed four.)*
-   - **25 is the pass condition.** These are the known defects; the suite exists to measure them.
-   - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
-   - **Any other number is a finding.** A mismatch on a case the listing does not mark `DEFECT` is a
-     new bug; a `DEFECT` case that passes means the bug is not where we think. Either way, paste the
-     whole `ISA TEST FAIL` list back.
-   - Which 25, and the citation for each: `SIM\RV32IMscMCU\isa\listing.txt`.
-   - The `SUMMARY` block now prints which configuration it was compiled against and how many
-     mismatches that configuration should give, so there is no number to remember.
-4. **Phase 3A + 3B — the "after" measurement.** One edit, then two runs.
-   - In `DUT\RV32IMscMCU\cond_compilation_package.vhd`, set `G_ISA_REPAIR := TRUE`.
-     **This is the one source edit the project asks for, and it is the switch's whole purpose.**
-   - Re-run `compile.do` — a package change invalidates everything, so it is a full recompile.
+3. **Phases 2 + 3A + 3B — the ISA suite on the repaired core.** *(Rewritten 2026-08-26: the
+   `G_ISA_REPAIR` switch is gone — §1.7. The before/after choreography this step used to describe
+   was carried out and its numbers recorded; the repaired core is now the only configuration.)*
    - `do repair_check.do` → expect **43 of 43 PASS**. Submodule-level proof that each repaired
-     expression computes the right value. Against `FALSE` it reports exactly **25** failures and
-     names the 18 control checks that must pass either way — so the script itself tells you which
-     configuration you compiled.
-   - `do run_isa.do` → expect **exactly 9 mismatches**. Not 0. The 9 that remain are the cases
-     blocked on open questions, and `run_isa.do` prints the breakdown.
-5. **Phases 5B and 6A — while `G_ISA_REPAIR` is still `TRUE`.** Do these *now*, before setting the
-   switch back, so you do not pay for a second full recompile.
+     expression computes the right value.
+   - `do run_isa.do` → expect **exactly 5 mismatches**, then a `SUMMARY` block. All five are
+     mul-related and out of scope by Hanan's own answer (16-bit `mul` — G-308/G-326); 5 is the
+     floor, not a to-do list.
+   - **0 mismatches means the test never ran** — `isa/ITCM.hex` did not reach `app_bin`.
+   - **Any other number is a finding.** Paste the whole `ISA TEST FAIL` list back.
+   - The citation for each case: `SIM\RV32IMscMCU\isa\listing.txt`.
+4. **Phases 5B and 6A — the GPIO benchmarks.**
 
-   **Both of them need `G_ISA_REPAIR = TRUE` and it is not arbitrary.** At `FALSE`, `lui` writes zero
-   (defect 2), so GPIO test0's `lui t4,0x2 / addi / sw` sequences never form an address at or above
-   `0x2000` — no MMIO store happens at all and there is nothing for either test to see. Both
-   testbenches detect that and print `VERDICT: NOT APPLICABLE` rather than failing. Worth knowing for
-   the report: **the two defects masked each other** — the missing region decode was invisible on the
-   GPIO benchmarks precisely because `lui` was also broken.
+   Worth knowing for the report, from when the repairs were switchable: **the `lui` defect and the
+   missing region decode masked each other** — on the as-submitted core GPIO test0's
+   `lui t4,0x2 / addi / sw` sequences never formed an address at or above `0x2000`, so the missing
+   MMIO decode was invisible on the GPIO benchmarks precisely because `lui` was also broken.
 
    First stage GPIO test0's images. **The `M9K-intel` ones, not `Hexadecimal-Text`** — they are
    different programs and the `.h` copy carries a stale `−0x3000` `auipc` bias:
@@ -358,8 +347,8 @@ wrong — say so.
    - `do run_gpio.do` → **Phase 6A.** Same images, nothing more to stage. Expect `VERDICT: PASS`,
      about **18 writes to each of the seven ports**, and ≥ 3 distinct `LEDR` values.
    - **`do run_gpio_directed.do`** → **Phase 6D**, the directed GPIO test. Stage the *generated*
-     images from `SIM\RV32IMscMCU\gpio\` instead of a benchmark. **This one does not care what
-     `G_ISA_REPAIR` is**, so it can also be run outside this step entirely. Expect **35 of 35** stores
+     images from `SIM\RV32IMscMCU\gpio\` instead of a benchmark — it needs nothing else, so it can
+     also be run outside this step entirely. Expect **35 of 35** stores
      and **zero** mismatches — there is no expected-failure count here. It also carries Phase 6C's two
      `PORT_PB` cases.
    - **Then restage for the last one — this is the only test that wants a different program.**
@@ -379,32 +368,33 @@ wrong — say so.
      store `PORT_LEDR` now latches, and said the write was discarded immediately before `tb_gpio`
      printed that all seven ports held what was stored. Found by review.
 
-6. **Now** set `G_ISA_REPAIR` back to `FALSE` before committing, unless we have agreed to flip the
-   default.
-7. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
+5. Repeat step 2 in `SIM\RV32IMpipelinedMCU`. Note this directory was rebuilt for the revised
    pipeline — new file list in `compile.do`, and `golden.do` is now the wave script to prefer.
 
 ### Run 3 — Quartus (still Phase 1).
 
 Open `Quartus\RV32IMscMCU\RV32IMscMCU.qpf`, compile.
 
+> **Rewritten 2026-08-26 — the revision changed character (§1.7.e).** Adar assigned the full board
+> pinout (103 `set_location_assignment` lines: clk/KEY0 from Lab 5, SW/KEY/LEDR/HEX/GPIO from
+> Lab4_HW / the Terasic CSV — closing **G-504** for the DE2-115) and added SignalTap
+> (`stp_pwm.stp`) to this, still the only, revision. So the current `.qsf` is the **board/HW
+> revision**: it is what FPGA testing runs on, and its area/power numbers are instrumented and NOT
+> the report's PPA numbers.
+
 - The top entity must resolve to `RV32IMscMCU`.
-- **The Fitter will warn about unassigned pins. That is correct.** This is the *performance* revision
-  and deliberately carries no pin assignments, so the PPA numbers describe the design and not the
-  board. The pinned revision comes later, in Phase 14.
-- **Four files were added to the project since the last Quartus run** — `ADDR_DECODER.vhd`,
-  `SYNC.vhd`, `GPO_PORT.vhd`, `HEX_DECODER.vhd`. If Analysis & Synthesis reports an **unbound
-  component**, the `.qsf` file list is the first place to look: there is no `SEARCH_PATH` in this
-  project, so Quartus finds an entity only if the file is listed.
-- **Pins are still not assigned, and now that matters more.** Phase 6A added 50 real board outputs
-  (`LEDR_o[7..0]` plus six `HEX*_o[6..0]`). The Fitter will place them wherever it likes and the
-  design still gives valid PPA numbers, which is what this revision is for. But **nothing can be
-  tested on the board until they are assigned**, and the pin numbers are in no course file — see the
-  block at the end of `RV32IMscMCU.qsf` and gap **G-504**.
-- **The number that matters: embedded memory bits must be 131,072** (= 2 × 2048 × 32) — GPIO adds
-  registers, not memory, so this figure must not move. If it reads
-  **483,328**, a SignalTap instance has crept back in — that was the exact defect in Lab 5 commit
-  `8a71ffb`, and avoiding it is why our tree was built from commit `cfc4b4f`.
+- If Analysis & Synthesis reports an **unbound component**, the `.qsf` file list is the first place
+  to look: there is no `SEARCH_PATH` in this project, so Quartus finds an entity only if the file
+  is listed.
+- **`AUTO_MERGE_PLLS OFF` must stay in the `.qsf`.** With it on (the Quartus default) the Fitter
+  merges the two `pll_gen` instances into one physical PLL — exactly the one-module clock tree
+  forum answer F6 forbids. The `CBX_MODULE_PREFIX` hints in `CLOCK_TREE.vhd` keep them separate at
+  synthesis; the `.qsf` line keeps them separate at fit.
+- **For the report's PPA tables (Phase 14) a clean performance revision must be created** — no
+  pins, SignalTap off, as D-2 and Lab 4's `Lab4_Perf`/`Lab4_HW` pattern prescribe. In THAT
+  revision, embedded memory bits must read **131,072** (= 2 × 2048 × 32); **483,328** is the
+  SignalTap-contamination signature from Lab 5 commit `8a71ffb`. On the current instrumented
+  revision the inflated figure is expected, not a defect.
 - Sanity reference, not a target: single-cycle Fmax was **26.81 MHz** on
   `\G0:MCLK|altpll_component|pll|clk[0]`, Slow 1200 mV 85 °C. The wrapper adds a little
   combinational logic, so small movement is expected; a large jump is not.
@@ -422,17 +412,17 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | Phase | Prepared by | Verified by | State |
 | --- | --- | --- | --- |
 | 0 Baseline | — (supplied material) | **Adar** | ready to run |
-| 1 Clean structural base | Yehonatan ✔ | **Adar** | ready to run |
-| 2 Directed ISA test | Yehonatan ✔ | **Adar** | ready to run |
-| 3A Seven ISA repairs | Yehonatan ✔ | **Adar** | ready to run — flip `G_ISA_REPAIR` |
-| 3B Byte enables / sub-word | Yehonatan ✔ | **Adar** | ready to run — same switch as 3A |
+| 1 Clean structural base | Yehonatan ✔ | **Adar ✔** | **run 2026-08-25/26 (§1.7): RV32IM tests pass in ModelSim.** Numbers/screenshots still to be recorded |
+| 2 Directed ISA test | Yehonatan ✔ | **Adar ✔** | **run 2026-08-25/26 (§1.7)** — expects 5 mismatches since the switch retired |
+| 3A Seven ISA repairs | Yehonatan ✔ | **Adar ✔** | **run 2026-08-25/26 (§1.7): ISA suite passes in ModelSim; switch retired, repairs now unconditional.** Numbers/screenshots still to be recorded |
+| 3B Byte enables / sub-word | Yehonatan ✔ | **Adar ✔** | **run with 3A (§1.7)** — same caveat on numbers |
 | 3C `mul` width, `mulh`, `div` | — | — | **ANSWERED 2026-08-24** — `mul` only, 16-bit, as in Lab 5. Mostly nothing to do |
 | 3D Pipeline re-import | Yehonatan ✔ | **Adar** | ready to run |
 | 4A CDC synchronizer | Yehonatan ✔ | **Adar** | ready to run — frequency-independent |
 | **4B Clock tree** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_clock.do`.** Three Quartus items too; only `ACCELCLK`'s value is open (**B3**) |
 | **4C Wire in + reset-on-lock + SDC** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2; the four counts must not move** |
 | 5A/5B Bus interface + DTCM | Yehonatan ✔ | **Adar** | ready to run |
-| 6A–6D GPIO | Yehonatan ✔ | **Adar** | ready to run — `PORT_PB` bit order answered (F9) |
+| 6A–6D GPIO | Yehonatan ✔ | **Adar ✔** | **run 2026-08-25/26 (§1.7): GPIO tests pass in ModelSim.** Numbers/screenshots still to be recorded |
 | **7A Divider engine** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_div.do`, needs nothing staged** |
 | **7B1 Divider subsystem** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_divunit.do`** |
 | **7B2 Divider into the core** | **Yehonatan ✔** | **Adar** | **ready — re-run Run 2 AND `run_isa.do`; the ISA counts change to 21/5 on purpose** |
@@ -441,7 +431,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9A Interrupt Controller** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_intc.do`, needs nothing staged.** Built on the falsified-A6 structure (raw latch, masked view) and the KEY-fires-on-RELEASE fact; **P2** (`RXIFG`/two TYPEs) affects only which of two equal-handler codes is pushed (A23) |
 | **9B CPU-side protocol** | **Yehonatan ✔** | **Adar** | **ready — stage `intr/` images, `do run_intr_core.do`.** Report tp1/tp3 and the R3 deferral (the F13 number) |
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — stage `intrmmio/` images, `do run_intr_mmio.do`.** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
-| 10 SC benchmarks | Yehonatan | Adar | |
+| **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — stage `bench_fixed\test1`, `do run_bench_test1.do`** (harness updated 2026-08-26 for the retired switch and the 10-bit `SW`/`LEDR` ports). Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
+| 10B tests 2/3/4 | Yehonatan | Adar | test2/3 not simulatable as shipped (B2's 20M-tick period) — FPGA material; test4 corrected copy ready (`bench_fixed/test4`), harness next |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
 | 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
 | 13 Regression | Yehonatan | Adar | |
@@ -704,6 +695,103 @@ announce**. Pipeline bonus: a dedicated ~half-hour lecture for registrants. UART
 registrants **receive ready HDL from Hanan** to adapt and integrate as a bus peripheral —
 presumably the already-shipped `USART Material/UART_FPGA_option{1,2}`, **to be confirmed at
 registration** before Phase 12's register layer is built on option 1.
+
+---
+
+# 1.7 NEW — Adar's verification session, 2026-08-25/26
+
+Three commits (`1d16fe2`, `7bc9dc0`, `7225893`) plus a verbal report. This is the first time the
+tree has been compiled — in ModelSim **and** in Quartus **and** on the board — so everything in it
+outranks any prediction written earlier in this file. Where Adar's changes contradicted something
+here, his version stands and the text has been updated (§0.3 steps 3–4, Run 3, the phase table).
+
+## 1.7.a `G_ISA_REPAIR` is retired — the repaired core is the only core
+
+Removed from `cond_compilation_package.vhd` and from every RTL site that tested it (`CONTROL`,
+`IDECODE`, `EXECUTE`, `IFETCH`, `DMEMORY`), exactly as the switch's own comment planned: *"once the
+repaired core is the accepted baseline, TRUE becomes the only configuration exercised."* The
+before/after measurements the switch existed for were taken; the seven repairs are now
+unconditional. Every committed testbench, `.do` script and `gen_isa_test.py` was updated by Adar in
+the same commit. Completed on the Mac side 2026-08-26: `gen_gpio_test.py` (whose emitted text would
+have reverted his edit on regeneration — verified byte-identical now), the three other generators'
+docstrings, the Phase 10A harness (below), and `DOC/01/02/04`.
+
+**Consequences for the suite:** `run_isa.do` expects **5** mismatches, `repair_check.do` expects
+**43/43** with no alternate signature, and the GPIO benchmarks need no precondition. The
+NOT-APPLICABLE guards are gone from `tb_gpio`/`tb_gpio_read`/`tb_mmio_alias`.
+
+## 1.7.b Quartus 21.1 could not compile our generate style — CLOCK_TREE and SYNC rewritten
+
+Quartus 21.1 Lite's Verific front end **internal-errors** (`vhdltreenode.cpp` PushScope) on
+if/else generate with an inner declarative region — the exact idiom Phases 4A/4B used to keep
+branch-local signals out of the other branch. Adar's fix, same netlist either way when the generate
+condition is a compile-time constant: **two separate if-generates** (no else), with the branch-local
+signals **hoisted** to the architecture (`lock_m/s/a_w` in `CLOCK_TREE.vhd`, `launch_q` in
+`SYNC.vhd`). Rule for all future RTL: **no if/else generate with declarations inside a branch.**
+
+Two more findings from the same fight, both real hardware facts:
+
+- **The Fitter silently merges PLLs.** Distinct `CBX_MODULE_PREFIX` hints (`PLL_MCLK`/`PLL_ACCEL`)
+  keep the two `pll_gen` megafunctions separate at synthesis, but the Fitter still folded them into
+  one physical PLL (`fit.rpt` Info 176132, "Auto Merge PLLs = On" — the Quartus default), which is
+  exactly the one-module clock tree forum answer F6 forbids. **`AUTO_MERGE_PLLS OFF`** is now in the
+  `.qsf` and must stay there.
+- `RV32IMpipelinedMCU.vhd` needed the same generate treatment (6 lines).
+
+## 1.7.c `compile.do` compiles the official testbench only
+
+Clause 10 Table 1 names exactly one TB file: `tb_RV32IMscMCU.vhd`. Adar restricted `compile.do` to
+it and rewrote the official TB to the course convention — board I/O signals brought out and forced
+from the wave window, **no auto-stop**, `golden.do` (all signals) and `wave.do` (compact set) as
+the wave scripts. The other `tb_*.vhd` under `TB/RV32IMscMCU/` are **development-only and must NOT
+go into the submission ZIP** (his header says so explicitly).
+
+Completed on the Mac side 2026-08-26, so the scripted flow still works from a clean clone: **every
+`run_*.do` now `vcom`s its own testbench** (plus its expected-package where one exists) before
+`vsim` — the pattern `run_bench_test1.do` already used. Adar's own flow through `RV32IM_SC.mpf`
+is unaffected; the `.mpf` stays out of the ZIP per D-3.
+
+## 1.7.d The board interface widened to the full DE2-115
+
+`SW_i` is now `9 DOWNTO 0` (PORT_SW still reads bits 7..0 — SW9/8 are board pins, not MMIO bits),
+`LEDR_o` is `9 DOWNTO 0` with bits 9:8 driven `"00"`, and a new `GPIO : INOUT (35 DOWNTO 0)` brings
+out the whole J15 expansion header per clause 4: **PWM on `GPIO[9]`** (Lab 4 / Figure 4b),
+**CAPIN1/2 on `GPIO[8]`/`GPIO[10]`**, unused bits high-Z. `PWM_o`/`CAPIN1_i`/`CAPIN2_i` remain for
+ModelSim (the existing TBs drive them) and are `VIRTUAL_PIN` in Quartus so they take no ball.
+Testbenches that instantiate the MCU now use partial association — `SW_i(7 DOWNTO 0) => ...,
+SW_i(9 DOWNTO 8) => "00"`, `LEDR_o(7 DOWNTO 0) => ...` — Adar's pattern in `tb_gpio`, followed by
+the updated `tb_bench_test1`.
+
+## 1.7.e The `.qsf` is now the pinned board revision — and Phase 14 changed accordingly
+
+103 `set_location_assignment` lines (clk/KEY0 from Lab 5; SW, KEY, LEDR, HEX, GPIO from Lab4_HW /
+the Terasic CSV — **G-504 closed** for the DE2-115) plus SignalTap (`stp_pwm.stp`, a PWM-focused
+`.stp`) in the same, still only, revision. That is the right shape for the board bring-up he was
+doing, and it means:
+
+1. **FPGA testing is unblocked** — this is what his board session ran on.
+2. **The report's PPA numbers cannot come from this revision** (SignalTap inflates memory bits —
+   the 483,328 signature). Phase 14 must add the clean performance revision (D-2's
+   `Lab4_Perf`/`Lab4_HW` pattern). This was always the plan; it is now concrete work against a
+   pinned base instead of prevention.
+
+## 1.7.f Adar's reported results (verbal, 2026-08-26) — and the three asks
+
+**Reported:** the RV32IM and GPIO suites pass in ModelSim; all FPGA checks work **except one item**
+his tooling attributes to the test rather than the design; single-cycle is close to done.
+Screenshots deferred until things settle.
+
+**Not yet in this file, and needed before Single Cycle is marked done:**
+
+1. **Which check is the failing one, and its exact failure text.** "The tool says it is a test
+   problem" is a hypothesis, not a finding — per the Benchmarks-are-a-Contract rule it needs the
+   same treatment as every failure: name the test, paste the output, and only then decide whether
+   the test or the RTL is wrong. If it is a test of ours, we fix it; if it is a shipped benchmark,
+   we document it like B5/test4.
+2. **The numbers** for the results tables — the four SC counts, `run_isa.do`'s tally,
+   `repair_check.do`, the leaf-test verdicts, and the pipeline `CLKCNT`/`STCNT`/`FHCNT` triples
+   (G-205) if the pipeline was run.
+3. **The screenshots**, once stable, to `Screenshots\ModelSim\` and `Screenshots\Quartus\`.
 
 ---
 
@@ -1126,10 +1214,14 @@ Gaps: **G-402**, G-401.
 Split into four parts because they have different owners and different blockers. **3A and 3D are
 written; 3B is next on the Mac; 3C is deliberately not started.**
 
-### Phase 3A — the seven ISA repairs  ·  **built, awaiting verification**
+### Phase 3A — the seven ISA repairs  ·  **verified in ModelSim 2026-08-25/26 (§1.7); numbers pending**
 
 Done 2026-08-23. Every repair is a transcription from the reference pipeline (§0.a), so none of it is
 our invention and each carries a file:line citation in the code itself.
+
+> **2026-08-26: the switch described below has since been retired** (§1.7.a) — the before/after
+> measurements were taken and the repairs are now unconditional. This block is the record of how
+> they were built and measured; the checklists' present tense is that of 2026-08-23.
 
 | Done | What |
 | --- | --- |
@@ -1193,12 +1285,12 @@ the generated image. That is what `repair_check.do` is for.
 #### ▸ Adar's results — Phase 3A  (Run 2 step 4)
 
 - `repair_check.do` — passed: ____ of 43, failed: ____
-- `run_isa.do` — mismatches: ____ (9 expected)
+- `run_isa.do` — mismatches: ____ (5 expected since Phase 7B2; was 9 when this block was written)
 
-If `repair_check.do` reports exactly **25** failures, the design was compiled with
-`G_ISA_REPAIR = FALSE`; set it to `TRUE`, re-run `compile.do`, and run again. Any count that is
-neither 0 nor 25 is a real finding — a specific repair is wrong, or a control check broke, and a
-broken control means a repair damaged behaviour that was already correct. Paste the failing lines:
+*(2026-08-26: the "exactly 25 failures = wrong configuration" signature is gone with the retired
+switch — §1.7.a.)* Any non-zero `repair_check.do` count is a real finding — a specific repair is
+wrong, or a control check broke, and a broken control means a repair damaged behaviour that was
+already correct. Paste the failing lines:
 
 ```
 ```
@@ -1360,7 +1452,7 @@ no RTL simulator can.** That is a timing-analysis property and it belongs in the
 - latency:  passed ____ , failed ____
 - **VERDICT line:** ____________________
 
-Expect PASS with zero failures everywhere. This one does **not** depend on `G_ISA_REPAIR`.
+Expect PASS with zero failures everywhere, in any build of the tree.
 
 ### Phase 4B — the clock tree  ·  **built, awaiting verification**
 
@@ -1462,7 +1554,7 @@ from the clock change in one run instead of bisecting the whole phase.
 
 | Check | Expect | Result |
 | --- | --- | --- |
-| Run 2 four counts, `G_ISA_REPAIR = FALSE` | 134 / 1514 / 2725 / 2735 — **unchanged** | |
+| Run 2 four counts | 134 / 1514 / 2725 / 2735 — **unchanged** | |
 | `run_isa.do` mismatches | unchanged from before 4C | |
 | `run_mmio.do`, `run_gpio*.do` | unchanged | |
 | Quartus: three clocks in the Timing Analyzer? | **two** today — `accelclk` has no load until 7B, so its PLL is pruned | |
@@ -1563,7 +1655,7 @@ the registers. The figure's *structure* is unchanged.
 - failures: ____
 - **VERDICT line:** ____________________
 
-Independent of `G_ISA_REPAIR`. If `CHECK 0` fails, the **specification** is wrong and the RTL may be
+If `CHECK 0` fails, the **specification** is wrong and the RTL may be
 a faithful implementation of it — fix `const_package.vhd`, not the RTL.
 
 ### Phase 5B — wire it in  ·  **built, awaiting verification**
@@ -1623,7 +1715,8 @@ instructions, not a full symbolic execution — the definitive check is still Ad
 
 ### ⚠ The finding that matters most in this phase: the two defects masked each other
 
-`tb_mmio_alias` **requires `G_ISA_REPAIR = TRUE`**, and the reason is worth putting in the report.
+`tb_mmio_alias` **required the repaired core** (a `G_ISA_REPAIR = TRUE` guard, until the switch was
+retired — §1.7.a), and the reason is worth putting in the report.
 
 Disassembling `Auxiliary/Benchmark Apps/GPIO/test0/bin/M9K-intel/ITCM.hex`, every one of test0's
 seven stores is reached as:
@@ -1634,15 +1727,15 @@ addi t4,t4,offset  -- ITCM word 5
 sw   t0,0(t4)      -- ITCM word 6
 ```
 
-At `G_ISA_REPAIR = FALSE`, `lui` writes **zero** — defect 2, `IDECODE.vhd:111` forces `lui_imm_w` to
-all zeros in that configuration. So `t4 = 0 + offset`, and the seven stores land on byte addresses
+On the as-submitted core, `lui` writes **zero** — defect 2. So `t4 = 0 + offset`, and the seven
+stores land on byte addresses
 **0, 4, 5, 8, 9, 12, 13** — all inside the DTCM, none of them ever reaching `0x2000`.
 
 **So the missing region decode was invisible on the GPIO benchmarks precisely because `lui` was also
 broken.** Repairing `lui` is what exposes the aliasing. Two defects, each hiding the other.
 
-The testbench detects `G_ISA_REPAIR = FALSE` and reports **NOT APPLICABLE** with that explanation
-rather than a FAIL, because a FAIL there would send someone hunting a decoder bug that is not present.
+*(While the switch existed the testbench detected the `FALSE` build and reported NOT APPLICABLE
+rather than a FAIL; the guard went with the switch — §1.7.a.)*
 
 **Also verified from the same disassembly, rather than estimated:** `N` really is at DTCM word 0 —
 the first record of the shipped `DTCM.hex` is `:0400000000000004f8`, and `short_delay = 4`. The loop
@@ -1709,7 +1802,7 @@ testbenches omit only the three new `OUT` ports, which is legal.
 
 #### ▸ Adar's results — Phase 5B
 
-`SIM\RV32IMscMCU` → `compile.do`. **Set `G_ISA_REPAIR := TRUE` first**, and stage GPIO test0's
+`SIM\RV32IMscMCU` → `compile.do`. Stage GPIO test0's
 `M9K-intel` images as `app_bin\ITCM.hex` / `app_bin\DTCM.hex`. Then `do run_mmio.do`.
 
 - MMIO stores seen: ____ (expect ~126) · DTCM stores seen: ____ (expect **0**)
@@ -1809,7 +1902,7 @@ comparing against it is a real check of the display path rather than a tautology
 
 #### ▸ Adar's results — Phase 6A
 
-Part of **Run 2 step 5** — same staging as `run_mmio.do`, and needs `G_ISA_REPAIR = TRUE`. Then
+Part of **Run 2 step 4** — same staging as `run_mmio.do`. Then
 `do run_gpio.do`.
 
 - writes seen — LEDR: ____ · HEX0: ____ · HEX1: ____ · HEX2: ____ · HEX3: ____ · HEX4: ____ · HEX5: ____
@@ -1949,12 +2042,12 @@ orders, and reads both back:
 | 3 | `hex01_ascending:rd` PORT_HEX0 must be `A5`, not `5A` | `PORT_HEX0` also capturing the `0x2005` store — **the direction GPIO test0 cannot see** |
 | 8 | `hex01_descending:rd` PORT_HEX1 must be `B7`, not `7B` | `PORT_HEX1` also capturing the later `0x2004` store |
 
-**It is the one GPIO test that needs neither a benchmark nor `G_ISA_REPAIR = TRUE`.**
+**It is the one GPIO test that needs no benchmark image at all.**
 The program builds every address with `addi`/`slli` (`li32`, no `lui`), loads at
 offset zero throughout, and has no compares, no `sra`, no `jalr` and one `beq`
-sentinel at offset 0 — so it touches **none of the seven ISA defects**, checked
-one by one in the generator's header. The expected sequence is identical in both
-configurations, which means a mismatch here is a GPIO problem and never an ISA
+sentinel at offset 0 — so it touched **none of the seven (since-repaired) ISA
+defects**, checked one by one in the generator's header. That isolation is what
+makes a mismatch here a GPIO problem and never an ISA
 one. **Zero is the only passing number**, unlike the ISA suite.
 
 **Five more things the 32 stores cover, beyond the two gaps:**
@@ -1989,8 +2082,7 @@ the Phase 2 generator, which is why it is repeated here.
 
 Stage the **generated** images, not a benchmark:
 `SIM\RV32IMscMCU\gpio\ITCM.hex` and `DTCM.hex` → `app_bin`. Then
-`do run_gpio_directed.do`. **Configuration does not matter** — run it in whatever
-state `G_ISA_REPAIR` happens to be in.
+`do run_gpio_directed.do`.
 
 - stores seen: ____ of 32 · cycles: ____ (expect ~305)
 - mismatches: ____ — **zero is the only pass**
@@ -2039,7 +2131,7 @@ Phase 9 needs is edge detection on an already-clean signal. `key_pressed_w` is w
 
 #### ▸ Adar's results — Phase 6C
 
-Part of `run_gpio_directed.do` — same staging, still no `G_ISA_REPAIR` dependency.
+Part of `run_gpio_directed.do` — same staging.
 
 - stores seen: ____ of **35** · mismatches: ____ (**zero is the only pass**)
 - **VERDICT line:** ____________________
@@ -2241,8 +2333,7 @@ for the duration so the register file is not written on every stall cycle.
 | Check | Expect | Result |
 | --- | --- | --- |
 | Run 2 four counts | 134 / 1514 / 2725 / 2735 — **unchanged** | |
-| `run_isa.do`, `G_ISA_REPAIR = FALSE` | **21** mismatches (was 25) | |
-| `run_isa.do`, `G_ISA_REPAIR = TRUE` | **5** mismatches (was 9), all mul-related | |
+| `run_isa.do` | **5** mismatches (was 9), all mul-related. *(The 21-at-`FALSE` row retired with the switch — §1.7.a)* | |
 | `repair_check.do` | unchanged — it does not touch the divider | |
 | Quartus: clocks in the Timing Analyzer | **three** | |
 | Quartus: `f_MCLK` with the divider in | a number — the PPA table's `f_sysclk` | |
@@ -2328,7 +2419,8 @@ Gaps: **G-302 closed for the core.** `BTINT` codes `01`/`11` are **A20**; shadow
 **Verification — a directed program, because no supplied benchmark can do it:** every
 Interrupt-based IO test configures the timer and then waits for *interrupts*, which need Phase 9 —
 without it they hang in their idle loop. So `tools/gen_timer_test.py` generates a 113-instruction
-program (addi/slli/sw/lw-at-0 + one beq — runs at **either** `G_ISA_REPAIR`), and derives its
+program (addi/slli/sw/lw-at-0 + one beq — an ISA footprint clear of all seven since-repaired
+defects), and derives its
 expectations a second way by **executing it against `model_basic_timer.Timer`** — the model eight
 mutations already vetted — one timer edge per instruction. Generation aborts on disagreement.
 
@@ -2538,6 +2630,45 @@ A23 until Hanan answers; A17 (BTCTL2 read-only?) unchanged.
   **Strengthened by the prep session (§1.6.b):** Hanan's own capture walkthrough is "initialise the
   select to 3, then set it to 2" — the exact GND→VCC rising event the corrected copy performs and
   the shipped benchmark never does. The corrected copy is now his described intent, not our guess.
+
+### Phase 10A — test1, self-checking, plus the corrected copies  ·  **built, awaiting verification**
+
+**Files:** `tools/patch_bench_images.py`, `SIM/RV32IMscMCU/bench_fixed/{test1,test4}/` (+
+`PATCHES.md`), `TB/RV32IMscMCU/tb_bench_test1.vhd`, `SIM/RV32IMscMCU/run_bench_test1.do` new;
+`compile.do` untouched — the run script `vcom`s its own testbench (§1.7.c). Originals under
+`Auxiliary/` untouched. Harness updated 2026-08-26 for the retired `G_ISA_REPAIR` and the 10-bit
+`SW_i`/`LEDR_o` ports (§1.7.a/§1.7.d).
+
+**A THIRD benchmark bug found, same class as test4's (question B5):** shipped test1 gates EINT on
+SW0 — the SW0=0 short-delay path (its own comments: "used for ModelSim based verification") jumps
+past `ori gp,gp,1`, so GIE never sets and the application is dead. tests 2/3/4 enable EINT
+unconditionally; test1 alone differs. Both corrected copies are **one audited word each**, derived
+from the originals at build time by `patch_bench_images.py` (aborts if the original ever changes):
+test1's `jal` retargeted to land ON the EINT (no instruction moves — the vector table stays
+valid); test4's `capture` writes `0x06` (its own comment says "set to VCC" while the code writes
+GND — the fix implements the comment, and Hanan's prep-session walkthrough).
+
+**The harness:** `tb_bench_test1` runs the supplied application as the contract it is — expected
+values read from the shipped images word by word, not from our RTL. KEY1 → `0x64` on HEX5:4;
+KEY2 → `8` on HEX3:2; KEY3 → the full STATE3 **sweep** (fp stays 3 on the increment path — one
+press animates all eight divisions, which is the ReadMe's ~1s-per-step behaviour under the FPGA's
+long delay), ending on the sweep's own tail: pass 9 divides `MEM[0x44]=8` by `MEM[0x64]=0`, so the
+final display is the divide-by-zero contract — HEX1:0 = `FF` (all-ones quotient, F4) and LEDR =
+`0x08` (remainder = dividend). Liveness is event-driven: a second sweep must drive LEDR *through*
+`0x04` before settling at `0x08` — a hung system cannot pass on stale displays.
+
+**tests 2/3 in ModelSim — a decision, recorded:** their interrupt interval is `SEC_PERIOD` =
+20,000,000 SMCLK ticks (×8 under the programmed ÷8 — question B2 either way), which no simulation
+can sit through as shipped. They are **FPGA material**; if ModelSim coverage is ever wanted, the
+route is another separately-marked one-word copy (a short `BTCMPR0`), not a quiet edit. test4's
+harness (compare / PWM / capture with the corrected copy) is 10B.
+
+**Adar's results — Phase 10A**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| stage `bench_fixed\test1`, `do run_bench_test1.do` | `VERDICT: PASS`, failed 0 | |
+| once, for the report: stage the ORIGINAL test1, re-run | everything after init fails, displays frozen at 0 — the B5 bug reproduced | |
 - **Exit:** all mandatory checks pass with saved logs, memory diffs and report-ready waveforms.
   **G-204**: `mem_dump.do` exports 1024 of 2048 DTCM words — extend it or document the limit.
 
@@ -2696,10 +2827,10 @@ Gaps: G-501…G-505.
 
 ## Design — defects in supplied code
 
-Status column added 2026-08-23. **"repaired"** means the fix is written and gated behind
-`G_ISA_REPAIR`; it becomes *closed* when Adar's `repair_check.do` and `run_isa.do` numbers are in
-Phase 3A above. Every repair is a transcription from the reference pipeline — see §0.a for the
-before/after line pairs.
+Status column added 2026-08-23. **"repaired"** means the fix is written and compiled in
+(unconditionally since 2026-08-26 — §1.7.a); it becomes *closed* when Adar's `repair_check.do` and
+`run_isa.do` numbers are in Phase 3A above. Every repair is a transcription from the reference
+pipeline — see §0.a for the before/after line pairs.
 
 | ID | Defect | Origin | Status |
 | --- | --- | --- | --- |
@@ -2765,11 +2896,10 @@ before/after line pairs.
    `DOC/04_baseline_runbook.md` §3.
 2. **Run 1 — Phase 0 baseline.** ~30 min. Fill in the Phase 0 results table. **This gates
    everything**; if the four counts do not reproduce, stop and report.
-3. **Run 2 — Phases 1, 2, 3A.** Four result tables to fill. Steps in §0.3; the only source edit in
-   the whole sequence is flipping `G_ISA_REPAIR` between step 3 and step 4.
-   - step 3, repair OFF → **25** mismatches (and `repair_check.do` reports 25 failures)
-   - step 4, repair ON → **43/43** on `repair_check.do`, **9** mismatches on `run_isa.do`, and the
-     four benchmark counts unchanged
+3. **Run 2 — Phases 1, 2, 3A.** Four result tables to fill. Steps in §0.3. **No source edit
+   anywhere** — since 2026-08-26 the repairs are compiled in unconditionally (§1.7.a):
+   - `repair_check.do` → **43/43**, `run_isa.do` → **5** mismatches (all mul-related), and the
+     four benchmark counts unchanged (134 / 1514 / 2725 / 2735)
 4. **Run 3 — Quartus.** Confirm **131,072** memory bits. Phase 5B added two files to
    `Quartus/RV32IMscMCU/RV32IMscMCU.qsf` (`ADDR_DECODER.vhd` and `SYNC.vhd`); if Analysis & Synthesis
    still reports an unbound component, that file list is the first place to look. The reference's own numbers to compare
@@ -2781,14 +2911,13 @@ before/after line pairs.
    mandatory, so a conflict between them is a question for Hanan. Details in `DMEMORY.vhd`.
 5. **Four leaf tests, no setup needed.** `do run_sync.do` (4A), `do run_decode.do` (5A),
    `do run_clock.do` (4B) and `do run_div.do` (7A). None needs a memory image or `app_bin` staging,
-   and none depends on `G_ISA_REPAIR`, so they can be run any time — even before Run 1. Expected
+   so they can be run any time — even before Run 1. Expected
    verdicts are in the 4A, 5A, 4B and 7A results blocks. `run_div.do` is the slow one: it sweeps all
    65536 operand pairs at N=8, so budget tens of seconds and watch for its progress lines.
    `run_clock.do` also carries **three Quartus-only questions** in its header — whether `pll_gen`
    fits, the inherited `"Cyclone II"` family string, and the shared `CBX_MODULE_PREFIX`.
-6. **`do run_mmio.do`** (Phase 5B). This one **does** need staging and **needs `G_ISA_REPAIR = TRUE`**
-   — read the Phase 5B block above for why, it is not arbitrary. Then re-run Run 2 in full: the four
-   benchmark counts must be unchanged.
+6. **`do run_mmio.do`** (Phase 5B). This one **does** need staging (GPIO test0's `M9K-intel`
+   images). Then re-run Run 2 in full: the four benchmark counts must be unchanged.
 7. **Send the questions — `DOC/05_questions_for_hanan.md`.** Rewritten 2026-08-24 after the forum
    answers, and far shorter than it was: **Q6 and Q14 are answered**, and so are fifteen others.
    Eighteen items remain, each with a one-sentence "Ask" line ready to send as-is.

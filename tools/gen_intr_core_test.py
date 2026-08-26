@@ -39,11 +39,11 @@ WHY tp IS RANGE-CHECKED, NOT EXACT
     at the time, the ISR's copy and main's copy AGREE, and execution resumes
     there. Same posture as the captured K in gen_timer_test.py.
 
-WHY THIS RUNS AT EITHER G_ISA_REPAIR SETTING
+WHY THE PROGRAM AVOIDS MOST OF THE ISA
     addi / sw / lw-at-offset-0 / beq / div / rem / jalr-at-offset-0-aligned:
-    none touch the seven defects (div and rem are Phase 7B2 hardware,
-    independent of the switch; jalr's defect 7 only bites ODD targets and tp
-    is word-aligned).
+    none touched the seven Lab 5 defects (repaired unconditionally since --
+    div and rem are Phase 7B2 hardware; jalr's defect 7 only bit ODD targets
+    and tp is word-aligned).
 
 THE SECOND DERIVATION
     interpret() below executes the program instruction by instruction and

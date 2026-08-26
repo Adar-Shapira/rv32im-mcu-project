@@ -44,6 +44,20 @@ table**, not the architecture.
 
 **Meanwhile:** everything targets the DE2-115. Nothing is blocked except the pinned Quartus revision.
 
+### B5 — test1 skips EINT on the SW0=0 path (added 2026-08-25, Phase 10A)
+
+> **Ask:** In `Intrrupt-based IO/test1/asm-code/00_main.s`, the SW0=0 (short-delay) path executes
+> `j STATE1` **before** the `ori gp,gp,0x01` EINT line, which sits after the `if_l:` label — so in
+> the configuration the comments call "used for ModelSim based verification", GIE is never set and
+> no KEY interrupt is ever taken. tests 2/3/4 all set EINT unconditionally at init. Is this
+> intentional, or should the `j` land on the EINT?
+
+Evidence: the shipped `bin/M9K-intel/ITCM.hex` word at byte `0xBC` is `0x01C0006F` — `jal x0`
+targeting `0xD8` (STATE1), past the `ori gp,gp,1` at `0xC8`. **Meanwhile:** the original is
+untouched; `SIM/RV32IMscMCU/bench_fixed/test1/` carries a one-word corrected copy (the jal
+retargeted to the EINT itself, audited in `bench_fixed/PATCHES.md`), and Phase 10A's ModelSim run
+uses it. On the board with SW0=1 the shipped image works as-is, so nothing hardware-facing blocks.
+
 ### B2 — `SEC_PERIOD` and `BTSSEL` disagree by a factor of 8
 
 > **Ask:** `test2` and `test3` set `BTCTL1 = 0x18` (`BTSSEL = 11`, ÷8) and then load

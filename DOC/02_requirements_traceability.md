@@ -642,8 +642,9 @@ words). The decoder used for that count was validated by confirming test1's firs
 in `RV32IMscMCU.vhd`'s header.
 
 **[CODE] The ISA suite's expected counts changed from 25/9 to 21/5**, and that is the phase working
-rather than a regression: `div`/`divu`/`rem`/`remu` were four of the mismatches and now pass at
-**either** `G_ISA_REPAIR` setting, since the divider is not behind that switch. The generator's two
+rather than a regression: `div`/`divu`/`rem`/`remu` were four of the mismatches and now pass
+regardless of the ISA repairs (the divider was never behind the — since-retired — `G_ISA_REPAIR`
+switch). The generator's two
 independent derivations disagreed until the defect model was taught the new behaviour, and it
 **refused to promise a count** until they agreed. The ITCM/DTCM images are byte-identical, so the
 program did not change — only which stores are expected to fail. **The 5 that remain are all
