@@ -47,7 +47,17 @@ set_global_assignment -name SDC_FILE RV32IMpipelinedMCU.sdc
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/RV32IMpipelinedMCU.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/RV32IM_PIPE_CORE.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/PLL.vhd
-set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/MUL16.vhd
+# Corrected 2026-08-26. This list still described the pipeline as it was BEFORE
+# the 2026-08-23 re-import (plan file 0.b): it named MUL16.vhd, which no longer
+# exists in DUT/RV32IMpipelinedMCU/, and omitted the three files that replaced
+# and joined it -- MULT_1 (EX, four 8x8 products), MULT_2 (MEM, combine) and
+# WRITEBACK (the write-back mux moved out of IDECODE). As committed the project
+# could not compile at all: a missing-file error on MUL16.vhd plus three unbound
+# components. SIM/RV32IMpipelinedMCU/compile.do:31-32,39 was corrected at the
+# re-import and this file was not; the list below now matches it file for file.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/MULT_1.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/MULT_2.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/WRITEBACK.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/IFETCH.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/IDECODE.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/HAZARD_UNIT.vhd

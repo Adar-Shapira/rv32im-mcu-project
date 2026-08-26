@@ -1409,6 +1409,38 @@ and the wrapper was wired to a port list that no longer exists — it could not 
 | ✔ | `compile.do` new file list; `golden.do` and `wave.do` retargeted from the reference; `run_test.do` and `batch_verify.do` stop condition moved from the retired `flush_o` port to `MCU/CORE/flush_w` |
 | ✔ | Every hierarchical path in every pipeline `.do` file verified to exist in the revised RTL |
 
+**⚠ THREE THINGS THIS PHASE MISSED, all found 2026-08-26 while assessing the bonus, all fixed.**
+The re-import copied the reference faithfully — which is exactly how these got in. Each one was
+invisible in simulation and would have surfaced only on Adar's machine, two of them as a mystery.
+
+1. **D-1 came back into the pipeline core — the FPGA build would have been dead.**
+   `RV32IM_PIPE_CORE.vhd` carried the reference's welded line
+   `rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i`, while `RV32IMpipelinedMCU.vhd`'s `RSTCOND`
+   generate *also* inverts under `RST_ACTIVE_LOW` (default `TRUE`). At the committed defaults the
+   two inversions cancel, so the core's internal reset was the **raw KEY0 pin** — which idles HIGH
+   on the DE2-115. The board build would have sat in permanent reset unless KEY0 was held down.
+   **Simulation could not have caught it:** `tb_RV32IMpipelinedMCU` passes `RST_ACTIVE_LOW => FALSE`
+   and every `.do` passes `-gMODELSIM=1`, which cancels both inversions. The wrapper's header even
+   asserted *"the pipeline core does not invert at all … there is no double inversion"* — a claim
+   that was false against the file it instantiates. Fixed the way the single-cycle side already
+   was: the core is now `rst_w <= rst_i` and the wrapper is the single owner. **D-1 is reverted in
+   both trees now**, which it was not before.
+
+2. **The Quartus project could not compile at all.** `RV32IMpipelinedMCU.qsf` still listed
+   `MUL16.vhd` — deleted by this very phase — and omitted `MULT_1.vhd`, `MULT_2.vhd` and
+   `WRITEBACK.vhd`, the three files that replaced and joined it. `compile.do` was corrected at the
+   re-import and the `.qsf` was not, so ModelSim worked and Quartus would have failed with a
+   missing-file error plus three unbound components. Fixed; **`tools/check_quartus_filelists.py`
+   now asserts every project's file list matches its DUT directory** (self-tested against this
+   exact bug, and it catches both halves of it).
+
+3. **`GEN_DEBUG_PORTS => FALSE` must never be set on the pipeline wrapper**, and the header said to
+   do it in a performance revision. Every one of that entity's fourteen outputs is an observation
+   port — there is no GPIO/LEDR/HEX/PWM there yet — so `FALSE` leaves the five stages, both TCMs
+   and the PLL with no fan-out to any pin and synthesis deletes the design. It fails **downward**:
+   memory bits go to ≈0, not 483,328, and every acceptance note in the runbook watches only for
+   the high number. The comment is corrected in place with the reasoning; see Phase 14.
+
 **Exit:** `compile.do` runs clean and the four benchmarks reproduce through the wrapper.
 
 Gaps: G-321…G-327 (3A), G-309 (3B), G-307, G-308, G-326 (3C), G-330 (3D).
@@ -2360,7 +2392,8 @@ for the duration so the register file is not written on every stall cycle.
 | Run 2 four counts | 134 / 1514 / 2725 / 2735 — **unchanged** | |
 | `run_isa.do` | **5** mismatches (was 9), all mul-related. *(The 21-at-`FALSE` row retired with the switch — §1.7.a)* | |
 | `repair_check.do` | unchanged — it does not touch the divider | |
-| Quartus: clocks in the Timing Analyzer | **three** | |
+| Quartus: clocks in the Timing Analyzer | **two**, and `accelclk` must be one of them — corrected 2026-08-26. Three would need `SMCLK_SHARES_MCLK => FALSE`; at the committed default SMCLK *is* MCLK (`CLOCK_TREE.vhd:150`), so only `P_MCLK` and `P_ACCEL` are instantiated. **What shows the divider being optimised away is `accelclk` missing, not the count being two** | |
+| Quartus: `Total PLLs` in the Area report | **2** (the `.qsf`'s own measured note; `AUTO_MERGE_PLLS OFF` is what keeps them from folding into one physical PLL) | |
 | Quartus: `f_MCLK` with the divider in | a number — the PPA table's `f_sysclk` | |
 
 Touches `CONTROL`/`IFETCH`/`IDECODE`/`RV32IM_CORE`/`RV32IMscMCU`, which is why it is separate from
@@ -2960,7 +2993,7 @@ Gaps: G-501…G-505.
 
 | ID | What | Fix in |
 | --- | --- | --- |
-| **D-1** | `RSTPOL` inside the core, tied to `G_MODELSIM` | Phase 1 — move inversion to the MCU top, per `fpga_hw_interface.vhd:38` |
+| **D-1** | `RSTPOL` inside the core, tied to `G_MODELSIM` | Phase 1 — move inversion to the MCU top, per `fpga_hw_interface.vhd:38`. **Reverted in the single-cycle tree at Phase 1; reverted in the PIPELINE tree only on 2026-08-26** — the Phase 3D re-import brought the welded line back in `RV32IM_PIPE_CORE.vhd`, on top of the wrapper's own inversion, which would have held the FPGA build in permanent reset. Details in Phase 3D. **This is the deviation most likely to come back: it is in the reference, so every re-import re-introduces it.** Check `rst_w <=` in any freshly imported core |
 | **D-2** | SignalTap and pins merged into the only Quartus revision; PPA numbers contaminated (483,328 vs 131,072 memory bits) | Phase 1 — two revisions per configuration, per `Lab4_{perf,hw}.sdc` |
 | **D-3** | `.mpf` and `.cr.mti` committed | Already handled by the project `.gitignore` |
 

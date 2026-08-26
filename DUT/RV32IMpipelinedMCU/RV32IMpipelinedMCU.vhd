@@ -39,8 +39,30 @@
 --   with depth = 3, because branches and jumps resolve in stage 4 (MEM).
 --
 --   BPADDR_i is a board input (SW7-SW0) used only during validation, so
---   GEN_DEBUG_PORTS also gates it: tied to zero in a performance revision so no
---   pin is assigned, driven from the port in a hardware revision.
+--   GEN_DEBUG_PORTS also gates it: tied to zero when the generic is FALSE,
+--   driven from the port when it is TRUE.
+--
+--   ⚠ DO NOT SET GEN_DEBUG_PORTS => FALSE ON THIS WRAPPER. Corrected
+--   2026-08-26; the sentence that used to stand here said to do exactly that in
+--   a performance revision, and it would have produced a measurement of nothing.
+--   Read the port list below: this entity has three inputs (clk_i, rst_i,
+--   BPADDR_i) and FOURTEEN outputs, and every one of the fourteen is an
+--   observation port. There is no GPIO, no LEDR, no HEX, no PWM here yet -- see
+--   PHASE SCOPE. So the generate that ties the observation ports off at FALSE
+--   leaves the five stages, both M9K TCMs and the PLL with no fan-out to any
+--   pin, and synthesis deletes the whole design. The failure is silent and it
+--   fails DOWNWARD: memory bits go to ~0, not to 483,328, and every acceptance
+--   note in the runbook watches only for the high number. There would also be no
+--   clock left for the Timing Analyzer to report an Fmax on.
+--
+--   What clause 7 actually requires is that the *location pins* used for
+--   Signal-Tap be removed, and a performance revision does that by carrying no
+--   set_location_assignment at all -- exactly as Auxiliary/Lab4/Quartus/
+--   Lab4_Perf.qsf does. Keep the generic TRUE in both pipeline revisions. A
+--   debug-free pipeline area figure only becomes meaningful once this wrapper
+--   has real functional outputs, which is Phase 11's work, not a revision
+--   setting. The single-cycle wrapper is a different case: it has 50+ real
+--   board outputs, so FALSE there removes debug logic and leaves a design.
 --
 -- WHY RESET POLARITY LIVES HERE AND NOT IN THE CORE
 --   The revised single-cycle core welds polarity to the simulation switch
@@ -49,8 +71,19 @@
 --   an active-high board reset or an active-low simulation. Keeping the polarity
 --   in the wrapper as its own generic separates the two, and matches what the
 --   students' own Lab 4 already did (Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38,
---   the RSTPOL generate). The pipeline core does not invert at all, so this
---   wrapper is the single owner of polarity — there is no double inversion.
+--   the RSTPOL generate). The pipeline core does not invert, so this wrapper is
+--   the single owner of polarity — there is no double inversion.
+--
+--   That last sentence was FALSE until 2026-08-26 and the bug it hid was
+--   FPGA-only. RV32IM_PIPE_CORE.vhd carried the same welded line as the
+--   single-cycle reference, so at the committed defaults (RST_ACTIVE_LOW => TRUE,
+--   G_MODELSIM := 0) the wrapper inverted and the core inverted again: the core's
+--   internal reset was the raw KEY0 pin, which idles HIGH on the DE2-115, so the
+--   board build would have held the design in reset unless KEY0 was pressed.
+--   Simulation could not have shown it — tb_RV32IMpipelinedMCU passes
+--   RST_ACTIVE_LOW => FALSE and every .do script passes -gMODELSIM=1, which
+--   cancels both inversions. The core's line is now `rst_w <= rst_i`, matching
+--   what the single-cycle core has always done, and the sentence above is true.
 --
 -- PHASE SCOPE
 --   Thin, as on the single-cycle side. The core keeps its own PLL and DTCM; the

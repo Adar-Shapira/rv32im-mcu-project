@@ -105,10 +105,21 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
 # frequency. PLL.vhd is left byte-identical and the core still instantiates it.
 # CLOCK_TREE.vhd is Figure 1's block: three pll_gen instances, per forum answer
 # F6. AS OF PHASE 4C BOTH ARE LIVE: RV32IMscMCU instantiates CLOCK_TREE, clk_i
-# reaches it and nothing else, and the core receives mclk. AS OF PHASE 7B2 expect
-# THREE PLLs in the resource report -- the divider gives accelclk a load, so the
-# third instance is no longer pruned. Two would mean the divider is being
-# optimised away.
+# reaches it and nothing else, and the core receives mclk.
+#
+# EXPECT TWO PLLs, NOT THREE -- corrected 2026-08-26. This block used to say
+# "expect THREE PLLs ... two would mean the divider is being optimised away",
+# which contradicts the measured note further down this same file ("two pll_gen
+# instances ... Total PLLs = 2"). The measured note is the true one, and the
+# reason is a default, not a defect: SMCLK_SHARES_MCLK is TRUE
+# (CLOCK_TREE.vhd:150), so the SHARE_YES branch assigns smclk_w <= mclk_w and no
+# third pll_gen is instantiated at all. Forum answer F6 permits MCLK = SMCLK for
+# a single-cycle core, so two is the correct number here. Three would only be
+# right after setting SMCLK_SHARES_MCLK => FALSE.
+#
+# The divider IS still exercised at two: accelclk comes from the P_ACCEL
+# instance. What would show the divider being optimised away is P_ACCEL's clock
+# missing from the Timing Analyzer's clock list, not the PLL count.
 #
 # TWO THINGS ONLY THIS TOOL CAN ANSWER, both in PLL_GEN.vhd's header:
 #   1. the family string says "Cyclone II" while FAMILY above is "Cyclone IV E".

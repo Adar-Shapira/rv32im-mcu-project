@@ -160,9 +160,29 @@ ARCHITECTURE structure OF RV32IM_PIPE_CORE IS
 	SIGNAL bpaddr_q				: STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);	-- BPADDR breakpoint register
 
 BEGIN
-	-- ModelSim drives an active-high reset. On the DE2-115, KEY0 is
-	-- active-low, so invert the top-level pin only in FPGA mode.
-	rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i;
+	-- RESET POLARITY IS THE WRAPPER'S JOB, NOT THIS FILE'S -- corrected 2026-08-26.
+	--
+	-- The as-supplied line here was
+	--     rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i;
+	-- which is deviation D-1: it welds board-level signal conditioning to the
+	-- simulation switch, inside the core. RV32IMpipelinedMCU already conditions
+	-- KEY0 in its own RSTCOND generate (RV32IMpipelinedMCU.vhd:136-141) under the
+	-- RST_ACTIVE_LOW generic, and its header states it is "the single owner of
+	-- polarity -- there is no double inversion".
+	--
+	-- That statement was FALSE while this line stood. At the committed defaults
+	-- (RST_ACTIVE_LOW => TRUE, G_MODELSIM := 0) the wrapper inverted and this
+	-- line inverted again, so the core's internal reset was the raw KEY0 pin --
+	-- which idles HIGH on the DE2-115. The FPGA build would have sat in
+	-- permanent reset unless KEY0 was held down, and simulation would not have
+	-- shown it: tb_RV32IMpipelinedMCU passes RST_ACTIVE_LOW => FALSE and the .do
+	-- scripts pass -gMODELSIM=1, so both inversions vanish there.
+	--
+	-- The single-cycle core has no inversion at all for exactly this reason
+	-- (RV32IM_CORE.vhd uses rst_i directly; polarity lives in RV32IMscMCU's own
+	-- RSTCOND at RV32IMscMCU.vhd:465). This is the same de-welding, applied to
+	-- the copy that the Phase 3D re-import brought in unchanged.
+	rst_w <= rst_i;
 	
 	--=======================================
 	-- PLL module connection
