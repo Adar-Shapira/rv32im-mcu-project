@@ -462,11 +462,11 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_mmio.do` (stages its own `intrmmio/` images).** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
-| 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
+| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan — review pass owed** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Not yet reviewed:** the interrupt-precision boundary and the divider stall in `HAZARD_UNIT` |
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
 | 12B USART onto the bus | Yehonatan | Adar | CS_UART's three lanes (already decoded since 5A), the readers, and the two new interrupt-controller inputs for rules b/c |
 | 12C UART menu firmware + board | Yehonatan | **Adar needs the cable and the board** | clause 8's menu; `LEDG`→`LEDR` is **R2** |
-| **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — `python3 tools/check_staging.py` (clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
+| **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the three static checkers (`check_staging.py`, `check_quartus_filelists.py`, `check_peripheral_copies.py`; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
 | 16 Report + ZIP | both | Adar checks the clean-room build | |
@@ -2986,6 +2986,8 @@ pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this
 | Check | Expect | Result |
 | --- | --- | --- |
 | `python3 tools/check_staging.py` (either machine) | `clean`, exit 0 | |
+| `python3 tools/check_quartus_filelists.py` (either machine) | `clean`, exit 0 | |
+| `python3 tools/check_peripheral_copies.py` (either machine) | `clean`, exit 0 — asserts the eleven peripherals duplicated into the pipeline tree stay byte-identical | |
 | `vsim -c -do regress.do` in `SIM\RV32IMscMCU`, then `echo %ERRORLEVEL%` | the summary table all `passed`, and **exit status 0** | |
 | `vsim -c -do batch_verify.do` in `SIM\RV32IMpipelinedMCU`, then the exit status | all four `passed`, exit 0 — **and write the four CLKCNT/STCNT/FHCNT triples into Phase 11 (G-205)** | |
 | deliberately, once: break one thing and re-run | exit status **1**, and the table names the broken row — proves G-203 is really closed | |
@@ -3011,12 +3013,13 @@ pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this
   revisions have no pins so they cannot be burned, and the hw revisions have SignalTap on. It costs
   nothing to produce — the hw revision with `ENABLE_SIGNALTAP OFF` — but it must be *compiled and
   burned at least once before the demo*, because it is what the room will run and it has never been
-  built. The single-cycle design is safe under it by construction (`LEDR`/`HEX`/`GPIO` are real
-  pins); the **pipeline is not** — all fourteen wrapper outputs are observation ports, the same
-  exposure as the `GEN_DEBUG_PORTS => FALSE` defect fixed in `5d540c0`.
-- One clean-room hazard to clear while here: the `.qsf`'s last SignalTap line is
+  built. **Both** designs are safe under it by construction — real pins (`LEDR`, `HEX0..5`, `PWM`,
+  `GPIO`) hold each design up. *(That sentence named the pipeline as exposed when it was written on
+  2026-08-27; Adar's `beee0a7` closed the exposure hours later by porting the peripherals to the
+  pipeline, so the wrapper now has real outputs. `DOC/04` §9.1 carries the correction.)*
+- One clean-room hazard to clear while here, in **both** `.qsf` files: the last SignalTap line is
   `SLD_FILE db/stp_pwm_auto_stripped.stp`, pointing into generated build output that no fresh clone
-  or ZIP contains.
+  or ZIP contains. Both also ship `ENABLE_SIGNALTAP ON`.
 - **Exit:** all six revisions fit and meet the chosen clock with clean constraints, **and** the
   pinned SignalTap-off build compiles and runs on the board.
 

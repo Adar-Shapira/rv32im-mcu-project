@@ -727,16 +727,24 @@ for חלק 0. Three things follow, none of them urgent but all of them cheap:
 - **The demo build is `ENABLE_SIGNALTAP OFF`.** With it off Quartus ignores the whole SLD section,
   so no edit beyond that one line is needed. Whether the *shipped* `.qsf` should default to OFF is
   a Phase 16 packaging decision and Adar's call — his board flow wants it ON.
-- **One clean-room hazard is already visible in the file**: the last SignalTap line is
-  `set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp`, and `db/` is a *generated*
-  directory that does not exist in a fresh clone or in the ZIP. Harmless with SignalTap off
-  (ignored) and normally regenerated with it on, but it is a `.qsf` line pointing into build
-  output, which is exactly what a clean-room build punishes.
-- **The single-cycle design is safe under SignalTap-off by construction** — `LEDR`, the six `HEX`
-  displays and `GPIO` are real pins driven through the peripherals, so nothing load-bearing can be
-  optimised away. **The pipeline is not**: all fourteen of its wrapper outputs are observation
-  ports, which is the same exposure as the `GEN_DEBUG_PORTS => FALSE` defect fixed in `5d540c0`.
-  If the pipeline is ever presented, its SignalTap-off build must be checked, not assumed.
+- **One clean-room hazard is visible in BOTH projects**: the last SignalTap line is
+  `set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp` — `RV32IMscMCU.qsf` and
+  `RV32IMpipelinedMCU.qsf` alike — and `db/` is a *generated* directory that does not exist in a
+  fresh clone or in the ZIP. Harmless with SignalTap off (ignored) and normally regenerated with it
+  on, but it is a `.qsf` line pointing into build output, which is exactly what a clean-room build
+  punishes. Both projects also ship `ENABLE_SIGNALTAP ON`.
+- **Both designs are safe under SignalTap-off by construction** — `LEDR`, the six `HEX` displays,
+  `PWM` and `GPIO` are real pins driven through the peripherals, so nothing load-bearing can be
+  optimised away.
+
+  > **Corrected 2026-08-27, same day it was written.** This bullet first said the *pipeline* was
+  > exposed, because at the time all fourteen of its wrapper outputs were observation ports — the
+  > `GEN_DEBUG_PORTS => FALSE` exposure recorded in `5d540c0`. Adar's `beee0a7` closed it by
+  > porting the whole peripheral set to the pipeline: `RV32IMpipelinedMCU.vhd` now brings out
+  > `LEDR_o`, `HEX0..5_o`, `PWM_o` and `GPIO`, so real pins hold the design up there too. (The same
+  > commit also removed the welded `rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i` from
+  > `RV32IM_PIPE_CORE.vhd` — it is a plain `rst_w <= rst_i` now, with polarity handled once by the
+  > wrapper's `RSTCOND`, which is the shape the single-cycle side already had.)
 
 **2. Clause 10 wants a `.stp` in the ZIP; חלק 0 compiles without it.** Both are true and they do
 not conflict: the `.stp` ships as the clause 7 SignalTap-validation deliverable and as evidence,
