@@ -152,7 +152,27 @@ def main():
                 f"as an unbound component"
             )
 
-        # 4. the top-level entity is declared in one of the listed files
+        # 4. THE CLEAN-ROOM RULE, added 2026-08-27. No assignment may point into
+        # Quartus's own build output. Both projects shipped
+        #     set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp
+        # which exists only on the machine that last compiled -- and clause 10
+        # forbids shipping compilation results, so db/ cannot be added to fix
+        # it. The inspection protocol's part 0 compiles the submitted design in
+        # the room, from the downloaded folder, so a project that starts with a
+        # missing file fails there and nowhere earlier.
+        for m in re.finditer(r"^\s*set_global_assignment\s+-name\s+(\S+)\s+(\S+)",
+                             text, re.M):
+            name, val = m.group(1), m.group(2).strip('"')
+            for gen in ("db/", "db\\", "incremental_db/", "output_files/",
+                        "greybox_tmp/", "simulation/"):
+                if val.startswith(gen):
+                    findings.append(
+                        f"{qsf_rel}: {name} points at '{val}', inside Quartus's "
+                        f"own build output. No clean clone, ZIP or "
+                        f"inspection-room download contains it, and clause 10 "
+                        f"forbids shipping compilation results")
+
+        # 5. the top-level entity is declared in one of the listed files
         tops = TOP_ENTITY.findall(text)
         if not tops:
             findings.append(f"{qsf_rel}: no TOP_LEVEL_ENTITY assignment")

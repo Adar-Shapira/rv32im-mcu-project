@@ -70,6 +70,16 @@ USE work.aux_package.all;
 
 ENTITY tb_gpio IS
 	generic(
+		-- PHASE 14. Overridable from the command line so PPA row 1 -- "MCU with
+		-- GPIO", the interrupt-free configuration -- can be SIMULATED and not
+		-- merely synthesized:
+		--     vsim -t ns -gGEN_INTERRUPT=FALSE work.tb_gpio
+		-- This suite is the right one for that: it touches the seven GPO ports
+		-- and nothing in clause 6, so every check below must still pass with the
+		-- interrupt capability compiled out. (tb_gpio_directed would NOT do --
+		-- it reads PORT_PB, which clause 6 owns, so it is expected to fail in
+		-- row 1 rather than prove anything about it.)
+		GEN_INTERRUPT		: boolean	:= G_GEN_INTERRUPT;
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 		MODELSIM			: integer	:= G_MODELSIM;
 		DATA_BUS_WIDTH		: integer	:= 32;
@@ -203,6 +213,7 @@ BEGIN
 	generic map(
 		RST_ACTIVE_LOW		=> FALSE,
 		GEN_DEBUG_PORTS		=> TRUE,	-- MemWrite_ctrl_o and alu_res_o must be driven
+		GEN_INTERRUPT		=> GEN_INTERRUPT,
 		WORD_GRANULARITY	=> WORD_GRANULARITY,
 		MODELSIM			=> MODELSIM,
 		DATA_BUS_WIDTH		=> DATA_BUS_WIDTH,

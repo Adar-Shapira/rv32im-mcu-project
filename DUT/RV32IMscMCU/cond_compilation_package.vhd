@@ -57,6 +57,33 @@ package cond_compilation_package is
 	constant DBUS_WIDTH 				: integer	:= 32;
 	constant G_PLL_DIV		 			: NATURAL	:= 2;					-- relavant only when G_MODELSIM=0
 	constant G_PLL_MUL		 			: NATURAL	:= 1;					-- relavant only when G_MODELSIM=0
+
+	-- PHASE 14. The default for RV32IMscMCU's GEN_INTERRUPT generic, which
+	-- exists for ONE reason: row 1 of §6's three PPA tables.
+	--
+	-- Each of those tables -- Area, Performance, Power, all three with
+	-- "Attaching the print screen ... is mandatory" -- has THREE rows:
+	--     1. MCU with GPIO
+	--     2. MCU with GPIO and Interrupt Capability
+	--     3. Pipelined MCU with GPIO and Interrupt Capability
+	-- Row 1 is a build with NO interrupt capability, and the whole point of the
+	-- table is the delta between rows 1 and 2: what interrupt capability costs
+	-- in logic elements, registers, Fmax and power. Until Phase 14 nothing in
+	-- this project could produce row 1.
+	--
+	-- WHICH PERIPHERALS ROW 1 DROPS is not a judgement call: §5 is titled
+	-- "GPIO peripherals ... WITHOUT interrupt capability" and lists eight
+	-- (PORT_LEDR, PORT_HEX0..5, PORT_SW); §6 is titled "Peripherals WITH
+	-- interrupt capability" and lists twelve addresses -- PORT_PB, the USART's
+	-- three, the Basic Timer's five, and IE/IFG/TYPE. So PORT_PB belongs to the
+	-- interrupt half, which is easy to get wrong: it is a GPIO-looking input
+	-- port sitting in the interrupt clause because the KEYs are an interrupt
+	-- source.
+	--
+	-- TRUE here is the real design and must stay TRUE in the committed tree;
+	-- tools/check_config_defaults.py asserts it, so a build left flipped after
+	-- a measurement cannot be committed by accident.
+	constant G_GEN_INTERRUPT			: boolean	:= True;				-- options{True,False} -- False = PPA row 1
 -- Explanation:
 -----------------------------------------------------------
 --	if G_MODELSIM=1 then 

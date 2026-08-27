@@ -395,7 +395,24 @@ set_instance_assignment -name VIRTUAL_PIN ON -to mclk_cnt_o
 # Depth 16384 @ 50 MHz ~ 328 us, enough for one 5 kHz period (200 us).
 # Quartus fills the SLD node assignments from this file on compile
 # (same pattern as Lab 5 RV32IM_CORE.qsf ENABLE_SIGNALTAP / SIGNALTAP_FILE).
-set_global_assignment -name ENABLE_SIGNALTAP ON
+# SIGNAL-TAP: SHIPPED OFF, ON FOR THE CAPTURES -- decided 2026-08-27
+# Clause 7 makes SignalTap validation mandatory, so stp_pwm.stp is part of the
+# submission and the two assignments naming it stay here. But ENABLE_SIGNALTAP
+# ships OFF, for a specific reason: the inspection protocol's part 0 compiles
+# the submitted design "without the Signal Tap file" and burns it on the spot
+# (DOC/04 section 9.1). Pinned with SignalTap OFF is a SEVENTH configuration --
+# neither the three performance revisions, which have no pins and cannot be
+# burned, nor the three hardware revisions, which have SignalTap on -- and it
+# is the one the grade actually runs. Shipping it as the default state means
+# the room's compile works out of the box.
+#
+# For the mandatory captures, flip this one line to ON. Nothing else changes:
+# the pins, the .stp and the SLD_NODE assignments below are already here.
+# Expect the memory-bit count to jump when it is ON -- that is the
+# instrumentation, and it is exactly why the PPA numbers must come from a
+# revision with it OFF (D-2: Lab 5 reported 483,328 bits where the design uses
+# 131,072).
+set_global_assignment -name ENABLE_SIGNALTAP OFF
 set_global_assignment -name USE_SIGNALTAP_FILE stp_pwm.stp
 set_global_assignment -name SIGNALTAP_FILE stp_pwm.stp
 
@@ -468,4 +485,11 @@ set_global_assignment -name SLD_NODE_PARAMETER_ASSIGNMENT "SLD_ADVANCED_TRIGGER_
 set_global_assignment -name SLD_NODE_PARAMETER_ASSIGNMENT "SLD_TRIGGER_LEVEL_PIPELINE=1" -section_id auto_signaltap_0
 set_global_assignment -name SLD_NODE_PARAMETER_ASSIGNMENT "SLD_ENABLE_ADVANCED_TRIGGER=0" -section_id auto_signaltap_0
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
-set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp
+# REMOVED 2026-08-27: this line was
+#     set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp
+# It points into db/, which is Quartus's own build output -- present on the
+# machine that last compiled and in no clean clone, no ZIP, and no inspection-
+# room download. Clause 10 forbids "files that are a result of compilation" in
+# the submission, so db/ cannot be shipped to satisfy it either. Quartus writes
+# this line itself when it processes the .stp, so removing it costs nothing and
+# a fresh compile from the packaged files no longer starts with a missing file.

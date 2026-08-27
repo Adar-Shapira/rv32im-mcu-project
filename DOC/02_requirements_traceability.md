@@ -935,6 +935,47 @@ than an observer: it shifts characters onto `UART_RXD_i` at the real bit time an
 **generated**, and `gen_uart_menu.py` reads the testbench back and fails if they have drifted from
 the DTCM image.
 
+## 5B. The PPA tables — three tables, three rows each  *(added 2026-08-27)*
+
+**[REQ p10, §6]** Three tables, each ending *"Attaching the print screen of the Quartus … report is
+mandatory"*:
+
+| table | columns |
+| --- | --- |
+| Area | Logic elements, Registers, I/O pins, Embedded memory bits, Embedded 9-bit Multipliers, PLLs |
+| Performance | `f_max`, Critical path (*"what is the slowest submodule and why does it cause the critical path"*), `f_MCLK (= f_sysclk)` |
+| Power | Total, Static, Dynamic, I/O power consumption |
+
+**All three have the same three rows**, and this is the part nothing in this project had recorded:
+
+| row | the document's label | the build |
+| --- | --- | --- |
+| 1 | MCU with GPIO | single-cycle, **no interrupt capability** |
+| 2 | MCU with GPIO and Interrupt Capability | single-cycle, complete |
+| 3 | Pipelined MCU with GPIO and Interrupt Capability | the pipeline, complete |
+
+**[REQ p5 / p6]** Which peripherals row 1 drops is settled by the two clause titles, not by
+interpretation. §5: "GPIO peripherals … **without** interrupt capability" — eight devices,
+`PORT_LEDR`, `PORT_HEX0..5`, `PORT_SW`. §6: "Peripherals **with** interrupt capability" — twelve
+addresses, `PORT_PB` + the USART's three + the Basic Timer's five + `IE`/`IFG`/`TYPE`. So **`PORT_PB`
+is in the interrupt half.** It reads like a GPIO input port and is easy to file under §5 by mistake;
+the specification puts it in §6 because the KEYs are an interrupt source.
+
+**[OUR CODE]** `GEN_INTERRUPT` on `RV32IMscMCU` (default `G_GEN_INTERRUPT`, `True`) is row 1's
+switch. §7's own wording endorses the mechanism: SignalTap pins *"need to be removed in the final
+step using a suitable parameter in the generate VHDL statement"*.
+
+**Assumption A29:** row 1 means "none of §6's twelve addresses", and the CPU core is the same core in
+both rows. What would falsify it: a statement from Hanan that row 1 also drops the divider
+accelerator (§6.iii, which has no MMIO address and is part of the CPU as we read it), or that row 1
+keeps `PORT_PB` because it is physically a GPIO device.
+
+**The residue, stated because a PPA number must be honest:** with `GEN_INTERRUPT => FALSE` the core
+is untouched and `intr_i` is tied to `'0'`, so the entry FSM collapses by constant propagation — but
+`reti` stays decoded in `CONTROL` and its GIE side door in `IDECODE` survives. One AND gate and one
+register-bit write path. Verified to work, not merely to compile, by
+`SIM/RV32IMscMCU/run_ppa_row1.do`.
+
 ## 6. Clocks
 
 **[REQ p3, Figure 1]** `baseclk50MHz → Clock Tree → mclk, accelclk, smclk`. Three named clocks:
@@ -1207,7 +1248,9 @@ Everything in this document that is not cited to a source.
 | A27 | `TXBUF` is readable | The p12 text calls it "user accessible" and the MSP430's is readable; no supplied program reads it | Nothing that matters — if it should be write-only, delete one reader |
 | A28 | Switching `UCTL[3]` mid-character corrupts that character; no hardware interlock is built | Nothing in the specification describes an interlock, and one would silently delay a software write. What *is* built is `UART_CORE`'s `>=` compare, so a downward switch cannot strand the divider counter above its new maximum — that part is not left to software | A requirement that the rate change take effect only at a frame boundary — one gating term on the counter's maximum |
 
-Twenty-eight assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C), and A25–A28 out of Phase 12A (the USART: its reset value, the 8N1 frame, a readable TXBUF, and baud switching being a program-order responsibility). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+| A29 | PPA table row 1, "MCU with GPIO", means none of §6's twelve interrupt-capable addresses — so no interrupt controller, no Basic Timer, no USART and no `PORT_PB` — while the CPU core is the same core as in row 2 | The two clause titles: §5 is "GPIO peripherals ... **without** interrupt capability" (eight devices), §6 is "Peripherals **with** interrupt capability" (twelve addresses, `PORT_PB` among them). The row labels are the document's own | A statement that row 1 also drops the divider accelerator (§6.iii, no MMIO address, part of the CPU as we read it), or that it keeps `PORT_PB` because that device is physically GPIO |
+
+Twenty-nine assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C), and A25–A28 out of Phase 12A (the USART: its reset value, the 8N1 frame, a readable TXBUF, and baud switching being a program-order responsibility), and A29 out of Phase 14 (what PPA row 1 contains). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

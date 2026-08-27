@@ -157,6 +157,31 @@ ENTITY RV32IMscMCU IS
 		-- KEY0 through RST_ACTIVE_LOW.
 		KEY_ACTIVE_LOW		: boolean	:= TRUE;
 
+		-- PHASE 14 — the switch that makes row 1 of §6's three PPA tables
+		-- buildable. FALSE = "MCU with GPIO": the eight §5 peripherals and
+		-- nothing else. TRUE = "MCU with GPIO and Interrupt Capability", which
+		-- is the real design.
+		--
+		-- What FALSE removes is exactly §6's twelve addresses, no more and no
+		-- less: the interrupt controller, the Basic Timer, the USART, and
+		-- PORT_PB. PORT_PB is in that list — it looks like a GPIO input port but
+		-- §6 is where the specification puts it, because the KEYs are an
+		-- interrupt source. §7's own wording endorses doing this with a
+		-- generate parameter: SignalTap pins "need to be removed in the final
+		-- step using a suitable parameter in the generate VHDL statement".
+		--
+		-- WHAT IT DOES NOT REMOVE, stated so the row-1 number is honest: the
+		-- CPU core is untouched. Its interrupt entry FSM is still in
+		-- RV32IM_CORE.vhd with intr_i tied to '0' below, so constant
+		-- propagation collapses istate_q, intr_q, type_q and every mux they
+		-- drive — but `reti` stays decoded in CONTROL and its GIE side door in
+		-- IDECODE survives, which is one AND gate and one register-bit write
+		-- path. Deliberate: adding a second generic inside the core would mean
+		-- editing verified expressions in a passing design for the sake of a
+		-- measurement. The divider accelerator also stays, in both rows — §6.iii
+		-- makes it part of the CPU, and it has no MMIO address.
+		GEN_INTERRUPT		: boolean	:= G_GEN_INTERRUPT;
+
 		-- Passed through to the core unchanged.
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 		MODELSIM			: integer	:= G_MODELSIM;
@@ -390,6 +415,11 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL uart_rx_clr_w		: STD_LOGIC;
 	SIGNAL uart_tx_clr_w		: STD_LOGIC;
 	SIGNAL uart_cs_w			: STD_LOGIC;	-- for the stub notices below
+
+	-- Phase 14: GEN_INTERRUPT as a signal, so the reader enables can be ANDed
+	-- with it in one place each. Constant by construction, so with
+	-- GEN_INTERRUPT => FALSE every path behind it propagates away.
+	SIGNAL icap_w				: STD_LOGIC;
 
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
@@ -765,17 +795,17 @@ BEGIN
 	rd_en_w(RD_HEX3) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
 	rd_en_w(RD_HEX4) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
 	rd_en_w(RD_HEX5) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
-	rd_en_w(RD_PB)   <= sfr_cs_w(CS_PB)    AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_PB)   <= sfr_cs_w(CS_PB)    AND dbus_MemRead_w AND lane0_w AND icap_w;
 	-- Phase 8B. BTCTL1/BTCTL2 share word 7 and are split by A0, exactly like a
 	-- HEX pair. The three Word registers own their whole word (A12), so no lane
 	-- term. All five are readable -- assumption A17 for BTCTL2 (one forum row
 	-- read it as read-only; the applications write it, so readable is built and
 	-- the question stands in DOC/05).
-	rd_en_w(RD_BTCTL1)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane0_w;
-	rd_en_w(RD_BTCTL2)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane1_w;
-	rd_en_w(RD_BTCMPR0) <= sfr_cs_w(CS_BTCMPR0) AND dbus_MemRead_w;
-	rd_en_w(RD_BTCMPR1) <= sfr_cs_w(CS_BTCMPR1) AND dbus_MemRead_w;
-	rd_en_w(RD_BTCAPR)  <= sfr_cs_w(CS_BTCAPR)  AND dbus_MemRead_w;
+	rd_en_w(RD_BTCTL1)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane0_w AND icap_w;
+	rd_en_w(RD_BTCTL2)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane1_w AND icap_w;
+	rd_en_w(RD_BTCMPR0) <= sfr_cs_w(CS_BTCMPR0) AND dbus_MemRead_w AND icap_w;
+	rd_en_w(RD_BTCMPR1) <= sfr_cs_w(CS_BTCMPR1) AND dbus_MemRead_w AND icap_w;
+	rd_en_w(RD_BTCAPR)  <= sfr_cs_w(CS_BTCAPR)  AND dbus_MemRead_w AND icap_w;
 	-- Phase 9C. IE/IFG/TYPE share word 11, split by A1..A0 -- the map's first
 	-- three-register word (F15's byte addressing again). TYPE is read-only in
 	-- hardware (REQ p14): it has a reader and NO write path anywhere.
@@ -783,9 +813,9 @@ BEGIN
 	-- push strobe during entry Cycle 1, when the core's annul keeps MemRead
 	-- and MemWrite both low -- so it can never collide with the CPU or with
 	-- any reader, and the onehot check below now watches that claim.
-	rd_en_w(RD_IE)       <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane0_w;
-	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w;
-	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w;
+	rd_en_w(RD_IE)       <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane0_w AND icap_w;
+	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w AND icap_w;
+	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w AND icap_w;
 	rd_en_w(RD_TYPEPUSH) <= type_push_w;
 	-- Phase 12B. UCTL/RXBUF/TXBUF share word 6, split by A1..A0 like IE/IFG/TYPE.
 	-- TXBUF is readable as well as writable: REQ p12 calls it the buffer holding
@@ -793,9 +823,9 @@ BEGIN
 	-- the table marks it write-only, so it reads back like every other register
 	-- here (assumption A28). RXBUF's enable is ALSO the read-side-effect event --
 	-- see the constant's comment above.
-	rd_en_w(RD_UCTL)  <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane0_w;
-	rd_en_w(RD_RXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane1_w;
-	rd_en_w(RD_TXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane2_w;
+	rd_en_w(RD_UCTL)  <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane0_w AND icap_w;
+	rd_en_w(RD_RXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane1_w AND icap_w;
+	rd_en_w(RD_TXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane2_w AND icap_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -906,29 +936,43 @@ BEGIN
 	-- bus exactly as the GPO ports take theirs. btcnt_o is left open: BTCNT has
 	-- no MMIO address anywhere in the map -- software cannot poll it, and the
 	-- observation belongs to SignalTap, not to a port bristling out of the top.
-	TIMER : basic_timer
-	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
-	PORT MAP (
-		clk_i		=> pclk_w,
-		rst_i		=> sys_rst_w,
-		ctl_cs_i	=> sfr_cs_w(CS_BTCTL),
-		cmpr0_cs_i	=> sfr_cs_w(CS_BTCMPR0),
-		cmpr1_cs_i	=> sfr_cs_w(CS_BTCMPR1),
-		MemWrite_i	=> dbus_MemWrite_w,
-		lane0_i		=> lane0_w,
-		lane1_i		=> lane1_w,
-		data_i		=> data_bus_w,
-		capin1_i	=> capin1_w,
-		capin2_i	=> capin2_w,
-		pwm_o		=> pwm_w,
-		btifg_set_o	=> bt_ifg_set_w,
-		btctl1_o	=> btctl1_rd_w,
-		btctl2_o	=> btctl2_rd_w,
-		btcmpr0_o	=> btcmpr0_rd_w,
-		btcmpr1_o	=> btcmpr1_rd_w,
-		btcapr_o	=> btcapr_rd_w,
-		btcnt_o		=> open
-	);
+	-- Phase 14: absent in PPA row 1. The tie-offs are explicit rather than
+	-- left to defaults so that an undriven read-back can never reach the bus
+	-- as 'Z' -- the same reason the bus has a terminator.
+	GEN_TIMER:
+	if (GEN_INTERRUPT) generate
+		TIMER : basic_timer
+		generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+		PORT MAP (
+			clk_i		=> pclk_w,
+			rst_i		=> sys_rst_w,
+			ctl_cs_i	=> sfr_cs_w(CS_BTCTL),
+			cmpr0_cs_i	=> sfr_cs_w(CS_BTCMPR0),
+			cmpr1_cs_i	=> sfr_cs_w(CS_BTCMPR1),
+			MemWrite_i	=> dbus_MemWrite_w,
+			lane0_i		=> lane0_w,
+			lane1_i		=> lane1_w,
+			data_i		=> data_bus_w,
+			capin1_i	=> capin1_w,
+			capin2_i	=> capin2_w,
+			pwm_o		=> pwm_w,
+			btifg_set_o	=> bt_ifg_set_w,
+			btctl1_o	=> btctl1_rd_w,
+			btctl2_o	=> btctl2_rd_w,
+			btcmpr0_o	=> btcmpr0_rd_w,
+			btcmpr1_o	=> btcmpr1_rd_w,
+			btcapr_o	=> btcapr_rd_w,
+			btcnt_o		=> open
+		);
+	else generate
+		pwm_w        <= '0';
+		bt_ifg_set_w <= '0';
+		btctl1_rd_w  <= (OTHERS => '0');
+		btctl2_rd_w  <= (OTHERS => '0');
+		btcmpr0_rd_w <= (OTHERS => '0');
+		btcmpr1_rd_w <= (OTHERS => '0');
+		btcapr_rd_w  <= (OTHERS => '0');
+	end generate GEN_TIMER;
 
 	-- J15 expansion header (clause 4). PWM on GPIO[9] (Lab 4 / Figure 4b);
 	-- CAPIN1/2 on GPIO[8]/[10]. Remaining bits high-Z so they are inputs.
@@ -963,32 +1007,45 @@ BEGIN
 	-- the three UART sources and the two rule-b/c clears are driven too, so
 	-- every input of this controller now has a real source: all seven vector
 	-- table entries of REQ p14 can fire.
-	INTC : interrupt_ctrl
-	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
-	PORT MAP (
-		clk_i			=> pclk_w,
-		rst_i			=> sys_rst_w,
-		cs_i			=> sfr_cs_w(CS_INTC),
-		MemWrite_i		=> dbus_MemWrite_w,
-		lane0_i			=> lane0_w,
-		lane1_i			=> lane1_w,
-		data_i			=> data_bus_w,
-		bt_ifg_set_i	=> bt_ifg_set_w,
-		key_pressed_i	=> key_pressed_w,
-		rxerr_ev_i		=> uart_rxerr_ev_w,
-		rx_ev_i			=> uart_rx_ev_w,
-		tx_ev_i			=> uart_tx_ev_w,
-		rx_clr_i		=> uart_rx_clr_w,
-		tx_clr_i		=> uart_tx_clr_w,
-		gie_i			=> gie_w,
-		inta_i			=> inta_w,
-		intr_o			=> intr_w,
-		type_push_o		=> type_push_w,
-		type_capt_o		=> type_capt_w,
-		ie_o			=> intc_ie_rd_w,
-		ifg_o			=> intc_ifg_rd_w,
-		type_o			=> intc_type_rd_w
-	);
+	GEN_INTC:
+	if (GEN_INTERRUPT) generate
+		INTC : interrupt_ctrl
+		generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+		PORT MAP (
+			clk_i			=> pclk_w,
+			rst_i			=> sys_rst_w,
+			cs_i			=> sfr_cs_w(CS_INTC),
+			MemWrite_i		=> dbus_MemWrite_w,
+			lane0_i			=> lane0_w,
+			lane1_i			=> lane1_w,
+			data_i			=> data_bus_w,
+			bt_ifg_set_i	=> bt_ifg_set_w,
+			key_pressed_i	=> key_pressed_w,
+			rxerr_ev_i		=> uart_rxerr_ev_w,
+			rx_ev_i			=> uart_rx_ev_w,
+			tx_ev_i			=> uart_tx_ev_w,
+			rx_clr_i		=> uart_rx_clr_w,
+			tx_clr_i		=> uart_tx_clr_w,
+			gie_i			=> gie_w,
+			inta_i			=> inta_w,
+			intr_o			=> intr_w,
+			type_push_o		=> type_push_w,
+			type_capt_o		=> type_capt_w,
+			ie_o			=> intc_ie_rd_w,
+			ifg_o			=> intc_ifg_rd_w,
+			type_o			=> intc_type_rd_w
+		);
+	else generate
+		-- Phase 14: absent in PPA row 1. intr_w '0' is what collapses the
+		-- core's entry FSM by constant propagation; see GEN_INTERRUPT's own
+		-- comment for the small residue that survives and why.
+		intr_w          <= '0';
+		type_push_w     <= '0';
+		type_capt_w     <= (OTHERS => '0');
+		intc_ie_rd_w    <= (OTHERS => '0');
+		intc_ifg_rd_w   <= (OTHERS => '0');
+		intc_type_rd_w  <= (OTHERS => '0');
+	end generate GEN_INTC;
 
 	--=======================================
 	-- USART -- Phase 12B (REQ p6/p12 onto Figure 5's bus; bonus, clause 6.iv)
@@ -1007,32 +1064,49 @@ BEGIN
 	--
 	-- MemRead_i is what makes RXBUF's read side effect (REQ p12) possible; no
 	-- other peripheral here needs the read strobe.
-	UART : uart_periph
-	generic map(
-		DATA_WIDTH	=> DATA_BUS_WIDTH,
-		CLK_HZ		=> 20000000				-- SMCLK, F8/F11 -- see CLOCK_TREE.vhd
-	)
-	PORT MAP (
-		clk_i		=> pclk_w,
-		rst_i		=> sys_rst_w,
-		cs_i		=> sfr_cs_w(CS_UART),
-		MemWrite_i	=> dbus_MemWrite_w,
-		MemRead_i	=> dbus_MemRead_w,
-		lane0_i		=> lane0_w,				-- 0x2018 UCTL
-		lane1_i		=> lane1_w,				-- 0x2019 RXBUF
-		lane2_i		=> lane2_w,				-- 0x201A TXBUF
-		data_i		=> data_bus_w,
-		rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
-		txd_o		=> UART_TXD_o,			-- PIN_G9
-		rx_ev_o		=> uart_rx_ev_w,
-		rxerr_ev_o	=> uart_rxerr_ev_w,
-		tx_ev_o		=> uart_tx_ev_w,
-		rx_clr_o	=> uart_rx_clr_w,
-		tx_clr_o	=> uart_tx_clr_w,
-		uctl_o		=> uctl_rd_w,
-		rxbuf_o		=> rxbuf_rd_w,
-		txbuf_o		=> txbuf_rd_w
-	);
+	GEN_UART:
+	if (GEN_INTERRUPT) generate
+		UART : uart_periph
+		generic map(
+			DATA_WIDTH	=> DATA_BUS_WIDTH,
+			CLK_HZ		=> 20000000				-- SMCLK, F8/F11 -- see CLOCK_TREE.vhd
+		)
+		PORT MAP (
+			clk_i		=> pclk_w,
+			rst_i		=> sys_rst_w,
+			cs_i		=> sfr_cs_w(CS_UART),
+			MemWrite_i	=> dbus_MemWrite_w,
+			MemRead_i	=> dbus_MemRead_w,
+			lane0_i		=> lane0_w,				-- 0x2018 UCTL
+			lane1_i		=> lane1_w,				-- 0x2019 RXBUF
+			lane2_i		=> lane2_w,				-- 0x201A TXBUF
+			data_i		=> data_bus_w,
+			rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
+			txd_o		=> UART_TXD_o,			-- PIN_G9
+			rx_ev_o		=> uart_rx_ev_w,
+			rxerr_ev_o	=> uart_rxerr_ev_w,
+			tx_ev_o		=> uart_tx_ev_w,
+			rx_clr_o	=> uart_rx_clr_w,
+			tx_clr_o	=> uart_tx_clr_w,
+			uctl_o		=> uctl_rd_w,
+			rxbuf_o		=> rxbuf_rd_w,
+			txbuf_o		=> txbuf_rd_w
+		);
+	else generate
+		-- Phase 14: absent in PPA row 1. TXD idles HIGH, which is the line's
+		-- resting level and not merely a convenient constant: a board built
+		-- this way must not look to a connected terminal like a permanent
+		-- start bit.
+		UART_TXD_o        <= '1';
+		uart_rx_ev_w      <= '0';
+		uart_rxerr_ev_w   <= '0';
+		uart_tx_ev_w      <= '0';
+		uart_rx_clr_w     <= '0';
+		uart_tx_clr_w     <= '0';
+		uctl_rd_w         <= (OTHERS => '0');
+		rxbuf_rd_w        <= (OTHERS => '0');
+		txbuf_rd_w        <= (OTHERS => '0');
+	end generate GEN_UART;
 
 	-- Which SFR words actually have a peripheral behind them today. Phase 6A
 	-- attached the four GPO words; Phase 8B the timer's four (a write to BTCAPR
@@ -1043,18 +1117,21 @@ BEGIN
 	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
 				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
 
-	timer_cs_w <= sfr_cs_w(CS_BTCTL)   OR sfr_cs_w(CS_BTCMPR0) OR
-				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
+	-- Phase 14: in PPA row 1 these three words have no peripheral at all, so
+	-- the terms drop and the stub notice below tells the truth about them.
+	timer_cs_w <= (sfr_cs_w(CS_BTCTL)   OR sfr_cs_w(CS_BTCMPR0) OR
+				   sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR)) AND icap_w;
 
-	intc_cs_w <= sfr_cs_w(CS_INTC);		-- Phase 9C: word 11 has a peripheral now
-	uart_cs_w <= sfr_cs_w(CS_UART);		-- Phase 12B: word 6, the last one
+	intc_cs_w <= sfr_cs_w(CS_INTC) AND icap_w;	-- Phase 9C: word 11 has a peripheral now
+	uart_cs_w <= sfr_cs_w(CS_UART) AND icap_w;	-- Phase 12B: word 6, the last one
 
 	-- Which SFR words answer a READ today: PORT_SW and PORT_PB always, the four
 	-- GPO words when read-back is enabled, the timer's four words, the interrupt
 	-- controller's word (Phase 9C) and the USART's (Phase 12B). With
 	-- GEN_GPO_READBACK => TRUE that is now EVERY mapped word, so the read notice
 	-- below can only fire with read-back compiled out.
-	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
+	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR (sfr_cs_w(CS_PB) AND icap_w)
+					 OR (gpo_cs_w AND rdbk_w)
 					 OR timer_cs_w OR intc_cs_w OR uart_cs_w;
 
 	SFRSTUB:
@@ -1133,6 +1210,10 @@ BEGIN
 	lane0_w <= (NOT dbus_addr_w(1)) AND (NOT dbus_addr_w(0));	-- word base + 0
 	lane1_w <= (NOT dbus_addr_w(1)) AND      dbus_addr_w(0);	-- word base + 1
 	lane2_w <=      dbus_addr_w(1)  AND (NOT dbus_addr_w(0));	-- word base + 2 (Phase 9C: TYPE)
+
+	-- Phase 14: '1' in the real design, '0' in PPA row 1. Every reader and
+	-- chip-select term belonging to §6's twelve addresses is ANDed with it.
+	icap_w <= '1' WHEN GEN_INTERRUPT ELSE '0';
 
 	-- PORT_LEDR, 0x2000 -> LEDR7..LEDR0
 	P_LEDR : gpo_port

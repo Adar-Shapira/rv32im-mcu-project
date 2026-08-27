@@ -371,6 +371,7 @@ nothing extra is needed.)
 | `do run_intc.do` | 9A — Interrupt Controller | `VERDICT: PASS`, failures 0. Watch P2b+P3 (the masked-latch pair) and P8a/P8b (release-edge) |
 | `do run_uart.do` | 12A — USART (bonus) | `VERDICT: PASS`, failures 0, ≥5 characters looped. Watch P7a/P7b: the **measured** start bit must be 176 cycles at 115200 and 2080 at 9600 |
 | `do run_uart_mmio.do` | 12B — USART on the bus | `VERDICT: PASS`, failures 0, **22 stores**, and a serial-line transition count well above 20. Stages its own `uartmmio\` images |
+| `do run_ppa_row1.do` | 14 — PPA table row 1 | `VERDICT: PASS`, **identical to `run_gpio.do`'s summary**. Same testbench, same image, only `-gGEN_INTERRUPT=FALSE`. Proves the interrupt-free build is a working MCU before its area is reported |
 | `do run_uart_menu.do` | 12C — clause 8 menu | `VERDICT: PASS`, failures 0, **423 characters decoded**. Stages `menusim\`, NOT `menu\`. **The slowest test after `run_div.do`** — about 75 ms simulated, because it transmits the real menu text twice at the real bit rate |
 
 `run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
@@ -849,3 +850,109 @@ last open half of **G-204**); a 1024-word dump cannot be compared to the referen
 **Worth doing once, deliberately:** break something small, re-run either script, and confirm the
 exit status is **1** and the table names the broken row. A regression nobody has seen fail is a
 regression nobody should trust.
+
+---
+
+## 11. Phase 14 — the compile matrix (added 2026-08-27)
+
+### 11.1 The requirement, read carefully, because it was misread until now
+
+Clause 6 gives **three** tables — Area, Performance, Power — and each carries its own
+*"Attaching the print screen of the Quartus … report is mandatory"*. Every one of them has the same
+**three rows**:
+
+| row | label in the document | what that is |
+| --- | --- | --- |
+| 1 | MCU with GPIO | the single-cycle MCU with **no interrupt capability at all** |
+| 2 | MCU with GPIO and Interrupt Capability | the single-cycle MCU, complete |
+| 3 | Pipelined MCU with GPIO and Interrupt Capability | the pipelined MCU, complete |
+
+**The plan said "three perf revisions (A, B, C)" without ever saying what A, B and C were, and
+nothing in this project recorded that row 1 is an interrupt-free build.** It could not have been
+produced: there was no configuration for it. The point of the table is the delta between rows 1 and
+2 — what interrupt capability costs in logic elements, registers, Fmax and power — so a missing row
+1 is not a cosmetic hole.
+
+**Which peripherals row 1 drops is not a judgement call.** §5 is titled "GPIO peripherals … *without*
+interrupt capability" and lists eight: `PORT_LEDR`, `PORT_HEX0..5`, `PORT_SW`. §6 is titled
+"Peripherals *with* interrupt capability" and lists twelve addresses: `PORT_PB`, the USART's three,
+the Basic Timer's five, and `IE`/`IFG`/`TYPE`. So **`PORT_PB` belongs to the interrupt half** — easy
+to get wrong, because it looks like a GPIO input port; §6 is where the specification puts it, because
+the KEYs are an interrupt source.
+
+Row 1 is now `GEN_INTERRUPT => FALSE` on `RV32IMscMCU`, which removes exactly those twelve
+addresses' hardware. What it does **not** remove, so the number you report is honest: the CPU core is
+untouched, with `intr_i` tied to `'0'`, so constant propagation collapses the entry FSM — but `reti`
+stays decoded and its GIE side door survives, which is one AND gate and one register-bit write path.
+Recorded rather than hidden. The divider accelerator also stays in both rows: §6.iii makes it part of
+the CPU and it has no MMIO address.
+
+### 11.2 Before you compile anything
+
+```
+python3 tools\check_config_defaults.py
+```
+
+It asserts `G_MODELSIM = 0` and `G_GEN_INTERRUPT = True`. Row 1 is the one build that needs a switch
+flipped, and this is what stops a flipped tree from being committed afterwards. **Run it again after
+you finish row 1.**
+
+Also run, once, before believing any area number:
+
+```
+cd SIM\RV32IMscMCU
+do compile.do
+do run_ppa_row1.do
+```
+
+Same testbench, same benchmark image, same expectations as `run_gpio.do` — only
+`-gGEN_INTERRUPT=FALSE`. Synthesis will happily report the area of a build that does not work; this
+is what says it works. If `run_gpio.do` passes and this does not, the fault is in the row-1 gating,
+not in the GPIO ports.
+
+### 11.3 The builds
+
+**Three compiles fill all three tables.** Each one produces its own Area, Fmax and Power report, so
+there is no reason to compile more than once per row.
+
+| # | For | Project | Configuration | SignalTap | Pins |
+| --- | --- | --- | --- | --- | --- |
+| 1 | tables, row 1 | `Quartus\RV32IMscMCU` | `G_GEN_INTERRUPT = False` | **OFF** | as shipped |
+| 2 | tables, row 2 | `Quartus\RV32IMscMCU` | as shipped | **OFF** | as shipped |
+| 3 | tables, row 3 | `Quartus\RV32IMpipelinedMCU` | as shipped | **OFF** | as shipped |
+| 4 | the captures | `Quartus\RV32IMscMCU` | as shipped | **ON** (flip one line) | as shipped |
+| 5 | the captures | `Quartus\RV32IMpipelinedMCU` | as shipped | **ON** (flip one line) | as shipped |
+
+Builds 2 and 3 are **also the demo-day build** — pinned with SignalTap off is what the inspection
+room compiles and burns (§9.1), and as of 2026-08-27 both `.qsf` files ship in exactly that state.
+That was a deliberate change: the room's compile now works out of the box, and the captures are one
+assignment away instead of the other way round.
+
+**Note on the ideal-vs-shipped tension.** D-2's rule was that the PPA numbers must come from a
+revision with *no pins* as well as no SignalTap, following Lab 4's `Lab4_Perf`/`Lab4_HW` pair. The
+matrix above keeps the pins, for one reason: clause 10 wants **one** project per design in the ZIP
+and the room compiles that project, so a second pinless revision is a file that exists only to be
+measured. Pins cost I/O cells, not logic, and the Area table has its own **I/O pins** column — so
+report the pinned numbers, note in the report that the three rows are measured pinned and
+SignalTap-off, and the comparison between rows stays valid because all three are measured the same
+way. If Hanan wants pinless numbers, add a revision then; nothing in the RTL changes.
+
+### 11.4 What to record, per build
+
+- **Area:** logic elements, registers, I/O pins, **embedded memory bits**, embedded 9-bit
+  multipliers, PLLs. Memory bits must read **131,072** (= 2 × 2048 × 32) on builds 1–3. **483,328
+  is the SignalTap-contamination signature** from Lab 5 commit `8a71ffb` — if you see it, SignalTap
+  is on and the numbers belong in the bin.
+- **Performance:** Fmax, `f_MCLK`, and the **critical path** — the table's own column asks "what is
+  the slowest submodule and why does it cause the critical path", so a number alone does not answer
+  it. Read the Timing Analyzer's worst-case path and name the module.
+- **Power:** total, static, dynamic, I/O. Note whether `POWER_DEFAULT_TOGGLE_RATE 12.5%` is in the
+  `.qsf` when you measure — it is, and it changes the answer, which is why the setting is part of the
+  measurement (**G-208**).
+- Sanity references, **not targets**: Lab 5's clean build gave single-cycle Fmax **26.81 MHz** and
+  pipeline **41.84 MHz**, 4 multipliers, 1 PLL. Expect the wrapper to move Fmax a little. **Expect
+  2 PLLs now**, not 1 — the clock tree instantiates `pll_gen` twice (F6), and `AUTO_MERGE_PLLS OFF`
+  in the `.qsf` is what stops the Fitter merging them back into one.
+- Three answers only Quartus can give, listed in `SIM\RV32IMscMCU\run_clock.do`'s header: whether a
+  `pll_gen` instance fits, whether the inherited `intended_device_family => "Cyclone II"` is
+  accepted on a Cyclone IV E part, and whether two instances may share one `CBX_MODULE_PREFIX`.

@@ -16,7 +16,7 @@ below**; it is already answered.
 | 1. Blocking | 4 | a phase cannot be finished without the answer |
 | 2. Proceeding under an assumption | 7 | built, but on an interpretation we chose |
 | 3. Peripherals not yet built | 4 | needed before Phases 8, 9 and 12 |
-| 4. Report and submission | 3 | needed before the ZIP |
+| 4. Report and submission | 6 | needed before the ZIP |
 | 5. Material we do not have | 1 | a request, not a question |
 | 6. Already answered | — | **do not re-ask** |
 
@@ -311,6 +311,32 @@ Nothing else is added — no `db/`, no `output_files/`, no `.mpf`.
 
 **Meanwhile:** built that way — the `.stp` stays in the ZIP, and the SignalTap-off build is treated
 as the one that must work on the board. See `DOC/04` §9.1.
+
+**Acted on 2026-08-27:** both `.qsf` files now ship `ENABLE_SIGNALTAP OFF` with the `.stp` and its
+assignments retained, so the room's compile works out of the box and the mandatory captures are one
+line away. The same commit removed `SLD_FILE db/stp_pwm_auto_stripped.stp` from both projects — it
+pointed into Quartus's own build output, which no ZIP or room download contains and which clause 10
+forbids shipping. That was a genuine part-0 failure waiting to happen, and
+`check_quartus_filelists.py` now forbids the whole class.
+
+### R6 — What exactly is PPA row 1, "MCU with GPIO"? (added 2026-08-27)
+
+> **Ask:** All three PPA tables in clause 6 have the same three rows, and row 1 is "MCU with GPIO"
+> while row 2 is "MCU with GPIO and Interrupt Capability". We read row 1 as a build containing
+> **none of clause 6's twelve interrupt-capable addresses** — no interrupt controller, no Basic
+> Timer, no USART, and no `PORT_PB` — with the same CPU core as row 2. Two points we would like
+> confirmed:
+>
+> 1. `PORT_PB` (`0x2014`) is listed in clause 6, not clause 5, so we drop it from row 1. It is
+>    physically a GPIO input port, so this is the one that could reasonably go either way.
+> 2. The **division accelerator** stays in both rows. Clause 6.iii describes it, but it has no MMIO
+>    address and is part of the CPU as we read it, so removing it from row 1 would make the row
+>    measure a different processor rather than a different peripheral set.
+
+**Meanwhile:** built as described, behind a `GEN_INTERRUPT` generate parameter, and the
+interrupt-free configuration is simulated as well as synthesized so the row's numbers come from a
+build that demonstrably works. Recorded as **A29** in `DOC/02` §10. If either reading is wrong the
+fix is one line of the generate condition, not a redesign.
 
 ### R3 — How should we present the ISA-conformance gap?
 

@@ -467,8 +467,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **12B USART onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart_mmio.do` (stages its own `uartmmio/` images).** BOTH trees wired; `interrupt_ctrl` gained `rx_clr_i`/`tx_clr_i`, so clearing rules b and c are complete and every input the controller has now has a source. Pins from the Terasic CSV: PIN_G12 / PIN_G9. 22 exact stores; two of the checks exist only because mutation testing showed the first draft could not see a fault (rule c unobservable; RXBUF/TXBUF indistinguishable under a loopback) |
 | **12C UART menu firmware** | **Yehonatan ✔** | **Adar needs the cable and the board for clause 9** | **ready — `do run_uart_menu.do` (stages `menusim/`; SLOW, ~75 ms).** Clause 8's five items, interrupt-driven. The bench acts as the PC: shifts characters in at the real bit time, decodes them out mid-bit. ONE program, two data images differing in one word (`V_HALFSEC` = 9,999,999 board / 1,999 sim), ITCMs byte-identical and asserted so. Item 1 on `PORT_LEDR` — **R2** rewritten, the LEDG claim was wrong |
 | **12D both bonuses on both cores** | **Yehonatan ✔** | **Adar** | **ready — in `SIM\RV32IMpipelinedMCU`: `do compile.do`, then `do run_uart_mmio.do` and `do run_uart_menu.do`.** The pipeline's FIRST self-checking tests; identical checks, pointed at the pipelined interrupt entry. Found and fixed: the pipeline's `compile.do` never got the six UART files, so `check_quartus_filelists.py` now checks compile scripts too |
-| **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the three static checkers (`check_staging.py`, `check_quartus_filelists.py`, `check_peripheral_copies.py`; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
-| 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
+| **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the FOUR static checkers (`check_staging.py`, `check_quartus_filelists.py` — which since 2026-08-27 also checks both `compile.do` files and forbids any `.qsf` pointing into `db/`, `check_peripheral_copies.py`, `check_config_defaults.py` — new, asserts `G_MODELSIM` and `G_GEN_INTERRUPT` are at their shipping values; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
+| **14 Quartus PPA** | **Yehonatan ✔ prep** | **Adar compiles** | **The requirement was misread until 2026-08-27: each of clause 6's three tables has THREE ROWS, and row 1 is an interrupt-free build that had no configuration.** Built `GEN_INTERRUPT` for it (removes exactly §6's twelve addresses — `PORT_PB` included, which is easy to miss), plus `run_ppa_row1.do` to prove that build WORKS before its area is reported. Both clean-room hazards cleared: the `.qsf` files no longer point into `db/`, and they ship SignalTap **OFF** — which makes the shipped state the demo-day build. **Five compiles, matrix in `DOC/04` §11** |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
 | 16 Report + ZIP | both | Adar checks the clean-room build | |
 
@@ -3152,7 +3152,8 @@ pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this
 | --- | --- | --- |
 | `python3 tools/check_staging.py` (either machine) | `clean`, exit 0 | |
 | `python3 tools/check_quartus_filelists.py` (either machine) | `clean`, exit 0 | |
-| `python3 tools/check_peripheral_copies.py` (either machine) | `clean`, exit 0 — asserts the eleven peripherals duplicated into the pipeline tree stay byte-identical | |
+| `python3 tools/check_peripheral_copies.py` (either machine) | `clean`, exit 0 — asserts the peripherals duplicated into the pipeline tree stay byte-identical (eighteen files as of 12B) | |
+| `python3 tools/check_config_defaults.py` (either machine) | `clean`, exit 0 — asserts `G_MODELSIM = 0` and `G_GEN_INTERRUPT = True`, i.e. nobody committed a tree left flipped after a measurement. Run it with `--self-test` once too | |
 | `vsim -c -do regress.do` in `SIM\RV32IMscMCU`, then `echo %ERRORLEVEL%` | the summary table all `passed`, and **exit status 0** | |
 | `vsim -c -do batch_verify.do` in `SIM\RV32IMpipelinedMCU`, then the exit status | all four `passed`, exit 0 — **and write the four CLKCNT/STCNT/FHCNT triples into Phase 11 (G-205)** | |
 | deliberately, once: break one thing and re-run | exit status **1**, and the table names the broken row — proves G-203 is really closed | |
@@ -3160,12 +3161,65 @@ pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this
 - **Exit:** one regression summary covering every required test, with no manual source edits
   anywhere in the flow.
 
-## Phase 14 — Quartus PPA  ·  **Adar only** — six revisions
+## Phase 14 — Quartus PPA  ·  **preparation done 2026-08-27; the compiles are Adar's**
 
-- Three perf revisions (A, B, C), no pins, SignalTap off, consistent settings. These produce the
-  three tables.
-- Three hw revisions, pinned, SignalTap on, gated by the §7 generate generic. These produce the
-  `.sof` files and the captures.
+**The requirement was misread until 2026-08-27, and the misreading was this row.** "Three perf
+revisions (A, B, C)" never said what A, B and C were. Reading clause 6's tables verbatim: there are
+three tables (Area, Performance, Power), each with *"Attaching the print screen … is mandatory"*, and
+each has the same **three rows** —
+
+| row | the document's own label | what it is |
+| --- | --- | --- |
+| 1 | MCU with GPIO | single-cycle, **no interrupt capability at all** |
+| 2 | MCU with GPIO and Interrupt Capability | single-cycle, complete |
+| 3 | Pipelined MCU with GPIO and Interrupt Capability | the pipeline, complete |
+
+**Row 1 had no build configuration in this project and the fact was recorded nowhere.** The point of
+the table is the delta between rows 1 and 2 — what interrupt capability costs — so it is not a
+cosmetic hole. And **which** peripherals row 1 drops is not a judgement call: §5 is titled "GPIO
+peripherals … *without* interrupt capability" and lists eight, §6 is titled "Peripherals *with*
+interrupt capability" and lists twelve addresses — so **`PORT_PB` belongs to the interrupt half**,
+which is easy to get wrong because it looks like a GPIO input port.
+
+**What was built for it:** `GEN_INTERRUPT` on `RV32IMscMCU`, defaulting to the new
+`G_GEN_INTERRUPT` in `cond_compilation_package.vhd`. FALSE removes exactly §6's twelve addresses'
+hardware — the interrupt controller, the Basic Timer, the USART and `PORT_PB` — through three
+`if … generate … else generate` blocks with explicit tie-offs and twelve reader enables ANDed with
+one constant. §7's own wording endorses the mechanism: SignalTap pins "need to be removed in the
+final step using a suitable parameter in the generate VHDL statement".
+
+**What it deliberately does not remove**, so the reported number is honest: the CPU core is
+untouched, `intr_i` tied to `'0'`, so constant propagation collapses `istate_q`/`intr_q`/`type_q` and
+every mux they drive — but `reti` stays decoded in `CONTROL` and its GIE side door in `IDECODE`
+survives, which is one AND gate and one register-bit write path. Adding a second generic inside the
+core would have meant editing verified expressions in a passing design for the sake of a
+measurement. The divider stays in both rows: §6.iii makes it part of the CPU.
+
+**Verification, because synthesis will happily report the area of a build that does not work:**
+`SIM/RV32IMscMCU/run_ppa_row1.do` runs the GPIO suite against the row-1 configuration —
+same testbench, same image, same expectations as `run_gpio.do`, only `-gGEN_INTERRUPT=FALSE`.
+`tb_gpio` is the right suite and `tb_gpio_directed` is not: the first touches nothing in clause 6,
+the second reads `PORT_PB` and is *expected* to fail in row 1.
+
+**Two clean-room hazards cleared in both `.qsf` files:**
+1. `set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp` — removed. It pointed into
+   Quartus's own build output, present only on the machine that last compiled; clause 10 forbids
+   shipping compilation results, so `db/` could not be added to satisfy it either. The inspection
+   room compiles from the downloaded folder, so this failed there and nowhere earlier.
+   `check_quartus_filelists.py` now **forbids any assignment pointing into `db/`,
+   `incremental_db/`, `output_files/`, `greybox_tmp/` or `simulation/`.**
+2. `ENABLE_SIGNALTAP` now ships **OFF**, with the `.stp` and its assignments retained. **That makes
+   the shipped state the seventh configuration — pinned with SignalTap off — which is the one the
+   grade actually runs** (§9.1's part 0 compiles without the SignalTap file and burns it). The
+   room's compile now works out of the box and the captures are one line away, instead of the other
+   way round.
+
+**The compile matrix — five builds, not six — is in `DOC/04` §11**, with what to record from each and
+the sanity references (including: expect **2 PLLs** now, not Lab 5's 1, because the clock tree
+instantiates `pll_gen` twice).
+
+- Three compiles fill all three tables: rows 1, 2 and 3, all with SignalTap off.
+- Two more, SignalTap on, produce the captures.
 - Identify the **actual** critical path, not just Fmax. Reference numbers to beat: single-cycle
   Fmax 26.81 MHz, pipeline 41.84 MHz, 131,072 memory bits, 4 multipliers, 1 PLL — from the clean
   build screenshots in `Auxiliary/Lab 5 - as submitted/Screenshots/Quartus/`.
