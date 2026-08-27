@@ -179,9 +179,17 @@ polarity, so this transcript is currently the **only** source for it.
 - **UART bonus (20%):** registrants **receive ready HDL code from Hanan** — *"אתם מקבלים ממני
   קוד, קוד HDL מוכן של מודול תקשורת, שצריך לעשות לו הסבה כדי לחבר אותו בתור רכיב פריפריאלי"* —
   and the task is to understand it and integrate it on the bus. `Auxiliary/USART Material/`
-  already ships `UART_FPGA_option1` and `UART_FPGA_option2`, which are presumably that code —
-  **confirm at registration whether a further handout supersedes them** before building Phase
-  12's register layer.
+  already ships `UART_FPGA_option1` and `UART_FPGA_option2`, which are presumably that code.
+- **STATUS 2026-08-27: REGISTERED for both bonuses.** Hanan's registrant session is **Monday
+  2026-08-31**. The gate is closed; both bonuses were built before it, so Monday is a review
+  against reference material we did not have, not an input.
+- **The one question to ask first on Monday:** is `UART_FPGA_option1` the handout, or is there a
+  newer one? Phase 12 built the whole register layer on option1. If the handout is a different
+  UART, the shift-register core underneath is replaceable but four adaptations would have to be
+  re-made against the new source — the runtime baud divider, `RX_BUSY`, the exported
+  `PARITY_ERROR`, and the `AND PARITY_EN` gate on the receiver's check register. Everything above
+  it is unaffected: `UART_PERIPH.vhd`, the MMIO wiring, the interrupt path, the menu firmware and
+  all four testbenches talk to `UART_CORE`'s ports, not to the shift registers.
 
 ---
 

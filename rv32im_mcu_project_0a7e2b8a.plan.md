@@ -462,7 +462,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_mmio.do` (stages its own `intrmmio/` images).** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
-| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured + the bonus registration** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 (the four counter triples have never been measured — `batch_verify.do` already prints them, it needs one run) and the bonus registration with Hanan. **Phase 11B (2026-08-27) closed the verification gap this row never named:** the core is a rewrite and the seven ISA repairs had only ever been confirmed by READING it — there is now a directed suite and a `regress.do` on this side too. **G-408**, the three integration benches that were still single-cycle-only, was opened and closed the same day |
+| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured (registration now done)** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 alone — the four counter triples have never been measured; `batch_verify.do` already prints them and it needs one run. (The bonus registration was the other item and is **CLOSED 2026-08-27: registered**; Hanan's registrant session is Monday 2026-08-31.) **Phase 11B (2026-08-27) closed the verification gap this row never named:** the core is a rewrite and the seven ISA repairs had only ever been confirmed by READING it — there is now a directed suite and a `regress.do` on this side too. **G-408**, the three integration benches that were still single-cycle-only, was opened and closed the same day |
 | **11B Pipeline verification suite** | **Yehonatan ✔** | **Adar** | **ready — in `SIM\RV32IMpipelinedMCU`: `do compile.do`, then `do run_isa.do` (expect PASS, exactly 5 mul mismatches), and `vsim -c -do regress.do` for the whole core in one command.** The pipeline had **18 fewer testbenches** than the single-cycle tree; most of that is correct (the peripherals are byte-identical, so their results transfer) but the CORE is a rewrite, and "all seven ISA repairs are present" came from READING it. 43 of the 56 stores are cases no benchmark executes. Also closes the pipeline half of **G-203**, deferred since Phase 13. **Four defects found while wiring it, none in the new code:** `-gMODELSIM=1` missing from five run scripts (both trees' UART bus tests plus 9C's `run_intr_mmio.do` — they would have built the real ALTPLL), two hand-made duplicate image directories that had already drifted, `quit -f` in six scripts that would kill any driver, and stale operator text telling Adar to expect 9 mismatches where the bench prints 5 |
 | **11C Pipeline integration benches** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_core.do`, `do run_timer_mmio.do`, `do run_intr_mmio.do` in `SIM\RV32IMpipelinedMCU`, or all thirteen at once with `vsim -c -do regress.do`.** Closes **G-408**. The three benches that test the CORE against a peripheral, so unlike the leaf tests their single-cycle results do NOT transfer. `tb_timer_mmio` and `tb_intr_mmio` were mechanical; **`tb_intr_core` was not** — it raises round 3's request off `EXinstruction_o`, because a divide completes IN EX and a MEM watch would have measured a deferral of ~0 and reported PASS having tested nothing. Both timing-dependent expectations re-derived rather than copied, and both survive with the derivation written into the bench: `K` (straight-line code, 1 IPC) and `defer3 >= 12` (a bound from the byte-identical divider, not from either core) |
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
@@ -725,11 +725,23 @@ Details and quotes: DOC/03 §C.
 
 ## 1.6.d Bonus logistics
 
-Both bonuses require **finishing the base first and registering with Hanan by a date he will
-announce**. Pipeline bonus: a dedicated ~half-hour lecture for registrants. UART bonus (20%):
-registrants **receive ready HDL from Hanan** to adapt and integrate as a bus peripheral —
-presumably the already-shipped `USART Material/UART_FPGA_option{1,2}`, **to be confirmed at
-registration** before Phase 12's register layer is built on option 1.
+**REGISTERED — confirmed by Yehonatan 2026-08-27. This gate is CLOSED for both bonuses.**
+Hanan's registrant session is **Monday 2026-08-31**.
+
+Both bonuses required finishing the base first and registering with Hanan by a date he announced.
+Pipeline bonus: a dedicated ~half-hour lecture for registrants. UART bonus (20%): registrants
+**receive ready HDL from Hanan** to adapt and integrate as a bus peripheral.
+
+> **The one thing Monday can still change, and it is worth walking in expecting it.** Phase 12 built
+> the whole register layer on `USART Material/UART_FPGA_option1` (jakubcabal, MIT) — the option that
+> was already shipped with the course material. If Monday's registrant handout is a DIFFERENT UART
+> than option1, the shift-register core underneath is replaceable but our adaptations to it are not
+> free: the runtime baud divider, `RX_BUSY`, the exported `PARITY_ERROR`, and the `AND PARITY_EN`
+> gate on the receiver's check register are four edits that would have to be re-made against the new
+> source. **What would NOT move** is everything above it — `UART_PERIPH.vhd`'s register layer, the
+> MMIO wiring, the interrupt path, the menu firmware and all four testbenches — because those talk
+> to `UART_CORE`'s ports, not to the shift registers. First question to ask Monday, before anything
+> else: **is option1 the handout, or is there a newer one?**
 
 ---
 
@@ -2824,11 +2836,11 @@ sentence in the report's interrupt chapter.
 
 ## Phase 11 — Pipeline port  ·  bonus 10%  ·  Yehonatan writes · Adar verifies
 
-- **Process precondition from the prep session (§1.6.d):** the bonus is conditional on finishing
-  the base project and **registering with Hanan by a date he will announce**; registrants get a
-  dedicated ~half-hour lecture on moving the core, the accelerator and the peripherals to
-  pipeline. Register as soon as the base is done — the lecture is reference material this phase
-  currently does not have.
+- **Process precondition (§1.6.d): DONE.** Registered — confirmed 2026-08-27. The registrant
+  lecture on moving the core, the accelerator and the peripherals to pipeline is **Monday
+  2026-08-31**. This phase was built without it, so treat Monday as a REVIEW against a reference we
+  did not have, not as input: bring the FHCNT/STCNT policy (Phase 11's review pass), the MEM
+  retirement boundary and the `mem_active_w` gate, and check them against what he describes.
 - Fork only after the single-cycle system is stable. Reuse the same bus interface, peripherals,
   divider and register maps.
 - The pipeline is **a rewrite, not a derivative** of the baseline — changed-line counts against
@@ -2899,9 +2911,8 @@ pass/fail result, only the number Adar is about to copy out.
    The producer exists and already prints `RETIRED` and `IPC` per test
    (`SIM/RV32IMpipelinedMCU/batch_verify.do`); it needs one run on Adar's machine. Until then the
    exit criterion is unmeasured, not met.
-2. **The bonus registration gate** (§1.6.d) — the 10% is conditional on registering with Hanan by a
-   date he announces, and registrants get the half-hour lecture on moving the core, the accelerator
-   and the peripherals. The code exists either way; the credit does not.
+2. ~~The bonus registration gate~~ — **CLOSED 2026-08-27: registered.** The registrant lecture is
+   **Monday 2026-08-31**. It is now a review opportunity, not a gate.
 3. **The pipeline had a third of the single-cycle tree's verification** — closed by Phase 11B below.
 
 ### Phase 11B — the pipeline's own verification suite  ·  **built 2026-08-27**
@@ -3066,11 +3077,11 @@ from the TB sources rather than from a list.
 
 ## Phase 12 — UART  ·  bonus 20%  ·  Yehonatan writes · **Adar needs the cable and the board**
 
-- **Process precondition from the prep session (§1.6.d):** same registration gate as Phase 11, and
-  registrants **receive ready HDL from Hanan** to adapt and integrate as a bus peripheral. That is
-  presumably the already-shipped `USART Material/UART_FPGA_option{1,2}` — **confirm at
-  registration whether a further handout supersedes them** before building the register layer on
-  option 1.
+- **Process precondition (§1.6.d): DONE.** Registered — confirmed 2026-08-27. Registrants
+  **receive ready HDL from Hanan**, and that lands **Monday 2026-08-31**, after this layer was
+  built. **First question to ask on Monday: is `UART_FPGA_option1` the handout, or is there a newer
+  one?** If it is a different UART, §1.6.d lists exactly what would have to be re-made (four edits
+  to the shift-register core) and what would not (everything above `UART_CORE`'s ports).
 - Base: `UART_FPGA_option1` (jakubcabal, MIT). Keep the licence header.
 - **Most of the register layer is new work** — neither supplied option has separate `RXBUF`/`TXBUF`,
   overrun logic, a parity-error output port, an aggregate `BUSY`, an `SWRST`, a runtime baud
