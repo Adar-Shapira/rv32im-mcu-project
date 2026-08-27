@@ -370,6 +370,8 @@ nothing extra is needed.)
 | `do run_timer.do` | 8A — Basic Timer | `VERDICT: PASS`, failures 0, plus the printed **FREQ_5K 4008-cycle** note |
 | `do run_intc.do` | 9A — Interrupt Controller | `VERDICT: PASS`, failures 0. Watch P2b+P3 (the masked-latch pair) and P8a/P8b (release-edge) |
 | `do run_uart.do` | 12A — USART (bonus) | `VERDICT: PASS`, failures 0, ≥5 characters looped. Watch P7a/P7b: the **measured** start bit must be 176 cycles at 115200 and 2080 at 9600 |
+| `do run_uart_mmio.do` | 12B — USART on the bus | `VERDICT: PASS`, failures 0, **22 stores**, and a serial-line transition count well above 20. Stages its own `uartmmio\` images |
+| `do run_uart_menu.do` | 12C — clause 8 menu | `VERDICT: PASS`, failures 0, **423 characters decoded**. Stages `menusim\`, NOT `menu\`. **The slowest test after `run_div.do`** — about 75 ms simulated, because it transmits the real menu text twice at the real bit rate |
 
 `run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
 not verify the PLLs, and it cannot.** `altpll` is an Altera black box needing `altera_mf`, and the
@@ -628,6 +630,18 @@ waiting:
   All 14 expected stores are exact; the run script's footer maps each possible failure to the
   specific wire it implicates. Also confirm the bus one-hot warning never fires during the run —
   the TYPE push is a new bus driver and silence is its collision proof;
+- `run_uart_mmio.do`'s verdict (Phase 12B) — stages its own `uartmmio\` images. Twenty-two exact
+  stores; the script's footer maps each possible failure to the specific wire. Two checks to watch
+  because they exist only after a mutation run showed the first draft blind: `[0x124]` must be
+  `0x00` (rule c — writing TXBUF clears TXIFG, i.e. `tx_clr_o` reaches the controller) and
+  `[0x12C]` must be `0x3C` while `[0x128]` is `0x71` (RXBUF and TXBUF on the right lanes — under a
+  loopback every other scored value is the same byte in both);
+- `run_uart_menu.do`'s verdict (Phase 12C) — stages `menusim\`. **Report the character count: 423.**
+  This is the clause 8 demo running against a bench that acts as the PC terminal, so its waveform
+  and its decoded text are also *report material*: a screenshot of `UART_TXD_o` carrying the menu is
+  the closest thing to the demo-day evidence that can be produced without the cable. If it times out
+  having decoded nothing, run `run_uart.do` and `run_uart_mmio.do` first — a fault there explains it
+  and this test does not;
 - `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
   clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
   tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —

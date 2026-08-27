@@ -268,12 +268,27 @@ Affects the UART bonus (Phase 12) only.
 
 > **Ask:** The DOC table says `Final_report.pdf`; the clause 10 prose says `final.pdf`. Which?
 
-### R2 — The menu names `LEDG`
+### R2 — The menu names `LEDG`, and no register reaches it  *(rewritten 2026-08-27)*
 
-> **Ask:** UART menu item 1 names `LEDG`, which does not exist on the DE2-115 (item 2 names `LEDR`).
-> Should item 1 drive `LEDR` on that board?
+> **Ask:** UART menu item 1 says "Count from `0x00` onto **LEDG**", but clause 5's GPIO table has
+> exactly one LED register — `PORT_LEDR` at `0x2000`, driving `LEDR7-LEDR0` — and clause 4's output
+> interface is "Board 10 red LEDs (LEDR9-LEDR0)". So software has no memory-mapped path to the green
+> LEDs. Should item 1 count on `PORT_LEDR` (what we built), or should we add a `PORT_LEDG` register
+> and its pins?
 
-Tied to **B1**.
+**This entry used to say LEDG does not exist on the DE2-115. That was wrong and is corrected.** The
+course's own Terasic table — `Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv` — lists **nine
+green LEDs with pins**: `LEDG[0..8]` on `PIN_E21`, `PIN_E22`, `PIN_E25`, `PIN_E24`, `PIN_H21`,
+`PIN_G20`, `PIN_G22`, `PIN_G21`, `PIN_F17`, all 2.5 V. (§1's own text already had this right; the two
+statements contradicted each other.)
+
+So the conflict is not about the board, it is about the register map. `LEDG` appears **once** in the
+whole specification: in this menu line.
+
+**Meanwhile:** Phase 12C's firmware counts up on `PORT_LEDR`, the same register item 2 counts down
+on, and the transmitted menu text says `LEDR` so that what the operator reads matches what the board
+does. Adding a `PORT_LEDG` register would mean inventing an address the specification does not
+contain, which is the one thing the project rules forbid outright.
 
 ### R4 — Does the ZIP's `Quartus` folder include the `.qsf`/`.qpf`? (added 2026-08-27)
 

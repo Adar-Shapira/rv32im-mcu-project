@@ -875,6 +875,66 @@ mutations all caught.
 
 **Assumptions A25–A28** are in §10, each with what would falsify it.
 
+### 5A.2 What Phase 12B built — the USART on the bus
+
+**[OUR CODE]** `uart_periph` is instantiated in **both** MCU tops on `CS_UART`'s three lanes, with
+`MemRead_i` connected — which is what makes `RXBUF`'s read side effect possible at all. Three new
+byte readers join the read path (`NRD_BYTE` 15 → 18, `NRD` 18 → 21).
+
+**[REQ p12 → CODE]** `INTERRUPT_CTRL` gains `rx_clr_i` and `tx_clr_i`, ORed into the raw latches'
+clear terms. These are the **software halves of clearing rules b and c**, and they close the two
+half-implemented rules §4 has carried since Phase 9A. The three UART event inputs, defaulted to `'0'`
+since 9A, are driven now too: every input the controller has finally has a real source, and all seven
+vector-table entries of REQ p14 can fire.
+
+**[REQ p6 → CODE]** The USART was the twelfth and last mapped SFR word to be attached, so the
+simulation-only stub notice changed meaning rather than being deleted: a write that still reaches it
+means the target is **read-only by design**, and the only two such words left are `PORT_SW` and
+`PORT_PB`.
+
+**[REF]** The two board pins come from the course's own Terasic table,
+`Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv`: `UART_RXD` = **PIN_G12** (input),
+`UART_TXD` = **PIN_G9** (output), 3.3-V LVTTL. `UART_CTS` (PIN_G14) and `UART_RTS` (PIN_J13) are in
+that table too and are deliberately left unassigned — 8N1 with no hardware flow control.
+
+Verified by `tb_uart_mmio.vhd`: the bench ties `UART_RXD_i` to `UART_TXD_o` — what a loopback plug on
+the DB9 does — and 22 scored stores are exact. Two of them exist only because mutation testing showed
+the first draft could not see a fault: rule c was unobservable until a round enabled `TXIE`, and with
+a loopback `RXBUF` and `TXBUF` hold the same byte at every natural scoring point, so one moment is
+now engineered where they differ (`TXBUF` = `0x71` while its frame is on the wire, `RXBUF` still
+`0x3C`).
+
+### 5A.3 What Phase 12C built — the clause 8 menu
+
+**[REQ p12, clause 8]** The menu, transmitted MCU → PC, with five items. Implemented as an
+interrupt-driven server: `ISR_RX` delivers each command, `ISR_BT` is the ~0.5 s tick (Basic Timer
+`EQU0`), `ISR_KEY1` arms the message, and one polling main loop pushes a character per pass whenever
+the transmitter is not `BUSY`.
+
+**Item 1 says `LEDG`.** The board *has* nine green LEDs — the Terasic CSV lists `LEDG[0..8]` with
+pins — but **clause 4's output interface is the ten red LEDs and clause 5's GPIO table has exactly
+one LED register**, `PORT_LEDR` at `0x2000`. There is no memory-mapped path to `LEDG` anywhere in the
+specification, and `LEDG` appears in the document exactly once, in that line. **Our design decision:**
+item 1 counts up on `PORT_LEDR`, and the transmitted text says `LEDR` so the operator reads what the
+board does. Recorded as **R2**; inventing a `PORT_LEDG` register would be adding an address the
+specification does not contain.
+
+**One program, two data images.** The ITCM is byte-identical for the board and for simulation (the
+generator asserts it); a single DTCM word, `V_HALFSEC`, carries `9,999,999` for the board — 10,000,000
+SMCLK ticks = 0.5 s at 20 MHz with `BTSSEL = 00`, cross-checked against the supplied benchmarks'
+`SEC_PERIOD = 20,000,000` for one second at the same setting — and `1,999` for simulation.
+
+**Register discipline, stated because there is no context save:** the three handlers touch only
+`t3`/`t4` and read-only address registers; the main loop uses only `t0`/`t1`/`t2` and the
+s-registers. An interrupt can therefore land between any two instructions of main without corrupting
+it. The supplied ISRs in `test1` rely on the same convention informally.
+
+Verified by `tb_uart_menu.vhd`, the first bench in this project that acts as a **third party** rather
+than an observer: it shifts characters onto `UART_RXD_i` at the real bit time and decodes
+`UART_TXD_o` mid-bit, then works the menu as a person would. Its two expected strings are
+**generated**, and `gen_uart_menu.py` reads the testbench back and fails if they have drifted from
+the DTCM image.
+
 ## 6. Clocks
 
 **[REQ p3, Figure 1]** `baseclk50MHz → Clock Tree → mclk, accelclk, smclk`. Three named clocks:

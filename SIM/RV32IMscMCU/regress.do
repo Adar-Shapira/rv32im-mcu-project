@@ -70,6 +70,7 @@ quietly set TESTS {
     {run_intr_core.do      "9B  CPU-side interrupt protocol"}
     {run_intr_mmio.do      "9C  interrupt path end to end"}
     {run_uart_mmio.do      "12B USART on the bus, pin-to-pin loopback"}
+    {run_uart_menu.do      "12C clause 8 menu, bench as the PC (slow: ~75 ms)"}
     {run_bench_test1.do    "10A benchmark test1"}
     {run_bench_test4.do    "10B benchmark test4"}
 }

@@ -464,8 +464,8 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
 | **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured + the bonus registration** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 (the four counter triples have never been measured — `batch_verify.do` already prints them, it needs one run) and the bonus registration with Hanan |
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
-| 12B USART onto the bus | Yehonatan | Adar | CS_UART's three lanes (already decoded since 5A), the readers, and the two new interrupt-controller inputs for rules b/c |
-| 12C UART menu firmware + board | Yehonatan | **Adar needs the cable and the board** | clause 8's menu; `LEDG`→`LEDR` is **R2** |
+| **12B USART onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart_mmio.do` (stages its own `uartmmio/` images).** BOTH trees wired; `interrupt_ctrl` gained `rx_clr_i`/`tx_clr_i`, so clearing rules b and c are complete and every input the controller has now has a source. Pins from the Terasic CSV: PIN_G12 / PIN_G9. 22 exact stores; two of the checks exist only because mutation testing showed the first draft could not see a fault (rule c unobservable; RXBUF/TXBUF indistinguishable under a loopback) |
+| **12C UART menu firmware** | **Yehonatan ✔** | **Adar needs the cable and the board for clause 9** | **ready — `do run_uart_menu.do` (stages `menusim/`; SLOW, ~75 ms).** Clause 8's five items, interrupt-driven. The bench acts as the PC: shifts characters in at the real bit time, decodes them out mid-bit. ONE program, two data images differing in one word (`V_HALFSEC` = 9,999,999 board / 1,999 sim), ITCMs byte-identical and asserted so. Item 1 on `PORT_LEDR` — **R2** rewritten, the LEDG claim was wrong |
 | **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the three static checkers (`check_staging.py`, `check_quartus_filelists.py`, `check_peripheral_copies.py`; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
@@ -2918,11 +2918,85 @@ pass/fail result, only the number Adar is about to copy out.
   entity does not declare. Broken as shipped.
 - Cross RX/TX events into the `mclk` MMIO domain with the Phase 4 synchroniser.
 - Menu firmware: count up from `0x00`, count down from `0xFF`, clear, "I love my Negev" on KEY1,
-  show menu. The document's `LEDG` is read as `LEDR` — Q1.
+  show menu. **The document's `LEDG`:** corrected 2026-08-27. This row used to say LEDG does not
+  exist on the DE2-115 — it does, nine of them, and the course's own Terasic CSV gives every pin
+  (`LEDG[0..8]`, `PIN_E21`…`PIN_F17`, 2.5 V). The real conflict is that clause 4's output interface
+  is the ten **red** LEDs and clause 5's GPIO table has exactly **one** LED register, so no
+  memory-mapped path to LEDG exists in the specification. Item 1 counts on `PORT_LEDR` and the
+  transmitted text says so — **R2**, rewritten.
 - **Exit:** ModelSim loopback and error suite passes; a terminal communicates at 115200 8N1 with no
   framing errors.
 
-Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
+Gaps: G-313. **Pins found:** `UART_RXD` = PIN_G12, `UART_TXD` = PIN_G9, from
+`Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv` — G-504's UART half is closed. Still open:
+**Q12** (whether a further UART handout supersedes option 1), and the cable and terminal, which are
+Adar's.
+
+### Phase 12B — the USART onto the bus  ·  **built 2026-08-27, awaiting verification**
+
+**Files:** `DUT/{RV32IMscMCU,RV32IMpipelinedMCU}/{RV32IMscMCU,RV32IMpipelinedMCU,INTERRUPT_CTRL,
+aux_package}.vhd`, the six UART files duplicated into the pipeline tree byte-identical,
+`TB/RV32IMscMCU/tb_uart_mmio.vhd` (new), `SIM/RV32IMscMCU/run_uart_mmio.do` (new),
+`tools/gen_uart_mmio_test.py` (new), both `.qsf` files, `regress.do`.
+
+- `uart_periph` on `CS_UART`'s three lanes in **both** tops, with `MemRead_i` connected — the one
+  thing that makes `RXBUF`'s read side effect (REQ p12) possible at all. Three readers, so
+  `NRD_BYTE` 15 → 18 and `NRD` 18 → 21.
+- `INTERRUPT_CTRL` gains `rx_clr_i` / `tx_clr_i`, ORed into the raw latches' clear terms: the
+  **software halves of clearing rules b and c**, which §4 has carried as half-implemented since 9A.
+  The three event inputs, defaulted to `'0'` since 9A, are driven too.
+- **Pins, from the course's own table** (`Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv`):
+  `UART_RXD` = PIN_G12 input, `UART_TXD` = PIN_G9 output, 3.3-V LVTTL. `UART_CTS`/`UART_RTS` are in
+  that table and deliberately left unassigned — 8N1, no flow control.
+- The SFR stub notice **changed meaning** rather than being deleted: the USART was the twelfth and
+  last mapped word, so a write that still reaches the notice means the target is read-only by
+  design, and only `PORT_SW` and `PORT_PB` are left.
+
+**Verification:** `tb_uart_mmio.vhd` ties `UART_RXD_i` to `UART_TXD_o` — what a loopback plug on the
+DB9 does — and 22 scored stores are exact. Eight mutations run against the generator: six caught by
+an exact value, one by non-termination, one (same-cycle read-and-arrive) correctly out of scope and
+caught by `model_uart.py`'s own P7e. **Two of the 22 checks exist only because the mutation run
+found the first draft blind:** rule c was unobservable with `TXIE` never enabled, and under a
+loopback `RXBUF` and `TXBUF` hold the same byte at every natural scoring point, so a swap of their
+lanes would have passed. There is now one engineered moment where they differ.
+
+### Phase 12C — the clause 8 menu firmware  ·  **built 2026-08-27, awaiting verification**
+
+**Files:** `tools/gen_uart_menu.py` (new), `TB/RV32IMscMCU/tb_uart_menu.vhd` (new),
+`SIM/RV32IMscMCU/run_uart_menu.do` (new), `SIM/RV32IMscMCU/{menu,menusim}/` (new images),
+`regress.do`. **No RTL changed** — the hardware was finished by 12B; this is firmware.
+
+- 154 instructions: three tiny handlers plus one polling main loop. `ISR_RX` delivers each command,
+  `ISR_BT` is the tick, `ISR_KEY1` arms the message and clears `KEY1IFG` with the supplied
+  benchmarks' own and-mask store (rule d — the KEYs are cleared manually).
+- **Register discipline, stated because there is no context save:** handlers touch only `t3`/`t4`
+  plus read-only address registers, main uses only `t0`/`t1`/`t2` and the s-registers. An interrupt
+  can land between any two instructions of main without corrupting it.
+- **One program, two data images.** The ITCMs are byte-identical and the generator asserts it; a
+  single DTCM word, `V_HALFSEC`, is `9,999,999` for the board (10,000,000 SMCLK ticks = 0.5 s at
+  20 MHz, `BTSSEL = 00` — cross-checked against the benchmarks' own `SEC_PERIOD = 20,000,000` for
+  one second at the same setting) and `1,999` for simulation. A shortened *program* would have meant
+  simulating something other than what runs on the board.
+- **Item 1's `LEDG`:** see the correction above. It counts on `PORT_LEDR` and the transmitted text
+  says `LEDR`. **R2.**
+
+**Verification:** `tb_uart_menu.vhd` — the first bench here that acts as a **third party** rather
+than an observer. It shifts characters onto `UART_RXD_i` at the real bit time (176 cycles per bit)
+and decodes `UART_TXD_o` mid-bit, then works the menu as a person would: collect the startup menu →
+`'2'` → four values down from `0xFF` → `'1'` → four values up from `0x00` → `'3'` → LEDs cleared and
+the count **stopped** → `'4'` → press and RELEASE KEY1 → the message → `'5'` → the menu again. The
+whole 423-character stream and both LED sequences are reproduced by the generator's interpreter
+running the same program against all three vetted models with the same scripted PC. Seven mutations:
+six caught (four by non-termination, two by value); the seventh, dropping the 8-bit wrap mask,
+correctly does **not** fail, because `PORT_LEDR` is a byte register and does the wrap itself — the
+mask is belt-and-braces, and saying so is more useful than claiming 7/7.
+
+**The two expected strings in the testbench are GENERATED, and the generator reads the testbench
+back and fails if they have drifted** from the DTCM image it writes. Two copies of one string with
+one edited is the exact failure shape that bit this project in `5d540c0`.
+
+**Still Adar's, and still open:** clause 9 itself — a real terminal over the FTDI cable at 115200
+8N1, on the board. That is Phase 15 work and needs the `.sof`, the cable and the board.
 
 ### Phase 12A — the USART peripheral, leaf  ·  **built, awaiting verification**
 

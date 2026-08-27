@@ -207,13 +207,25 @@ which exists on the DE2-115 and **not** on the DE10-Standard.
 coordinates on the F29 package too. Copying DE10-Standard pin assignments into a DE2-115 `.qsf`
 compiles with no error and silently mis-routes the UART.
 
-**Also missing either way.** There is no DE2-115 expansion-header pin table anywhere in the
-material. `Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/pinPlanner/DE2-115_pinLocation.txt` is a 28-line student note covering
-only `clk_i`, `rst_i` and `BPADDR_i[7:0]` — no GPIO header, no HEX, no LEDR. We will need the
-DE2-115 User Manual Table 3-x for the UART TX/RX/GND pins.
+**Also missing either way.** ~~There is no DE2-115 expansion-header pin table anywhere in the
+material.~~ **Found 2026-08-26:** `Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv` is the
+Terasic table, and it covers the whole board.
+`Auxiliary/Lab 5/Auxilary/RV32I/QUARTUS/pinPlanner/DE2-115_pinLocation.txt` is a 28-line student
+note covering only `clk_i`, `rst_i` and `BPADDR_i[7:0]`, which is what made the table look missing.
+**The UART pins came from that CSV on 2026-08-27:** `UART_RXD` = `PIN_G12` (input), `UART_TXD` =
+`PIN_G9` (output), both 3.3-V LVTTL, plus `UART_CTS` = `PIN_G14` and `UART_RTS` = `PIN_J13` which
+8N1 without flow control does not use.
 
 **Provisional decision.** DE2-115. Treat the DE10-Standard material as reference for the wrong
-board. Interpret the menu's `LEDG` as `LEDR` and state that in the report.
+board. Count menu item 1 on `PORT_LEDR` and say so in the transmitted text.
+
+**Correction 2026-08-27, on `LEDG`.** The sentence above — "`LEDG` … exists on the DE2-115 and not
+on the DE10-Standard" — is right, and it is the *other* record of this that was wrong (DOC/05 R2 has
+been rewritten). The same Terasic CSV lists nine green LEDs with pins, `LEDG[0..8]` on `PIN_E21`
+through `PIN_F17`. The real conflict is one level up: clause 4's output interface is the ten **red**
+LEDs and clause 5's GPIO table contains exactly one LED register, `PORT_LEDR`, so no memory-mapped
+path to `LEDG` exists in the specification at all. `LEDG` appears once in the whole document, in
+that menu line. Hence the decision above, and **R2** as the question actually worth asking.
 
 ---
 
