@@ -667,32 +667,68 @@ BEGIN
 		end if;
 	end process;
 	
-	-- STCNT: counts stall cycles (cleared on reset). A stall that coincides
-	-- with a flush is not counted - the redirect from MEM cancels the
-	-- interlock (flush has priority in IFETCH), and that cycle is already
-	-- accounted for by the flush penalty in the IPC equation
-	-- IPC = (CLKCNT - (STCNT + 4 + 3*FHCNT)) / CLKCNT.
+	-- THE ACCOUNTING THESE TWO COUNTERS HAVE TO SATISFY
+	-- Clause 6.iii.b of `Auxiliary/Lab 5/Auxilary/LAB5 task definition.pdf`
+	-- reads the instruction count out of the cycle count:
+	--     InstructionCounter = CLKCNT - (STCNT + 4 + depth*FHCNT),  depth = 3
+	-- so EVERY cycle in which the retirement stage (MEM) holds a bubble, after
+	-- the 4 fill cycles, must be accounted for exactly once - either in STCNT
+	-- or inside one flush event's depth. Counted twice, IPC comes out too low;
+	-- not counted at all, too high. Cycle by cycle:
+	--
+	--   taken branch / jal / jalr retires in MEM at cycle N. The flush bubbles
+	--   IF/ID, ID/EX and EX/MEM, so MEM is a bubble at N+1, N+2, N+3 -- three
+	--   non-retiring cycles, which is exactly depth*1. ONE event.
+	--
+	--   an interrupt is accepted at cycle N (the MEM instruction still retires:
+	--   DMEMORY has no flush port, by design). The same flush kills the same
+	--   three younger instructions -- so the same depth*1 -- but entry then
+	--   spends cycle N+1 capturing TYPE and cycle N+2 fetching the vector,
+	--   and IFETCH only sees the vector at N+3. MEM is a bubble at N+1..N+5:
+	--   FIVE non-retiring cycles = depth*1 PLUS the two entry cycles.
+	--
+	-- Hence: one flush event per redirect, and cyc1/cyc2 belong in STCNT.
+	--
+	-- Before 2026-08-27 FHCNT counted CYCLES of flush_w, and flush_w is
+	-- `br_flush OR accept OR cyc1 OR cyc2` -- so every interrupt entry
+	-- incremented it THREE times and the equation subtracted 9 cycles where
+	-- 5 are real. Harmless for tests 2-4, but test1 is the interrupt benchmark
+	-- and its IPC is Phase 11's exit criterion, so it was worth one line.
+
+	-- STCNT: cycles the machine was held with nothing retiring and no flush
+	-- event to charge them to. Two sources:
+	--   * stall_w (load-use interlock, divide-in-EX hold). A stall that
+	--     coincides with a flush is not counted - the redirect from MEM
+	--     cancels the interlock (flush has priority in IFETCH) and that cycle
+	--     is already inside the flush penalty.
+	--   * annul_w (interrupt entry Cycle 1 and Cycle 2), per the derivation
+	--     above. stall_w is necessarily '0' in those two cycles (ID/EX and
+	--     EX/MEM are bubbles), so the OR cannot double-count.
 	process (mclk_w , rst_w)
 	begin
 		if rst_w = '1' then
 			stcnt_q	<=	(others	=> '0');
 		elsif rising_edge(mclk_w) then
-			if (stall_w = '1' and flush_w = '0') then
+			if ((stall_w = '1' and flush_w = '0') or annul_w = '1') then
 				stcnt_q	<=	stcnt_q + '1';
 			end if;
 		end if;
 	end process;
-	
-	-- FHCNT: counts flush events (cleared on reset). flush_w is high for
-	-- exactly one cycle per taken branch/jal/jalr (the EX/MEM register is
-	-- bubbled right after), so one count = one redirect = 3 killed
-	-- instructions (depth = 3 in the IPC equation).
+
+	-- FHCNT: counts REDIRECT EVENTS, not flush cycles (cleared on reset).
+	-- br_flush_w is high for exactly one cycle per taken branch/jal/jalr (the
+	-- EX/MEM register is bubbled right after) and accept_w for exactly one
+	-- cycle per interrupt entry; both kill the same three younger stages, so
+	-- one count = one redirect = 3 killed instructions (depth = 3). The OR is
+	-- deliberate rather than a sum: an interrupt accepted on a cycle whose MEM
+	-- instruction is itself a taken branch is ONE redirect, and the three
+	-- killed instructions are the same three.
 	process (mclk_w , rst_w)
 	begin
 		if rst_w = '1' then
 			fhcnt_q	<=	(others	=> '0');
 		elsif rising_edge(mclk_w) then
-			if flush_w = '1' then
+			if ((br_flush_w or accept_w) = '1') then
 				fhcnt_q	<=	fhcnt_q + '1';
 			end if;
 		end if;

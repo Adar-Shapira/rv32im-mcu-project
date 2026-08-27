@@ -462,7 +462,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_mmio.do` (stages its own `intrmmio/` images).** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
-| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan — review pass owed** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Not yet reviewed:** the interrupt-precision boundary and the divider stall in `HAZARD_UNIT` |
+| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured + the bonus registration** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 (the four counter triples have never been measured — `batch_verify.do` already prints them, it needs one run) and the bonus registration with Hanan |
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
 | 12B USART onto the bus | Yehonatan | Adar | CS_UART's three lanes (already decoded since 5A), the readers, and the two new interrupt-controller inputs for rules b/c |
 | 12C UART menu firmware + board | Yehonatan | **Adar needs the cable and the board** | clause 8's menu; `LEDG`→`LEDR` is **R2** |
@@ -2838,6 +2838,66 @@ sentence in the report's interrupt chapter.
   equals clause 6.iii.b:
   `IPC = (CLKCNT_o − (STCNT_o + 4 + depth·FHCNT_o)) / CLKCNT_o`, with `depth` = 3 (branches resolve
   in stage 4). Capture the pipeline's own cycle counts — **G-205**, they are recorded nowhere.
+
+### Phase 11 review pass — done 2026-08-27, one defect found and fixed
+
+The two items the phase row listed as unreviewed are now reviewed. What was checked, and against
+what:
+
+**The interrupt precision boundary** (`RV32IM_PIPE_CORE.vhd:234-323`) — sound. The retirement
+boundary is MEM, and the four things that have to be true all are: (1) the accepted MEM instruction
+still completes, because `DMEMORY.vhd:12` deliberately has **no flush port** — so `flush_w` kills
+the three younger stages and not the retiring one; (2) the resume PC is the successor of that
+instruction *including* when it is itself a redirect (`resume_w` takes `br_redirect_w` when
+`br_flush_w`), so an interrupt accepted on a taken branch returns to the branch target; (3) the
+Cycle 2 vector fetch is timed exactly as in the single-cycle core — the DTCM is `altsyncram` with
+`outdata_reg_a => "UNREGISTERED"` on `wrclk_w <= NOT clk_i` (`DMEMORY.vhd:209,222`), so the word
+addressed at the start of Cycle 2 is valid before the edge that arms `IntrVec_ctrl_i`; (4) GIE and
+`tp` are written through the same IDECODE side doors, `tp` in Cycle 2, three cycles before the ISR's
+first instruction can read it. The `mem_active_w` gate and the `intr_i AND intr_q` double-gate are
+both pipeline-specific and both carry their reason in the comment — a flush-injected `addi x0,x0,0`
+has `RegWrite` set and would otherwise be an accept point with `resume = 0`.
+
+**The divider stall** (`HAZARD_UNIT.vhd:74-77` with `EXECUTE.vhd:482`, `IDECODE.vhd:240,299`) —
+sound, and the two ways this normally breaks are both closed. `done_o <= '1' WHEN state_q = DONE`
+(`DIV_UNIT.vhd:321`) is **not** high while idle, so the divide's first cycle in EX cannot escape the
+stall. `hold_i` bubbles EX/MEM but `bubble_w <= flush_i or (stall_i and (not hold_i))` keeps IDECODE
+from bubbling the divide away, and the release cycle is the capture cycle: `hold_i` falls when
+`done` rises and `ex_mem_alu_res_q <= div_result_i` latches on that same edge, which is what
+`DIV_UNIT.vhd:292-312` was written for. F13 is preserved — `accept_w` requires
+`ex_DivStart_w = '0' AND div_busy_w = '0'`.
+
+**Also confirmed:** all seven ISA repairs are present in the pipeline tree independently —
+`AUIPC_OPC`/`LUI_OPC` separate (`const_package.vhd:28-29`), the `LOAD_OPC` arm
+(`IDECODE.vhd:202`), the `sra` pad (`EXECUTE.vhd:329`), the zero-extended unsigned compare
+(`EXECUTE.vhd:209`), and `andi`/`ori` distinct (`CONTROL.vhd:179-180`). The pipeline has no `tb_isa`
+of its own, so this is a static confirmation, not a simulated one.
+
+**The defect — FHCNT counted flush CYCLES, not flush EVENTS.** `flush_w` is
+`br_flush OR accept OR cyc1 OR cyc2`, so every interrupt entry incremented `FHCNT` three times, and
+`depth·FHCNT` then subtracted **9 cycles where 5 are real**. Derivation, cycle by cycle, now in the
+code above both processes: a taken branch retiring in MEM at cycle *N* leaves MEM bubbled at
+*N+1..N+3* — three cycles, exactly `depth·1`; an interrupt accepted at *N* kills the same three
+younger instructions but then spends *N+1* capturing TYPE and *N+2* fetching the vector, so MEM is
+bubbled at *N+1..N+5* — `depth·1` **plus the two entry cycles**. So `FHCNT` now counts
+`br_flush_w OR accept_w` (one count per redirect, and an interrupt accepted on a taken branch is one
+redirect, not two), and `STCNT` now also counts `annul_w`, which is where those two cycles belong.
+With that, every non-retiring cycle after the fill is accounted for exactly once and the clause
+6.iii.b equation is exact rather than approximate.
+
+This matters because **the IPC number *is* this phase's exit criterion**, and test1 is the interrupt
+benchmark: the overcount was invisible on tests 2–4 and systematically understated IPC on test1.
+Nothing asserts on the counters — `batch_verify.do` reports them by design — so this changes no
+pass/fail result, only the number Adar is about to copy out.
+
+**What still stands between this and "finished":**
+1. **G-205 is still open** — the four `CLKCNT`/`STCNT`/`FHCNT` triples have never been measured.
+   The producer exists and already prints `RETIRED` and `IPC` per test
+   (`SIM/RV32IMpipelinedMCU/batch_verify.do`); it needs one run on Adar's machine. Until then the
+   exit criterion is unmeasured, not met.
+2. **The bonus registration gate** (§1.6.d) — the 10% is conditional on registering with Hanan by a
+   date he announces, and registrants get the half-hour lecture on moving the core, the accelerator
+   and the peripherals. The code exists either way; the credit does not.
 
 ## Phase 12 — UART  ·  bonus 20%  ·  Yehonatan writes · **Adar needs the cable and the board**
 
