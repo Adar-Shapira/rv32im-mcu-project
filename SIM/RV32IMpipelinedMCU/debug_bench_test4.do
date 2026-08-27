@@ -2,8 +2,8 @@
 
 onerror {resume}
 
-file copy -force bench_fixed/test4/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
-file copy -force bench_fixed/test4/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
+file copy -force ../RV32IMscMCU/bench_fixed/test4/ITCM.hex C:/TestPrograms/Quartus21_1/app_bin/ITCM.hex
+file copy -force ../RV32IMscMCU/bench_fixed/test4/DTCM.hex C:/TestPrograms/Quartus21_1/app_bin/DTCM.hex
 
 vcom -2008 ../../TB/RV32IMpipelinedMCU/tb_bench_test4.vhd
 vsim -t ns -gMODELSIM=1 work.tb_bench_test4

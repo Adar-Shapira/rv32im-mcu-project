@@ -68,6 +68,50 @@ def compare(sc_dir, pipe_dir):
     return identical, differing, sorted(sc - pp), sorted(pp - sc)
 
 
+# ---------------------------------------------------------------------------
+# GENERATED EXPECTATION PACKAGES, added 2026-08-27 with Phase 11B.
+#
+# Clause 10 Table 1 also gives each MCU its own TB folder, so a generated
+# expectation package exists twice for the same reason a peripheral does. These
+# two are not "allowed to differ, probably fine" -- they are DATA, produced by
+# one generator run from one table, and the ONLY reason the pipeline's suite
+# means anything is that it scores the identical expectations. A drift here
+# would not fail loudly: it would quietly compare the pipeline against numbers
+# the single-cycle core was never held to, and both runs would print PASS.
+#
+# The testbenches themselves are correctly NOT here: they differ by design
+# (different instantiation, different observation ports), which is the whole
+# content of tb_isa_directed's header.
+GENERATED_PKGS = {
+    "isa_expected_pkg.vhd":  "tools/gen_isa_test.py writes both copies",
+    "gpio_expected_pkg.vhd": "tools/gen_gpio_test.py -- same rule",
+}
+
+TB_SC = ROOT / "TB" / "RV32IMscMCU"
+TB_PIPE = ROOT / "TB" / "RV32IMpipelinedMCU"
+
+
+def check_generated_pkgs():
+    """Returns a list of findings; empty is clean."""
+    findings = []
+    for name, why in sorted(GENERATED_PKGS.items()):
+        a, b = TB_SC / name, TB_PIPE / name
+        if not a.is_file():
+            findings.append(f"TB/RV32IMscMCU/{name} is missing ({why})")
+            continue
+        if not b.is_file():
+            findings.append(
+                f"TB/RV32IMpipelinedMCU/{name} is missing -- the pipeline's "
+                f"suite cannot score the same expectations without it ({why})")
+            continue
+        if a.read_bytes() != b.read_bytes():
+            findings.append(
+                f"{name} DIFFERS between the TB trees. It is generated data, "
+                f"not hand-written: re-run the generator rather than editing "
+                f"either copy ({why})")
+    return findings
+
+
 def self_test():
     import shutil, tempfile
     with tempfile.TemporaryDirectory() as td:
@@ -106,6 +150,10 @@ def main():
     print(f"{len(only_sc)} only in RV32IMscMCU, {len(only_pipe)} only in "
           f"RV32IMpipelinedMCU")
 
+    pkg_findings = check_generated_pkgs()
+    print(f"{len(GENERATED_PKGS)} generated expectation package(s) checked "
+          f"across the TB trees, {len(pkg_findings)} finding(s)")
+
     if unexplained:
         print("")
         print("UNEXPLAINED DIFFERENCES -- a shared peripheral has drifted, or a")
@@ -113,10 +161,19 @@ def main():
         for n in unexplained:
             print(f"  {n}")
             print(f"    diff '{SC / n}' '{PIPE / n}'")
+
+    if pkg_findings:
+        print("")
+        print("GENERATED EXPECTATION PACKAGES:")
+        for f in pkg_findings:
+            print(f"  {f}")
+
+    if unexplained or pkg_findings:
         return 1
 
     print("clean: every peripheral shared by both trees is byte-identical, so")
-    print("the single-cycle verification results apply to the pipeline unchanged")
+    print("the single-cycle verification results apply to the pipeline unchanged;")
+    print("and both trees score the same generated expectations")
     return 0
 
 

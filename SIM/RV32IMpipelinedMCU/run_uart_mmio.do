@@ -32,7 +32,17 @@ file copy -force ../RV32IMscMCU/uartmmio/DTCM.hex C:/TestPrograms/Quartus21_1/ap
 
 vcom -2008 ../../TB/RV32IMpipelinedMCU/tb_uart_mmio.vhd
 
-vsim -t ns work.tb_uart_mmio
+# -gMODELSIM=1 is REQUIRED, and was missing until 2026-08-27.
+#   G_MODELSIM ships at 0 (the Quartus value -- tools/check_config_defaults.py
+#   asserts it), and this testbench instantiates the WHOLE MCU, so at the
+#   package default CLOCK_TREE takes its CLK_FPGA branch and builds two real
+#   altpll megafunctions fed by the bench's 100 ns clock instead of the
+#   behavioural clocks. mclk would then be a PLL output at the 2/5 ratio rather
+#   than clk_i itself, every cycle-counted bound in the bench would be measured
+#   against the wrong clock, and with GEN_RESET_ON_LOCK the core does not leave
+#   reset until that PLL reports lock. Every other whole-MCU script in this
+#   project passes the switch; these four did not.
+vsim -t ns -gMODELSIM=1 work.tb_uart_mmio
 run -all
 
 echo ""

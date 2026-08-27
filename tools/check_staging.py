@@ -44,12 +44,77 @@ def sources(text):
         yield src, dst
 
 
+# ---------------------------------------------------------------------------
+# The MODELSIM switch, added 2026-08-27 after the same class of defect appeared
+# a fourth time. G_MODELSIM ships at 0 -- the Quartus value, which
+# tools/check_config_defaults.py asserts and which must NOT be edited to run a
+# simulation. A testbench that instantiates an MCU top therefore has to be given
+# -gMODELSIM=1 on the vsim line, or CLOCK_TREE takes its CLK_FPGA branch and
+# elaborates two real altpll megafunctions fed by the bench's 100 ns clock:
+# mclk stops being clk_i, every cycle-counted bound is measured against the
+# wrong clock, and with GEN_RESET_ON_LOCK the core waits on a PLL lock.
+#
+# It was missing from run_uart_mmio.do and run_uart_menu.do in BOTH trees --
+# four scripts written across Phases 12B/12C/12D, none of them run yet, all
+# four wrong in the same way. Every other whole-MCU script in the project had
+# it, which is exactly why nobody noticed: the habit was right 14 times out of
+# 18. This check makes the 15th impossible.
+VSIM = re.compile(r"^\s*vsim\b(?P<args>[^\n]*)$", re.M)
+TOP = re.compile(r"work\.(?P<top>\w+)")
+
+# Testbench entity -> does it instantiate a whole MCU top? Derived from the TB
+# sources at check time rather than listed here, so a new testbench is covered
+# the day it is written.
+MCU_ENTITY = re.compile(r"^\s*\w+\s*:\s*(RV32IMscMCU|RV32IMpipelinedMCU)\b",
+                        re.M | re.I)
+
+
+def tops_needing_modelsim():
+    """Lower-case entity names of every testbench that instantiates an MCU top."""
+    out = set()
+    for tb in sorted((ROOT / "TB").rglob("*.vhd")):
+        text = tb.read_text(errors="replace")
+        if not MCU_ENTITY.search(text):
+            continue
+        for m in re.finditer(r"^\s*ENTITY\s+(\w+)\s+IS", text, re.M | re.I):
+            out.add(m.group(1).lower())
+    return out
+
+
+def check_modelsim_switch(scripts, findings):
+    need = tops_needing_modelsim()
+    if not need:
+        findings.append("no testbench instantiates an MCU top -- the MODELSIM "
+                        "check found nothing to check, which is itself wrong")
+        return 0
+    n = 0
+    for s in scripts:
+        rel = s.relative_to(ROOT)
+        for m in VSIM.finditer(s.read_text(errors="replace")):
+            args = m.group("args")
+            t = TOP.search(args)
+            if not t or t.group("top").lower() not in need:
+                continue
+            n += 1
+            # -gMODELSIM=0 is a deliberate, explicit choice and is left alone;
+            # only a MISSING switch is the defect, because that is the one that
+            # looks like every other line in the file.
+            if "-gMODELSIM=" not in args:
+                findings.append(
+                    f"{rel}: `vsim{args}` elaborates {t.group('top')}, which "
+                    f"instantiates an MCU top, WITHOUT -gMODELSIM=1 -- it will "
+                    f"build the real altpll instead of the behavioural clocks")
+    return n
+
+
 def main():
     findings = []
     checked = 0
     scripts = sorted(SIM.rglob("*.do"))
     if not scripts:
         sys.exit("no .do scripts found - run this from the repo root")
+
+    n_vsim = check_modelsim_switch(scripts, findings)
 
     for s in scripts:
         rel = s.relative_to(ROOT)
@@ -82,12 +147,14 @@ def main():
                 findings.append(f"{rel}: stages '{src}' -- FILE DOES NOT EXIST")
 
     print(f"checked {checked} app_bin staging copies across {len(scripts)} .do scripts")
+    print(f"checked {n_vsim} whole-MCU vsim line(s) for -gMODELSIM")
     if findings:
         print(f"\n{len(findings)} FINDING(S):")
         for f in findings:
             print(f"  - {f}")
         return 1
-    print("clean: every staged image is an existing .hex M9K-intel/generated file")
+    print("clean: every staged image is an existing .hex M9K-intel/generated "
+          "file, and every whole-MCU vsim line sets MODELSIM explicitly")
     return 0
 
 

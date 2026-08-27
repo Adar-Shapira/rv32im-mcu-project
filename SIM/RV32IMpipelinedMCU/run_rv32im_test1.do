@@ -60,7 +60,7 @@ set nref [llength $refw]
 set nout [llength $outw]
 if {$nout < $nref} {
     echo "FAIL: dump has $nout words, RARS has $nref"
-    quit -code 1
+    if {![info exists ::REGRESS]} { quit -code 1 }
 }
 set nd 0
 set firstd -1
@@ -74,6 +74,10 @@ if {$nd == 0} {
     echo "VERDICT: PASS - $nref words match RARS DTCM.h"
 } else {
     echo "VERDICT: FAIL - $nd mismatches, first at word $firstd (got [lindex $outw $firstd] expected [lindex $refw $firstd])"
-    quit -code 1
+    if {![info exists ::REGRESS]} { quit -code 1 }
 }
-quit -f
+# quit -f, unless a regression driver is running us. regress.do sets ::REGRESS
+# and needs the simulator to stay alive to score the next test; standalone this
+# still exits so a batch `vsim -c -do run_bench_testN.do` returns. Same guard as
+# SIM/RV32IMscMCU/repair_check.do:276.
+if {![info exists ::REGRESS]} { quit -f }

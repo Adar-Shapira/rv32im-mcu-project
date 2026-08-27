@@ -2,11 +2,19 @@
 """
 gen_isa_test.py — generate the directed ISA test for the RV32IM MCU.
 
-Emits three files:
+Emits five files:
   SIM/RV32IMscMCU/isa/ITCM.hex          the test program, Intel HEX (word-addressed)
   SIM/RV32IMscMCU/isa/DTCM.hex          zero-filled data image
-  TB/RV32IMscMCU/isa_expected_pkg.vhd   the expected store sequence, as a VHDL package
   SIM/RV32IMscMCU/isa/listing.txt       human-readable disassembly + expectations
+  TB/RV32IMscMCU/isa_expected_pkg.vhd          the expected store sequence, as a
+  TB/RV32IMpipelinedMCU/isa_expected_pkg.vhd   VHDL package -- ONE sequence, two
+                                               byte-identical copies, because
+                                               clause 10 gives each MCU its own
+                                               TB folder (see main()).
+
+  The program itself is generated ONCE and stays in SIM/RV32IMscMCU/isa/: it is
+  core-agnostic, and the pipeline's run_isa.do stages that same copy rather than
+  owning a second one that could drift.
 
 WHY A GENERATOR
   The testbench must not depend on a hand-maintained pair of "program" and
@@ -1035,7 +1043,20 @@ def main():
     (isa / "ITCM.hex").write_text(ihex(words))
     (isa / "DTCM.hex").write_text(ihex([0] * 1024))
     (isa / "listing.txt").write_text(listing(prog, seq))
-    (root / "TB" / "RV32IMscMCU" / "isa_expected_pkg.vhd").write_text(vhdl_pkg(seq))
+
+    # BOTH trees, from one generation. Clause 10 Table 1 gives each MCU its own
+    # TB folder, so the expectation package genuinely exists twice and there is
+    # no shared folder to point both at -- the same duplication clause 10 forces
+    # on the peripherals. Writing one and copying the other by hand is how the
+    # .qsf / compile.do pair drifted twice in this project (5d540c0, Phase 12B),
+    # so the generator writes both and tools/check_peripheral_copies.py asserts
+    # they are byte-identical. The PROGRAM is core-agnostic and lives once, in
+    # SIM/RV32IMscMCU/isa/; the pipeline's run_isa.do stages that copy.
+    pkg = vhdl_pkg(seq)
+    pkg_paths = [root / "TB" / "RV32IMscMCU" / "isa_expected_pkg.vhd",
+                 root / "TB" / "RV32IMpipelinedMCU" / "isa_expected_pkg.vhd"]
+    for p in pkg_paths:
+        p.write_text(pkg)
 
     defects = sum(1 for _, _, _, _, n in seq if DEFECT in n)
     repaired = sum(1 for _, _, _, _, n in seq
@@ -1045,7 +1066,8 @@ def main():
     print(f"  stores expected to FAIL on the unfixed core: {defects}")
     cross_check_counts(words, seq, defects, repaired)
     print(f"  wrote {isa}/ITCM.hex, DTCM.hex, listing.txt")
-    print(f"  wrote TB/RV32IMscMCU/isa_expected_pkg.vhd")
+    for p in pkg_paths:
+        print(f"  wrote {p.relative_to(root)}")
 
 
 if __name__ == "__main__":

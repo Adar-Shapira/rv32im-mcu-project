@@ -50,11 +50,19 @@ if {!$have_stage} {
     echo "ABORT: $STAGE/test1..4 is not staged."
     echo "  Build it once with the PowerShell block in"
     echo "  DOC/04_baseline_runbook.md section 3, then re-run."
+    quietly set ::bv_status "SKIPPED (test1..4 not staged)"
+    quietly set ::bv_nfail 0
+    # Under regress.do this part is optional and the rest of the run is still
+    # meaningful, so hand control back instead of taking the simulator down.
+    if {[info exists ::REGRESS]} { return }
     quit -code 1
 }
 
 if {[catch {do compile.do} err]} {
     echo "COMPILE FAILED: $err"
+    quietly set ::bv_status "COMPILE FAILED"
+    quietly set ::bv_nfail 1
+    if {[info exists ::REGRESS]} { return }
     quit -code 1
 }
 
@@ -172,12 +180,17 @@ echo "  Copy the CLKCNT/STCNT/FHCNT triples into the plan file - they are"
 echo "  gap G-205 and the input to the IPC check. They are reported, not"
 echo "  asserted: PROJECT_EXPLANATION section 8.6's figures include the"
 echo "  testbench drain, so they are a range and not a target."
+quietly set ::bv_nfail $::nfail
 if {$::nfail == 0} {
+    quietly set ::bv_status "all four matched the reference captures"
     echo "  ALL FOUR MATCHED the reference captures."
-    echo "================================================================="
-    quit -code 0
 } else {
+    quietly set ::bv_status "$::nfail of 4 FAILED"
     echo "  $::nfail FAILURE(S) - see the rows above."
-    echo "================================================================="
-    quit -code 1
+}
+echo "================================================================="
+# regress.do folds ::bv_nfail into its own total and owns the exit status;
+# standalone, this script is still the one command with a meaningful one.
+if {![info exists ::REGRESS]} {
+    if {$::nfail == 0} { quit -code 0 } else { quit -code 1 }
 }

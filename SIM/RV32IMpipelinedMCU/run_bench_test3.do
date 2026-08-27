@@ -28,10 +28,14 @@ if {$::btcnt_ticked == 1} {
     echo "BTCNT TICKED: yes"
 } else {
     echo "BTCNT TICKED: no - sys_init started the timer (BTCTL1=BTSSEL3) but BTCNT never left 0."
-    quit -code 1
+    if {![info exists ::REGRESS]} { quit -code 1 }
 }
 echo ""
 echo "Read the SUMMARY block above. Expected: VERDICT: PASS, failed 0,"
 echo "  plus BTCNT TICKED: yes. The 0.125-1 s BT_ISR is FPGA-only."
 echo ""
-quit -f
+# quit -f, unless a regression driver is running us. regress.do sets ::REGRESS
+# and needs the simulator to stay alive to score the next test; standalone this
+# still exits so a batch `vsim -c -do run_bench_testN.do` returns. Same guard as
+# SIM/RV32IMscMCU/repair_check.do:276.
+if {![info exists ::REGRESS]} { quit -f }

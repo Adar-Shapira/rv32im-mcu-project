@@ -829,23 +829,78 @@ generated image, and rejects any `Hexadecimal-Text` source — the two formats a
 programs (§3), and loading the wrong one produces a plausible wrong answer instead of an error. It
 also catches path rot, which is not hypothetical: section 3's own staging table pointed at
 `Auxilary\testN\…` for weeks after the `Auxiliary` restructure moved it to
-`Auxilary\Benchmarks\testN\…`. Clean today: 34 copies across 33 scripts.
+`Auxilary\Benchmarks\testN\…`.
 
-**The pipeline has its own, same contract:**
+**Since 2026-08-27 it also asserts the `-gMODELSIM=1` switch**, because five scripts were missing
+it. `G_MODELSIM` ships at `0` — the Quartus value, which `check_config_defaults.py` asserts and
+which must *not* be edited to run a simulation — so a testbench that instantiates a whole MCU has
+to be given the switch on its `vsim` line, or `CLOCK_TREE` takes its `CLK_FPGA` branch and
+elaborates **two real ALTPLL megafunctions** fed by the bench's 100 ns clock. `mclk` then stops
+being `clk_i`, every cycle-counted bound in the bench is measured against the wrong clock, and with
+`GEN_RESET_ON_LOCK` the core does not leave reset until that PLL reports lock.
+
+The five: `run_uart_mmio.do` and `run_uart_menu.do` in **both** trees (Phases 12B/12C/12D) and
+`run_intr_mmio.do` in the single-cycle tree (Phase 9C). None had been run yet. The other 25
+whole-MCU `vsim` lines all had the switch, which is exactly why nobody noticed — the habit was
+right 25 times out of 30. Clean today: 70 staging copies and 30 whole-MCU `vsim` lines across 51
+scripts.
+
+**The pipeline now has the same one command — new 2026-08-27, Phase 11B:**
 
 ```
 cd SIM\RV32IMpipelinedMCU
-vsim -c -do batch_verify.do
+vsim -c -do regress.do
 echo %ERRORLEVEL%
 ```
 
-It runs the four benchmarks, diffs each DTCM against the reference's own capture
-(`Auxiliary\Lab 5\SIM\RV32IM_pipeline\DTCM_testN_MS.mem`), fails a test whose program never reached
-its final `while(1)`, and exits non-zero. Two things to know: its `CLKCNT`/`STCNT`/`FHCNT` figures
-are **reported, not asserted** — `PROJECT_EXPLANATION.md` §8.6's numbers include the testbench
-drain, so they are a range, not a target — and they are exactly the **G-205** evidence to copy into
-the plan file. Also note its `mem_dump.do` was widened from 1024 to 2048 words on 2026-08-26 (the
-last open half of **G-204**); a 1024-word dump cannot be compared to the reference capture at all.
+Until this existed the pipeline had `batch_verify.do` and nothing else, so its **ten** self-checking
+testbenches were nine separate commands nobody scored together — a green run of one said nothing
+about the other eight. `regress.do` compiles once, then runs and scores:
+
+- **PART A** — the ten self-checking tests, by the same `VERDICT:` rule the single-cycle table uses:
+  `run_isa.do` (new, §10.1), the GPIO trio, both USART tests, and the four interrupt benchmarks on
+  their **corrected** images. Three of them carry one extra machine-checked fact each and it is
+  folded into the row: test2 and test3 must see `BTCNT` tick, test4 must see **3** capture events.
+- **PART B** — `batch_verify.do`, unchanged in what it does: the four **shipped** benchmarks, each
+  final DTCM diffed word-by-word against the reference's own capture
+  (`Auxiliary\Lab 5\SIM\RV32IM_pipeline\DTCM_testN_MS.mem`), failing a test whose program never
+  reached its final `while(1)`. Different images and a different question from PART A, which is why
+  both exist.
+
+`batch_verify.do` still works standalone and still exits non-zero on its own; under `regress.do` it
+hands its failure count up instead, and the driver owns the exit status. Its
+`CLKCNT`/`STCNT`/`FHCNT` figures stay **reported, not asserted** — `PROJECT_EXPLANATION.md` §8.6's
+numbers include the testbench drain, so they are a range, not a target — and they are exactly the
+**G-205** evidence to copy into the plan file. `logs\batch_verify.log` is where they land.
+
+Also note its `mem_dump.do` was widened from 1024 to 2048 words on 2026-08-26 (the last open half of
+**G-204**); a 1024-word dump cannot be compared to the reference capture at all.
+
+### 10.1 `run_isa.do` on the pipeline — what it is for
+
+The four benchmarks compare a final DTCM image. That catches a gross error and says nothing about
+`bgeu` on operands no benchmark forms, or `sra`'s sign fill, or a load's offset. **43 of the 56
+stores** the directed suite scores are cases no benchmark executes, and the pipeline's CONTROL,
+IDECODE, EXECUTE, IFETCH and DMEMORY are a *rewrite* — 212 changed lines in EXECUTE alone — so each
+of the seven ISA repairs had to be present there independently. Until Phase 11B that was a claim
+from reading the source.
+
+```
+cd SIM\RV32IMpipelinedMCU
+do compile.do
+do run_isa.do
+```
+
+**Expect `VERDICT: PASS` with exactly 5 mismatches.** That is the floor, not a to-do list: all five
+are mul-related (**G-326** 2 cases, **G-308** 3 cases) and out of scope on *both* cores by Hanan's
+forum answer, *"mul only (as in Lab 5), 16-bit multiplier only"*. `div`/`divu`/`rem`/`remu` are **not**
+in that list any more — Phase 7B2 put them through the accelerator and they must PASS.
+
+Any other number is a finding. Run the single-cycle suite (`do run_isa.do` in `SIM\RV32IMscMCU`)
+and compare: a case that mismatches on the pipeline and passes on the single-cycle core is a defect
+this core does not share, and the pipelined EXECUTE / IDECODE are where to look. The two runs score
+**byte-identical** expectation packages — `tools/gen_isa_test.py` writes both and
+`tools/check_peripheral_copies.py` asserts they never drift.
 
 **Worth doing once, deliberately:** break something small, re-run either script, and confirm the
 exit status is **1** and the table names the broken row. A regression nobody has seen fail is a
