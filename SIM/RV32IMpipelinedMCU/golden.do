@@ -29,6 +29,7 @@ TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
 add wave -noupdate -divider {PIPELINE CONTROL}
 add wave -noupdate -expand -group PIPE_CONTROL -color Yellow -itemcolor Yellow ${CORE}/stall_w
+add wave -noupdate -expand -group PIPE_CONTROL -color Orange -itemcolor Orange ${CORE}/hold_w
 add wave -noupdate -expand -group PIPE_CONTROL -color {Violet Red} -itemcolor {Violet Red} ${CORE}/flush_w
 add wave -noupdate -expand -group PIPE_CONTROL -color Cyan -itemcolor Cyan -radix hexadecimal ${CORE}/redirect_addr_w
 add wave -noupdate -expand -group PIPE_CONTROL -color Magenta -itemcolor Magenta -radix hexadecimal ${CORE}/forward_a_w
@@ -107,6 +108,13 @@ add wave -noupdate -divider {CONTROL}
 add wave -noupdate -expand -group CONTROL -radix hexadecimal ${CORE}/CTL/*
 add wave -noupdate -expand -group CONTROL -color Cyan -itemcolor Cyan -radix hexadecimal ${CORE}/CTL/ALUOp_ctrl_o
 add wave -noupdate -expand -group CONTROL -color Yellow -itemcolor Yellow ${CORE}/CTL/mul_w
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/DivStart_ctrl_o
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/DivSigned_ctrl_o
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/DivRem_ctrl_o
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/div_w
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/divu_w
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/rem_w
+add wave -noupdate -expand -group CONTROL -color Magenta -itemcolor Magenta ${CORE}/CTL/remu_w
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
@@ -142,6 +150,69 @@ add wave -noupdate -expand -group MULT_STAGE2 -color Cyan -itemcolor Cyan -radix
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
+add wave -noupdate -divider {DIVIDER}
+add wave -noupdate -expand -group DIV_CORE -color Magenta -itemcolor Magenta ${CORE}/div_start_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/div_signed_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/div_rem_w
+add wave -noupdate -expand -group DIV_CORE -color Magenta -itemcolor Magenta ${CORE}/ex_DivStart_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/ex_DivSigned_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/ex_DivRem_w
+add wave -noupdate -expand -group DIV_CORE -color Orange -itemcolor Orange ${CORE}/hold_w
+add wave -noupdate -expand -group DIV_CORE -color Yellow -itemcolor Yellow ${CORE}/stall_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/div_busy_w
+add wave -noupdate -expand -group DIV_CORE -color {Medium Spring Green} -itemcolor {Medium Spring Green} ${CORE}/div_done_w
+add wave -noupdate -expand -group DIV_CORE ${CORE}/div_rst_w
+add wave -noupdate -expand -group DIV_CORE -radix hexadecimal ${CORE}/div_quot_w
+add wave -noupdate -expand -group DIV_CORE -radix hexadecimal ${CORE}/div_remd_w
+add wave -noupdate -expand -group DIV_CORE -color Cyan -itemcolor Cyan -radix hexadecimal ${CORE}/div_result_w
+add wave -noupdate -expand -group DIV_EX ${CORE}/EXE/hold_i
+add wave -noupdate -expand -group DIV_EX ${CORE}/EXE/DivStart_ctrl_i
+add wave -noupdate -expand -group DIV_EX -radix hexadecimal ${CORE}/EXE/div_result_i
+add wave -noupdate -expand -group DIV_EX -color Magenta -itemcolor Magenta -radix hexadecimal ${CORE}/EXE/fw_rs1_o
+add wave -noupdate -expand -group DIV_EX -color Blue -itemcolor Blue -radix hexadecimal ${CORE}/EXE/fw_rs2_o
+add wave -noupdate -expand -group DIV_HZD ${CORE}/HZD/ex_DivStart_ctrl_i
+add wave -noupdate -expand -group DIV_HZD ${CORE}/HZD/div_done_i
+add wave -noupdate -expand -group DIV_HZD -color Orange -itemcolor Orange ${CORE}/HZD/div_hold_w
+add wave -noupdate -expand -group DIV_HZD ${CORE}/HZD/hold_o
+add wave -noupdate -expand -group DIV_HZD ${CORE}/HZD/stall_o
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/mclk_i
+add wave -noupdate -expand -group DIV_UNIT -color Magenta -itemcolor Magenta ${CORE}/DIVU/divclk_i
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/rst_i
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/start_i
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/signed_i
+add wave -noupdate -expand -group DIV_UNIT -color Magenta -itemcolor Magenta -radix hexadecimal ${CORE}/DIVU/dividend_i
+add wave -noupdate -expand -group DIV_UNIT -color Blue -itemcolor Blue -radix hexadecimal ${CORE}/DIVU/divisor_i
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/busy_o
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/done_o
+add wave -noupdate -expand -group DIV_UNIT -radix hexadecimal ${CORE}/DIVU/quotient_o
+add wave -noupdate -expand -group DIV_UNIT -radix hexadecimal ${CORE}/DIVU/remainder_o
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/state_q
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/ena_q
+add wave -noupdate -expand -group DIV_UNIT -radix hexadecimal ${CORE}/DIVU/a_q
+add wave -noupdate -expand -group DIV_UNIT -radix hexadecimal ${CORE}/DIVU/b_q
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/qneg_q
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/rneg_q
+add wave -noupdate -expand -group DIV_UNIT ${CORE}/DIVU/bzero_q
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/divclk_i
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/divrst_i
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/divena_i
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/dividend_i
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/divisor_i
+add wave -noupdate -expand -group DIV_ACCEL -color Yellow -itemcolor Yellow ${CORE}/DIVU/ENGINE/divbusy_o
+add wave -noupdate -expand -group DIV_ACCEL -color Cyan -itemcolor Cyan -radix hexadecimal ${CORE}/DIVU/ENGINE/quotient_o
+add wave -noupdate -expand -group DIV_ACCEL -color Cyan -itemcolor Cyan -radix hexadecimal ${CORE}/DIVU/ENGINE/residue_o
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/state_q
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/busy_q
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/sr_q
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/dvsr_q
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/qsr_q
+add wave -noupdate -expand -group DIV_ACCEL -radix unsigned ${CORE}/DIVU/ENGINE/cnt_q
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/y_w
+add wave -noupdate -expand -group DIV_ACCEL -radix hexadecimal ${CORE}/DIVU/ENGINE/diff_w
+add wave -noupdate -expand -group DIV_ACCEL ${CORE}/DIVU/ENGINE/nonneg_w
+
+TreeUpdate [SetDefaultTree]
+quietly WaveActivateNextPane
 add wave -noupdate -divider {DMEMORY / MEM-WB}
 add wave -noupdate -expand -group DMEMORY -radix hexadecimal ${CORE}/MEM/*
 add wave -noupdate -expand -group DTCM -radix hexadecimal ${CORE}/MEM/data_memory/*
@@ -156,6 +227,8 @@ quietly WaveActivateNextPane
 add wave -noupdate -divider {HAZARD UNIT}
 add wave -noupdate -expand -group HAZARD_UNIT -radix hexadecimal ${CORE}/HZD/*
 add wave -noupdate -expand -group HAZARD_UNIT -color Yellow -itemcolor Yellow ${CORE}/HZD/stall_o
+add wave -noupdate -expand -group HAZARD_UNIT -color Orange -itemcolor Orange ${CORE}/HZD/hold_o
+add wave -noupdate -expand -group HAZARD_UNIT -color Orange -itemcolor Orange ${CORE}/HZD/div_hold_w
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane

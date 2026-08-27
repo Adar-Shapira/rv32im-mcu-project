@@ -2,109 +2,28 @@
 -- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
 -- Final Project 2026 — RV32IM-based MCU, five-stage pipeline (bonus 10%)
 --
--- RV32IMpipelinedMCU — board-facing structural top level.
+-- RV32IMpipelinedMCU — board-facing structural top (Phase 11 slice 1).
 --
--- Same rationale as RV32IMscMCU: Assignment definition §3 requires two
--- structural levels, board-level signal conditioning belongs at the boundary
--- and not inside the CPU, and §7 requires the Signal-Tap pins to be removable
--- through a generate parameter. See DUT/RV32IMscMCU/RV32IMscMCU.vhd for the
--- full reasoning; only the differences are noted here.
---
--- REWRITTEN 2026-08-23 FOR THE REVISED PIPELINE
---   The LAB5 pipeline was revised after this wrapper was first written, and the
---   core's interface changed with it. Reference:
---     Auxiliary/Lab 5 - as submitted/DUT/RV32IM_pipeline/RV32IM_PIPE_CORE.vhd
---     Auxiliary/Lab 5 - as submitted/DOC/HANDOVER_Report_lab5.md §4.3, §4.6
---   What changed, and why this file had to follow:
---     * BPTRIGGER_o          -> STRIGGER_o
---     * STCNT_o / FHCNT_o     8-bit -> 16-bit
---     * one pc_o/instruction_o pair -> five, one per stage (Figure 8):
---       IFpc_o/IFinstruction_o … WBpc_o/WBinstruction_o
---     * stall_o and flush_o are no longer top-level ports. They are internal
---       to the core (stall_w / flush_w) and must be observed through the wave
---       window or a Signal-Tap tap, not through a pin.
---     * the datapath observation ports the single-cycle core exposes
---       (RegWrite/MemWrite/Branch, read_data1/2, write_data, alu_res, brTaken,
---       dtcm_*) are NOT on the revised pipeline core at all. Figure 8 replaced
---       them with the five per-stage PC/instruction pairs, which is the more
---       useful view for a pipeline: those single signals each belonged to a
---       different stage and were easy to misread as one instruction.
---   Nothing here is invented. The port list below is exactly the core's, and
---   the wrapper adds only reset conditioning and the debug-port gate.
---
--- VALIDATION INSTRUMENTATION (LAB5 clause 6.iii)
---   BPADDR_i in, STRIGGER_o / CLKCNT_o / STCNT_o / FHCNT_o out. These feed the
---   Signal-Tap trigger and the IPC equation
---       IPC = (CLKCNT_o - (STCNT_o + 4 + depth*FHCNT_o)) / CLKCNT_o
---   with depth = 3, because branches and jumps resolve in stage 4 (MEM).
---
---   BPADDR_i is a board input (SW7-SW0) used only during validation, so
---   GEN_DEBUG_PORTS also gates it: tied to zero when the generic is FALSE,
---   driven from the port when it is TRUE.
---
---   ⚠ DO NOT SET GEN_DEBUG_PORTS => FALSE ON THIS WRAPPER. Corrected
---   2026-08-26; the sentence that used to stand here said to do exactly that in
---   a performance revision, and it would have produced a measurement of nothing.
---   Read the port list below: this entity has three inputs (clk_i, rst_i,
---   BPADDR_i) and FOURTEEN outputs, and every one of the fourteen is an
---   observation port. There is no GPIO, no LEDR, no HEX, no PWM here yet -- see
---   PHASE SCOPE. So the generate that ties the observation ports off at FALSE
---   leaves the five stages, both M9K TCMs and the PLL with no fan-out to any
---   pin, and synthesis deletes the whole design. The failure is silent and it
---   fails DOWNWARD: memory bits go to ~0, not to 483,328, and every acceptance
---   note in the runbook watches only for the high number. There would also be no
---   clock left for the Timing Analyzer to report an Fmax on.
---
---   What clause 7 actually requires is that the *location pins* used for
---   Signal-Tap be removed, and a performance revision does that by carrying no
---   set_location_assignment at all -- exactly as Auxiliary/Lab4/Quartus/
---   Lab4_Perf.qsf does. Keep the generic TRUE in both pipeline revisions. A
---   debug-free pipeline area figure only becomes meaningful once this wrapper
---   has real functional outputs, which is Phase 11's work, not a revision
---   setting. The single-cycle wrapper is a different case: it has 50+ real
---   board outputs, so FALSE there removes debug logic and leaves a design.
---
--- WHY RESET POLARITY LIVES HERE AND NOT IN THE CORE
---   The revised single-cycle core welds polarity to the simulation switch
---   (RV32IM_sc/RV32IM_CORE.vhd: rst_w <= rst_i WHEN MODELSIM /= 0 ELSE NOT rst_i),
---   which makes "active-low reset" and "FPGA build" the same decision and blocks
---   an active-high board reset or an active-low simulation. Keeping the polarity
---   in the wrapper as its own generic separates the two, and matches what the
---   students' own Lab 4 already did (Auxilary/Lab4/DUT/fpga_hw_interface.vhd:38,
---   the RSTPOL generate). The pipeline core does not invert, so this wrapper is
---   the single owner of polarity — there is no double inversion.
---
---   That last sentence was FALSE until 2026-08-26 and the bug it hid was
---   FPGA-only. RV32IM_PIPE_CORE.vhd carried the same welded line as the
---   single-cycle reference, so at the committed defaults (RST_ACTIVE_LOW => TRUE,
---   G_MODELSIM := 0) the wrapper inverted and the core inverted again: the core's
---   internal reset was the raw KEY0 pin, which idles HIGH on the DE2-115, so the
---   board build would have held the design in reset unless KEY0 was pressed.
---   Simulation could not have shown it — tb_RV32IMpipelinedMCU passes
---   RST_ACTIVE_LOW => FALSE and every .do script passes -gMODELSIM=1, which
---   cancels both inversions. The core's line is now `rst_w <= rst_i`, matching
---   what the single-cycle core has always done, and the sentence above is true.
---
--- PHASE SCOPE
---   Thin, as on the single-cycle side. The core keeps its own PLL and DTCM; the
---   clock tree, bus interface and peripherals attach in later phases. The
---   wrapper must be behaviourally transparent so the pipeline baseline
---   reproduces through it unchanged.
---
---   The pipeline already includes the Lab 5 ISA repairs (it is the repair
---   reference the single-cycle side was transcribed from).
+-- MCU shell transcribed from DUT/RV32IMscMCU/RV32IMscMCU.vhd (clock tree,
+-- address decoder, bidirectional data bus, GPIO, Basic Timer, interrupt
+-- controller). The CPU is RV32IM_PIPE_CORE instead of RV32IM_CORE.
+-- UART (Phase 12) is not attached.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE work.cond_compilation_package.all;
+USE work.const_package.all;
 USE work.aux_package.all;
 
 
 ENTITY RV32IMpipelinedMCU IS
 	generic(
-		RST_ACTIVE_LOW		: boolean	:= TRUE;	-- TRUE = rst_i is KEY0 (active-low)
-		GEN_DEBUG_PORTS		: boolean	:= TRUE;	-- FALSE ties off the Signal-Tap ports (§7)
-
+		RST_ACTIVE_LOW		: boolean	:= TRUE;
+		GEN_DEBUG_PORTS		: boolean	:= TRUE;
+		GEN_RESET_ON_LOCK	: boolean	:= TRUE;
+		GEN_GPO_READBACK	: boolean	:= TRUE;
+		GEN_INPUT_SYNC		: boolean	:= FALSE;
+		KEY_ACTIVE_LOW		: boolean	:= TRUE;
 		WORD_GRANULARITY	: boolean	:= G_WORD_GRANULARITY;
 		MODELSIM			: integer	:= G_MODELSIM;
 		DATA_BUS_WIDTH		: integer	:= 32;
@@ -114,19 +33,30 @@ ENTITY RV32IMpipelinedMCU IS
 		MA_WIDTH			: integer	:= G_MA_WIDTH;
 		DATA_WORDS_NUM		: integer	:= G_DATA_WORDSNUM;
 		CLK_CNT_WIDTH		: integer	:= 16;
-		STCNT_WIDTH			: integer	:= 16;	-- 16 in the revised core, was 8
-		FHCNT_WIDTH			: integer	:= 16;	-- 16 in the revised core, was 8
+		STCNT_WIDTH			: integer	:= 16;
+		FHCNT_WIDTH			: integer	:= 16;
 		BP_ADDR_WIDTH		: integer	:= 8
 	);
 	PORT(
-		--=== Board pins ===
-		clk_i				:IN		STD_LOGIC;		-- CLOCK_50, PIN_Y2
-		rst_i				:IN		STD_LOGIC;		-- KEY0,     PIN_M23
-		BPADDR_i			:IN		STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);	-- SW7-SW0, validation only
+		clk_i				:IN		STD_LOGIC;
+		rst_i				:IN		STD_LOGIC;
+		BPADDR_i			:IN		STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
 
-		--=== Figure 8 observation interface — gated by GEN_DEBUG_PORTS ===
-		-- Five PC/instruction pairs, one per pipeline stage. They describe five
-		-- DIFFERENT instructions in the same cycle; do not read them as one.
+		SW_i				:IN		STD_LOGIC_VECTOR(9 DOWNTO 0) := (OTHERS => '0');
+		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1) := (OTHERS => '1');
+		GPIO				:INOUT	STD_LOGIC_VECTOR(35 DOWNTO 0) := (OTHERS => 'Z');
+		CAPIN1_i			:IN		STD_LOGIC := '0';
+		CAPIN2_i			:IN		STD_LOGIC := '0';
+		PWM_o				:OUT	STD_LOGIC;
+
+		LEDR_o				:OUT	STD_LOGIC_VECTOR(9 DOWNTO 0);
+		HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX3_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+
 		IFpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		IFinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		IDpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -137,22 +67,26 @@ ENTITY RV32IMpipelinedMCU IS
 		MEMinstruction_o	:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		WBpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		WBinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
-
-		STRIGGER_o			:OUT	STD_LOGIC;	-- (IF PC word address = BPADDR_i)
-
+		STRIGGER_o			:OUT	STD_LOGIC;
 		CLKCNT_o			:OUT	STD_LOGIC_VECTOR(CLK_CNT_WIDTH-1 DOWNTO 0);
 		STCNT_o				:OUT	STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0);
-		FHCNT_o				:OUT	STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0)
+		FHCNT_o				:OUT	STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0);
+
+		MemWrite_ctrl_o		:OUT	STD_LOGIC;
+		alu_res_o			:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		read_data2_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		dtcm_cs_o			:OUT	STD_LOGIC;
+		unmapped_o			:OUT	STD_LOGIC;
+		dtcm_wren_o			:OUT	STD_LOGIC
 	);
 END RV32IMpipelinedMCU;
 --============================================================================
 ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 
-	SIGNAL rst_w				: STD_LOGIC;	-- active-high internal reset
+	SIGNAL rst_w				: STD_LOGIC;
+	SIGNAL sys_rst_w			: STD_LOGIC;
 	SIGNAL bpaddr_w				: STD_LOGIC_VECTOR(BP_ADDR_WIDTH-1 DOWNTO 0);
 
-	-- Core observation outputs, brought out here so the debug gate below can
-	-- choose between driving the pins and tying them off.
 	SIGNAL IFpc_w, IDpc_w, EXpc_w, MEMpc_w, WBpc_w
 								: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 	SIGNAL IFinst_w, IDinst_w, EXinst_w, MEMinst_w, WBinst_w
@@ -162,21 +96,122 @@ ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 	SIGNAL STCNT_w				: STD_LOGIC_VECTOR(STCNT_WIDTH-1 DOWNTO 0);
 	SIGNAL FHCNT_w				: STD_LOGIC_VECTOR(FHCNT_WIDTH-1 DOWNTO 0);
 
+	SIGNAL dbus_addr_w			: STD_LOGIC_VECTOR(DATA_ADDR_WIDTH-1 DOWNTO 0);
+	SIGNAL dbus_wdata_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL dbus_MemRead_w		: STD_LOGIC;
+	SIGNAL dbus_MemWrite_w		: STD_LOGIC;
+	SIGNAL dbus_rdata_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL dtcm_cs_w			: STD_LOGIC;
+	SIGNAL unmapped_w			: STD_LOGIC;
+	SIGNAL dtcm_wren_w			: STD_LOGIC;
+	SIGNAL sfr_cs_w				: STD_LOGIC_VECTOR(SFR_CS_NUM-1 DOWNTO 0);
+
+	SIGNAL mclk_w				: STD_LOGIC;
+	SIGNAL smclk_w				: STD_LOGIC;
+	SIGNAL accelclk_w			: STD_LOGIC;
+	SIGNAL pll_locked_w			: STD_LOGIC;
+	SIGNAL pclk_w				: STD_LOGIC;
+
+	SIGNAL lane0_w				: STD_LOGIC;
+	SIGNAL lane1_w				: STD_LOGIC;
+	SIGNAL lane2_w				: STD_LOGIC;
+	SIGNAL gpo_cs_w				: STD_LOGIC;
+	SIGNAL timer_cs_w			: STD_LOGIC;
+	SIGNAL intc_cs_w			: STD_LOGIC;
+	SIGNAL sfr_rd_impl_w		: STD_LOGIC;
+
+	SIGNAL btctl1_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL btctl2_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL btcmpr0_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL btcmpr1_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL btcapr_rd_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL bt_ifg_set_w			: STD_LOGIC;
+
+	SIGNAL intc_ie_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intc_ifg_rd_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intc_type_rd_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL type_push_w			: STD_LOGIC;
+	SIGNAL type_capt_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL intr_w				: STD_LOGIC;
+	SIGNAL inta_w				: STD_LOGIC;
+	SIGNAL gie_w				: STD_LOGIC;
+
+	type hex_byte_array_t is array (0 TO 5) of STD_LOGIC_VECTOR(7 DOWNTO 0);
+	type hex_seg_array_t  is array (0 TO 5) of STD_LOGIC_VECTOR(6 DOWNTO 0);
+	SIGNAL ledr_q				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL hex_q				: hex_byte_array_t;
+	SIGNAL hex_seg_w			: hex_seg_array_t;
+	SIGNAL pwm_w				: STD_LOGIC;
+	SIGNAL capin1_w				: STD_LOGIC;
+	SIGNAL capin2_w				: STD_LOGIC;
+
+	-- Indices match DUT/RV32IMscMCU/RV32IMscMCU.vhd:383-414.
+	CONSTANT RD_SW		: integer := 0;
+	CONSTANT RD_LEDR	: integer := 1;
+	CONSTANT RD_HEX0	: integer := 2;
+	CONSTANT RD_HEX1	: integer := 3;
+	CONSTANT RD_HEX2	: integer := 4;
+	CONSTANT RD_HEX3	: integer := 5;
+	CONSTANT RD_HEX4	: integer := 6;
+	CONSTANT RD_HEX5	: integer := 7;
+	CONSTANT RD_PB		: integer := 8;
+	CONSTANT RD_BTCTL1	: integer := 9;
+	CONSTANT RD_BTCTL2	: integer := 10;
+	CONSTANT RD_IE			: integer := 11;
+	CONSTANT RD_IFG			: integer := 12;
+	CONSTANT RD_TYPE		: integer := 13;
+	CONSTANT RD_TYPEPUSH	: integer := 14;
+	CONSTANT NRD_BYTE	: integer := 15;
+	CONSTANT RD_BTCMPR0	: integer := 15;
+	CONSTANT RD_BTCMPR1	: integer := 16;
+	CONSTANT RD_BTCAPR	: integer := 17;
+	CONSTANT NRD		: integer := 18;
+
+	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
+	type rd_word_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	CONSTANT RD_NONE	: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0) := (OTHERS => '0');
+
+	SIGNAL rd_en_w				: STD_LOGIC_VECTOR(NRD-1 DOWNTO 0);
+	SIGNAL rd_byte_w			: rd_byte_array_t;
+	SIGNAL rd_word_w			: rd_word_array_t;
+	SIGNAL term_en_w			: STD_LOGIC;
+	SIGNAL rdbk_w				: STD_LOGIC;
+	SIGNAL data_bus_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	CONSTANT ZEROS_BUS			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+	SIGNAL alu_obs_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+
+	SIGNAL sw_sync_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL key_pressed_w		: STD_LOGIC_VECTOR(3 DOWNTO 1);
+	SIGNAL portpb_w				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+
 BEGIN
-	--=======================================================================
-	-- Reset conditioning. The only board-level signal shaping in this wrapper.
-	--=======================================================================
 	RSTCOND:
 	if (RST_ACTIVE_LOW) generate
-		rst_w <= not rst_i;
+		rst_w	<= not rst_i;
 	else generate
-		rst_w <= rst_i;
-	end generate RSTCOND;
+		rst_w	<= rst_i;
+	end generate;
 
-	--=======================================================================
-	-- Breakpoint address. Real switches in a hardware revision; constant zero
-	-- in a performance revision, so the fitter assigns no pins for it (§7).
-	--=======================================================================
+	CLKTREE : clock_tree
+	generic map(
+		MODELSIM			=> MODELSIM
+	)
+	PORT MAP(
+		clk_i		=> clk_i,
+		rst_i		=> rst_w,
+		mclk_o		=> mclk_w,
+		smclk_o		=> smclk_w,
+		accelclk_o	=> accelclk_w,
+		locked_o	=> pll_locked_w
+	);
+
+	RSTLOCK:
+	if (GEN_RESET_ON_LOCK) generate
+		sys_rst_w <= rst_w OR (NOT pll_locked_w);
+	else generate
+		sys_rst_w <= rst_w;
+	end generate RSTLOCK;
+
 	BPIN:
 	if (GEN_DEBUG_PORTS) generate
 		bpaddr_w <= BPADDR_i;
@@ -184,9 +219,6 @@ BEGIN
 		bpaddr_w <= (others => '0');
 	end generate BPIN;
 
-	--=======================================================================
-	-- The CPU core
-	--=======================================================================
 	CORE : RV32IM_PIPE_CORE
 	generic map(
 		WORD_GRANULARITY	=> WORD_GRANULARITY,
@@ -203,12 +235,20 @@ BEGIN
 		BP_ADDR_WIDTH		=> BP_ADDR_WIDTH
 	)
 	PORT MAP(
-		--Inputs
-		rst_i				=> rst_w,
-		clk_i				=> clk_i,
+		rst_i				=> sys_rst_w,
+		clk_i				=> mclk_w,
+		divclk_i			=> accelclk_w,
+		intr_i				=> intr_w,
+		inta_o				=> inta_w,
+		gie_o				=> gie_w,
+		dbus_addr_o			=> dbus_addr_w,
+		dbus_wdata_o		=> dbus_wdata_w,
+		dbus_MemRead_o		=> dbus_MemRead_w,
+		dbus_MemWrite_o		=> dbus_MemWrite_w,
+		dtcm_cs_i			=> dtcm_cs_w,
+		dbus_rdata_i		=> dbus_rdata_w,
+		dtcm_wren_o			=> dtcm_wren_w,
 		BPADDR_i			=> bpaddr_w,
-
-		--Outputs
 		CLKCNT_o			=> CLKCNT_w,
 		IFpc_o				=> IFpc_w,
 		IFinstruction_o		=> IFinst_w,
@@ -225,13 +265,306 @@ BEGIN
 		STCNT_o				=> STCNT_w
 	);
 
-	--=======================================================================
-	-- Observation ports. Driven in a hardware revision; tied off in a
-	-- performance revision so the fitter assigns no pins and the PPA area
-	-- figure reflects the CPU rather than the debug harness. Assignment
-	-- definition §7. Same pattern as the students' own Lab 4 two-revision
-	-- split (Auxilary/Lab4/DUT/perf_wrapper.vhd).
-	--=======================================================================
+	DEC : addr_decoder
+	PORT MAP (
+		addr_i				=> dbus_addr_w,
+		dtcm_cs_o			=> dtcm_cs_w,
+		sfr_cs_o			=> sfr_cs_w,
+		unmapped_o			=> unmapped_w
+	);
+
+	BP_CPU : BidirPin
+	generic map( width => DATA_BUS_WIDTH )
+	PORT MAP (
+		Dout	=> dbus_wdata_w,
+		en		=> dbus_MemWrite_w,
+		Din		=> open,
+		IOpin	=> data_bus_w
+	);
+
+	dbus_rdata_w <= data_bus_w;
+
+	RDBK:
+	if (GEN_GPO_READBACK) generate
+		rdbk_w <= '1';
+	else generate
+		rdbk_w <= '0';
+	end generate;
+
+	SWSYNC:
+	if (GEN_INPUT_SYNC) generate
+		SW_SYNC : sync
+		generic map(
+			DATA_WIDTH	=> 8,
+			STAGES		=> 2,
+			GEN_SRC_REG	=> FALSE
+		)
+		PORT MAP (
+			src_clk_i	=> pclk_w,
+			dst_clk_i	=> pclk_w,
+			rst_i		=> sys_rst_w,
+			d_i			=> SW_i(7 DOWNTO 0),
+			q_o			=> sw_sync_w
+		);
+	else generate
+		sw_sync_w <= SW_i(7 DOWNTO 0);
+	end generate;
+
+	KEYCOND:
+	if (KEY_ACTIVE_LOW) generate
+		key_pressed_w <= NOT KEY_i;
+	else generate
+		key_pressed_w <= KEY_i;
+	end generate;
+
+	portpb_w(0) <= key_pressed_w(1);
+	portpb_w(1) <= key_pressed_w(2);
+	portpb_w(2) <= key_pressed_w(3);
+	portpb_w(7 DOWNTO 3) <= (OTHERS => '0');
+
+	rd_en_w(RD_SW)   <= sfr_cs_w(CS_SW)    AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_LEDR) <= sfr_cs_w(CS_LEDR)  AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX0) <= sfr_cs_w(CS_HEX01) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX1) <= sfr_cs_w(CS_HEX01) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_HEX2) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX3) <= sfr_cs_w(CS_HEX23) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_HEX4) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane0_w AND rdbk_w;
+	rd_en_w(RD_HEX5) <= sfr_cs_w(CS_HEX45) AND dbus_MemRead_w AND lane1_w AND rdbk_w;
+	rd_en_w(RD_PB)   <= sfr_cs_w(CS_PB)    AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_BTCTL1)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_BTCTL2)  <= sfr_cs_w(CS_BTCTL)   AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_BTCMPR0) <= sfr_cs_w(CS_BTCMPR0) AND dbus_MemRead_w;
+	rd_en_w(RD_BTCMPR1) <= sfr_cs_w(CS_BTCMPR1) AND dbus_MemRead_w;
+	rd_en_w(RD_BTCAPR)  <= sfr_cs_w(CS_BTCAPR)  AND dbus_MemRead_w;
+	rd_en_w(RD_IE)       <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w;
+	rd_en_w(RD_TYPEPUSH) <= type_push_w;
+
+	rd_byte_w(RD_SW)   <= sw_sync_w;
+	rd_byte_w(RD_LEDR) <= ledr_q;
+	rd_byte_w(RD_HEX0) <= hex_q(0);
+	rd_byte_w(RD_HEX1) <= hex_q(1);
+	rd_byte_w(RD_HEX2) <= hex_q(2);
+	rd_byte_w(RD_HEX3) <= hex_q(3);
+	rd_byte_w(RD_HEX4) <= hex_q(4);
+	rd_byte_w(RD_HEX5) <= hex_q(5);
+	rd_byte_w(RD_PB)   <= portpb_w;
+	rd_byte_w(RD_BTCTL1) <= btctl1_rd_w;
+	rd_byte_w(RD_BTCTL2) <= btctl2_rd_w;
+	rd_byte_w(RD_IE)       <= intc_ie_rd_w;
+	rd_byte_w(RD_IFG)      <= intc_ifg_rd_w;
+	rd_byte_w(RD_TYPE)     <= intc_type_rd_w;
+	rd_byte_w(RD_TYPEPUSH) <= type_capt_w;
+
+	WEXT:
+	for i in 0 to NRD_BYTE-1 generate
+		rd_word_w(i) <= ZEROS_BUS(DATA_BUS_WIDTH-1 DOWNTO 8) & rd_byte_w(i);
+	end generate;
+
+	rd_word_w(RD_BTCMPR0) <= btcmpr0_rd_w;
+	rd_word_w(RD_BTCMPR1) <= btcmpr1_rd_w;
+	rd_word_w(RD_BTCAPR)  <= btcapr_rd_w;
+
+	term_en_w <= '1' WHEN (rd_en_w = RD_NONE and dbus_MemWrite_w = '0') ELSE '0';
+
+	RDGEN:
+	for i in 0 to NRD-1 generate
+		BP : BidirPin
+		generic map( width => DATA_BUS_WIDTH )
+		PORT MAP (
+			Dout	=> rd_word_w(i),
+			en		=> rd_en_w(i),
+			Din		=> open,
+			IOpin	=> data_bus_w
+		);
+	end generate;
+
+	BP_TERM : BidirPin
+	generic map( width => DATA_BUS_WIDTH )
+	PORT MAP (
+		Dout	=> ZEROS_BUS,
+		en		=> term_en_w,
+		Din		=> open,
+		IOpin	=> data_bus_w
+	);
+
+	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
+				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
+
+	timer_cs_w <= sfr_cs_w(CS_BTCTL)   OR sfr_cs_w(CS_BTCMPR0) OR
+				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
+
+	intc_cs_w <= sfr_cs_w(CS_INTC);
+
+	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
+					 OR timer_cs_w OR intc_cs_w;
+
+	SFRSTUB:
+	if (MODELSIM = 1) generate
+		sfr_stub_notice : process(clk_i)
+			variable told_rd_v : boolean := FALSE;
+			variable told_wr_v : boolean := FALSE;
+		begin
+			if rising_edge(clk_i) then
+				if dbus_MemRead_w = '1' and dtcm_cs_w = '0' and sfr_rd_impl_w = '0'
+				   and not told_rd_v then
+					told_rd_v := TRUE;
+					report "RV32IMpipelinedMCU: SFR READ of a word with no reader " &
+						   "(USART not attached; Phase 12). Once per run."
+						severity note;
+				end if;
+				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
+				   and timer_cs_w = '0' and intc_cs_w = '0' and not told_wr_v then
+					told_wr_v := TRUE;
+					report "RV32IMpipelinedMCU: SFR WRITE discarded (USART not " &
+						   "attached; PORT_PB is read-only). Once per run."
+						severity note;
+				end if;
+			end if;
+		end process sfr_stub_notice;
+	end generate;
+
+	pclk_w <= smclk_w;
+
+	lane0_w <= (NOT dbus_addr_w(1)) AND (NOT dbus_addr_w(0));
+	lane1_w <= (NOT dbus_addr_w(1)) AND      dbus_addr_w(0);
+	lane2_w <=      dbus_addr_w(1)  AND (NOT dbus_addr_w(0));
+
+	P_LEDR : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i		=> pclk_w,
+		rst_i		=> sys_rst_w,
+		cs_i		=> sfr_cs_w(CS_LEDR),
+		MemWrite_i	=> dbus_MemWrite_w,
+		lane_en_i	=> lane0_w,
+		data_i		=> data_bus_w(7 DOWNTO 0),
+		q_o			=> ledr_q
+	);
+	LEDR_o(7 DOWNTO 0) <= ledr_q;
+	LEDR_o(9 DOWNTO 8) <= "00";
+
+	P_HEX0 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(0)
+	);
+	P_HEX1 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX01), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(1)
+	);
+	P_HEX2 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(2)
+	);
+	P_HEX3 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX23), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(3)
+	);
+	P_HEX4 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane0_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(4)
+	);
+	P_HEX5 : gpo_port
+	generic map( DATA_WIDTH => 8 )
+	PORT MAP (
+		clk_i => pclk_w, rst_i => sys_rst_w,
+		cs_i => sfr_cs_w(CS_HEX45), MemWrite_i => dbus_MemWrite_w, lane_en_i => lane1_w,
+		data_i => data_bus_w(7 DOWNTO 0), q_o => hex_q(5)
+	);
+
+	SEGGEN:
+	for i in 0 to 5 generate
+		SEG : hex_decoder
+		PORT MAP (
+			bin => hex_q(i)(3 DOWNTO 0),
+			seg => hex_seg_w(i)
+		);
+	end generate;
+
+	HEX0_o <= hex_seg_w(0);
+	HEX1_o <= hex_seg_w(1);
+	HEX2_o <= hex_seg_w(2);
+	HEX3_o <= hex_seg_w(3);
+	HEX4_o <= hex_seg_w(4);
+	HEX5_o <= hex_seg_w(5);
+
+	TIMER : basic_timer
+	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+	PORT MAP (
+		clk_i		=> pclk_w,
+		rst_i		=> sys_rst_w,
+		ctl_cs_i	=> sfr_cs_w(CS_BTCTL),
+		cmpr0_cs_i	=> sfr_cs_w(CS_BTCMPR0),
+		cmpr1_cs_i	=> sfr_cs_w(CS_BTCMPR1),
+		MemWrite_i	=> dbus_MemWrite_w,
+		lane0_i		=> lane0_w,
+		lane1_i		=> lane1_w,
+		data_i		=> data_bus_w,
+		capin1_i	=> capin1_w,
+		capin2_i	=> capin2_w,
+		pwm_o		=> pwm_w,
+		btifg_set_o	=> bt_ifg_set_w,
+		btctl1_o	=> btctl1_rd_w,
+		btctl2_o	=> btctl2_rd_w,
+		btcmpr0_o	=> btcmpr0_rd_w,
+		btcmpr1_o	=> btcmpr1_rd_w,
+		btcapr_o	=> btcapr_rd_w,
+		btcnt_o		=> open
+	);
+
+	GPIO <= (9 => pwm_w, OTHERS => 'Z');
+	PWM_o <= pwm_w;
+	FPGA_CAPIN:
+	if (MODELSIM = 0) generate
+		capin1_w <= GPIO(8);
+		capin2_w <= GPIO(10);
+	end generate FPGA_CAPIN;
+	SIM_CAPIN:
+	if (MODELSIM /= 0) generate
+		capin1_w <= CAPIN1_i;
+		capin2_w <= CAPIN2_i;
+	end generate SIM_CAPIN;
+
+	INTC : interrupt_ctrl
+	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
+	PORT MAP (
+		clk_i			=> pclk_w,
+		rst_i			=> sys_rst_w,
+		cs_i			=> sfr_cs_w(CS_INTC),
+		MemWrite_i		=> dbus_MemWrite_w,
+		lane0_i			=> lane0_w,
+		lane1_i			=> lane1_w,
+		data_i			=> data_bus_w,
+		bt_ifg_set_i	=> bt_ifg_set_w,
+		key_pressed_i	=> key_pressed_w,
+		gie_i			=> gie_w,
+		inta_i			=> inta_w,
+		intr_o			=> intr_w,
+		type_push_o		=> type_push_w,
+		type_capt_o		=> type_capt_w,
+		ie_o			=> intc_ie_rd_w,
+		ifg_o			=> intc_ifg_rd_w,
+		type_o			=> intc_type_rd_w
+	);
+
+	alu_obs_w <= ZEROS_BUS(DATA_BUS_WIDTH-1 DOWNTO DATA_ADDR_WIDTH) & dbus_addr_w;
+
 	DBGPORTS:
 	if (GEN_DEBUG_PORTS) generate
 		IFpc_o				<= IFpc_w;
@@ -248,6 +581,12 @@ BEGIN
 		CLKCNT_o			<= CLKCNT_w;
 		STCNT_o				<= STCNT_w;
 		FHCNT_o				<= FHCNT_w;
+		MemWrite_ctrl_o		<= dbus_MemWrite_w;
+		alu_res_o			<= alu_obs_w;
+		read_data2_o		<= dbus_wdata_w;
+		dtcm_cs_o			<= dtcm_cs_w;
+		unmapped_o			<= unmapped_w;
+		dtcm_wren_o			<= dtcm_wren_w;
 	else generate
 		IFpc_o				<= (others => '0');
 		IFinstruction_o		<= (others => '0');
@@ -263,6 +602,12 @@ BEGIN
 		CLKCNT_o			<= (others => '0');
 		STCNT_o				<= (others => '0');
 		FHCNT_o				<= (others => '0');
+		MemWrite_ctrl_o		<= '0';
+		alu_res_o			<= (others => '0');
+		read_data2_o		<= (others => '0');
+		dtcm_cs_o			<= '0';
+		unmapped_o			<= '0';
+		dtcm_wren_o			<= '0';
 	end generate DBGPORTS;
 
 END structure;

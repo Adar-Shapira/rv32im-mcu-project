@@ -27,6 +27,19 @@ vcom -2008 ../../DUT/RV32IMpipelinedMCU/cond_compilation_package.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/const_package.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/aux_package.vhd
 
+# MCU leaves copied from RV32IMscMCU (Phase 11 slice 1)
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/PLL_GEN.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/CLOCK_TREE.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/ADDR_DECODER.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/BIDIRPIN.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/GPO_PORT.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/HEX_DECODER.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/SYNC.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/DIV_ACCEL.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/DIV_UNIT.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/BASIC_TIMER.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/INTERRUPT_CTRL.vhd
+
 # split multiplier, pipeline stages, hazard/forwarding units, top, testbench
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/MULT_1.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/MULT_2.vhd

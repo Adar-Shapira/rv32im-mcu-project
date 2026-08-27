@@ -32,7 +32,17 @@ ENTITY control IS
 		Jal_ctrl_o 			: OUT 	STD_LOGIC;
 		Jalr_ctrl_o 		: OUT 	STD_LOGIC;
 		UpperIm_ctrl_o		: OUT 	STD_LOGIC_VECTOR(1 DOWNTO 0);
-		ALUOp_ctrl_o	 	: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0)
+		ALUOp_ctrl_o	 	: OUT 	STD_LOGIC_VECTOR(4 DOWNTO 0);
+		-- Slice 2: access width/signedness, transcribed from
+		-- DUT/RV32IMscMCU/CONTROL.vhd. Carried ID/EX then EX/MEM to DMEMORY.
+		MemOp_ctrl_o		: OUT 	STD_LOGIC_VECTOR(2 DOWNTO 0);
+		-- Slice 3. Transcribed from DUT/RV32IMscMCU/CONTROL.vhd:35-45, 158-165.
+		DivStart_ctrl_o		: OUT	STD_LOGIC;
+		DivSigned_ctrl_o	: OUT	STD_LOGIC;
+		DivRem_ctrl_o		: OUT	STD_LOGIC;
+		-- Slice 4. Transcribed from DUT/RV32IMscMCU/CONTROL.vhd:47-52, 168-170.
+		-- Exact encoding jalr zero,0(tp). The jalr still fires; this only sets GIE.
+		Reti_ctrl_o			: OUT	STD_LOGIC
 	);
 END control;
 
@@ -45,6 +55,7 @@ ARCHITECTURE behavior OF control IS
 	SIGNAL	add_w, addi_w, and_w, andi_w, or_w, ori_w, sll_w, slli_w, sra_w, srai_w				: STD_LOGIC;
 	SIGNAL	srl_w, srli_w, sub_w, xor_w, xori_w, auipc_w, lui_w, slt_w, slti_w, sltu_w, sltiu_w	: STD_LOGIC;
 	SIGNAL	mul_w : STD_LOGIC;	-- M-extension: mul detector
+	SIGNAL	div_w, divu_w, rem_w, remu_w, divop_w : STD_LOGIC;
 	SIGNAL  opc_w : STD_LOGIC_VECTOR(6 DOWNTO 0);
 
 BEGIN           
@@ -127,6 +138,20 @@ BEGIN
 	sltiu_w 	<=	'1' WHEN	(instruction_i and INST_SLTIU_MASK) = INST_SLTIU		ELSE	'0';	-- sltiu
 	
 	mul_w 		<=	'1' WHEN	(instruction_i and INST_MUL_MASK) = INST_MUL			ELSE	'0';	-- mul (M-extension)
+
+	div_w 		<=	'1' WHEN	(instruction_i and INST_DIV_MASK)  = INST_DIV			ELSE	'0';
+	divu_w 		<=	'1' WHEN	(instruction_i and INST_DIVU_MASK) = INST_DIVU			ELSE	'0';
+	rem_w 		<=	'1' WHEN	(instruction_i and INST_REM_MASK)  = INST_REM			ELSE	'0';
+	remu_w 		<=	'1' WHEN	(instruction_i and INST_REMU_MASK) = INST_REMU			ELSE	'0';
+	divop_w		<=	div_w or divu_w or rem_w or remu_w;
+
+	DivStart_ctrl_o		<=	divop_w;
+	DivSigned_ctrl_o	<=	div_w  or rem_w;
+	DivRem_ctrl_o		<=	rem_w  or remu_w;
+
+	-- Slice 4: reti recognition -- see the port comment. jalr_w above still
+	-- fires for it too, which is correct: the PC redirect IS the jalr's.
+	Reti_ctrl_o			<=	'1' WHEN instruction_i = INST_RETI ELSE '0';
 	
 	
 	RegWrite_ctrl_o 	<=  Rtype_w or Itype_w or Utype_w or UJtype_w;
@@ -142,6 +167,13 @@ BEGIN
 	UpperIm_ctrl_o		<=	"01" WHEN auipc_w 	ELSE
 							"10" WHEN	lui_w	ELSE
 							"00";
+
+	-- Slice 2. Same encoding as DUT/RV32IMscMCU/CONTROL.vhd:193-197.
+	MemOp_ctrl_o		<=	MEM_B	WHEN (lb_w  or sb_w) = '1'	ELSE
+							MEM_H	WHEN (lh_w  or sh_w) = '1'	ELSE
+							MEM_BU	WHEN  lbu_w          = '1'	ELSE
+							MEM_HU	WHEN  lhu_w          = '1'	ELSE
+							MEM_W;
 		  						      		
 	ALUOp_ctrl_o		<=  ALU_ADD					WHEN	add_w	or 	addi_w or auipc_w or lui_w or jal_w or jalr_w or ld_w or st_w 	ELSE																																																				
 							ALU_AND					WHEN	and_w 	or 	andi_w	ELSE

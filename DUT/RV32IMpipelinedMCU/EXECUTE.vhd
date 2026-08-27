@@ -32,6 +32,7 @@ ENTITY  Execute IS
 		clk_i 				: IN 	STD_LOGIC;
 		rst_i 				: IN 	STD_LOGIC;
 		flush_i				: IN 	STD_LOGIC;										-- from top (MEM stage): kill the EX-stage instruction
+		hold_i				: IN 	STD_LOGIC := '0';								-- slice 3: bubble EX/MEM while a divide is in EX
 		-- ID/EX inputs (EX-stage view produced by IDECODE)
 		pc_i				: IN 	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		pc_plus4_i			: IN 	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -50,6 +51,10 @@ ENTITY  Execute IS
 		Jalr_ctrl_i 		: IN 	STD_LOGIC;
 		MemRead_ctrl_i 		: IN 	STD_LOGIC;
 		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
+		MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
+		DivStart_ctrl_i		: IN 	STD_LOGIC := '0';
+		div_result_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+		Reti_ctrl_i			: IN 	STD_LOGIC := '0';
 		RegDst_ctrl_i 		: IN 	STD_LOGIC;
 		RegWrite_ctrl_i 	: IN 	STD_LOGIC;
 		MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
@@ -79,12 +84,17 @@ ENTITY  Execute IS
 		mem_Branch_ctrl_o 	: OUT	STD_LOGIC;
 		mem_Jal_ctrl_o 		: OUT	STD_LOGIC;
 		mem_Jalr_ctrl_o 	: OUT	STD_LOGIC;
+		mem_Reti_ctrl_o		: OUT	STD_LOGIC;
 		mem_MemRead_ctrl_o 	: OUT	STD_LOGIC;
 		mem_MemWrite_ctrl_o : OUT	STD_LOGIC;
+		mem_MemOp_ctrl_o	: OUT	STD_LOGIC_VECTOR(2 DOWNTO 0);
 		-- carried control bits: WB stage (mem_RegWrite also feeds FORWARD_UNIT)
 		mem_RegDst_ctrl_o 	: OUT	STD_LOGIC;
 		mem_RegWrite_ctrl_o : OUT	STD_LOGIC;
-		mem_MemtoReg_ctrl_o : OUT	STD_LOGIC
+		mem_MemtoReg_ctrl_o : OUT	STD_LOGIC;
+		-- Slice 3: forwarded EX operands for DIV_UNIT (rs1/rs2 after forwarding)
+		fw_rs1_o			: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		fw_rs2_o			: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0)
 	);
 END Execute;
 
@@ -150,8 +160,10 @@ ARCHITECTURE struct OF Execute IS
 	SIGNAL	ex_mem_Branch_q		: STD_LOGIC;
 	SIGNAL	ex_mem_Jal_q		: STD_LOGIC;
 	SIGNAL	ex_mem_Jalr_q		: STD_LOGIC;
+	SIGNAL	ex_mem_Reti_q		: STD_LOGIC;
 	SIGNAL	ex_mem_MemRead_q	: STD_LOGIC;
 	SIGNAL	ex_mem_MemWrite_q	: STD_LOGIC;
+	SIGNAL	ex_mem_MemOp_q		: STD_LOGIC_VECTOR(2 DOWNTO 0);
 	SIGNAL	ex_mem_RegDst_q		: STD_LOGIC;
 	SIGNAL	ex_mem_RegWrite_q	: STD_LOGIC;
 	SIGNAL	ex_mem_MemtoReg_q	: STD_LOGIC;
@@ -459,13 +471,15 @@ BEGIN
 		ex_mem_Branch_q		<= '0';
 		ex_mem_Jal_q		<= '0';
 		ex_mem_Jalr_q		<= '0';
+		ex_mem_Reti_q		<= '0';
 		ex_mem_MemRead_q	<= '0';
 		ex_mem_MemWrite_q	<= '0';
+		ex_mem_MemOp_q		<= MEM_W;
 		ex_mem_RegDst_q		<= '0';
 		ex_mem_RegWrite_q	<= '0';
 		ex_mem_MemtoReg_q	<= '0';
 	ELSIF (clk_i'EVENT AND clk_i='1') THEN
-		IF flush_i = '1' THEN
+		IF flush_i = '1' OR hold_i = '1' THEN
 			ex_mem_pc_q			<= (OTHERS => '0');
 			ex_mem_pc_plus4_q	<= (OTHERS => '0');
 			ex_mem_instruction_q	<= NOP_INSTRUCTION;
@@ -482,8 +496,10 @@ BEGIN
 			ex_mem_Branch_q		<= '0';
 			ex_mem_Jal_q		<= '0';
 			ex_mem_Jalr_q		<= '0';
+		ex_mem_Reti_q		<= '0';
 			ex_mem_MemRead_q	<= '0';
 			ex_mem_MemWrite_q	<= '0';
+			ex_mem_MemOp_q		<= MEM_W;
 			ex_mem_RegDst_q		<= '0';
 			ex_mem_RegWrite_q	<= '0';
 			ex_mem_MemtoReg_q	<= '0';
@@ -491,7 +507,14 @@ BEGIN
 			ex_mem_pc_q			<= pc_i;
 			ex_mem_pc_plus4_q	<= pc_plus4_i;
 			ex_mem_instruction_q	<= instruction_i;
-			ex_mem_alu_res_q	<= alu_res_r;
+			-- Concurrent WHEN/ELSE inside a clocked process is VHDL-2008;
+			-- ModelSim accepts it, Quartus 21.1 Lite Error 10500 does not.
+			-- Same mux as DMEMORY's mem_result_w, written as IF/ELSE.
+			IF DivStart_ctrl_i = '1' THEN
+				ex_mem_alu_res_q	<= div_result_i;
+			ELSE
+				ex_mem_alu_res_q	<= alu_res_r;
+			END IF;
 			ex_mem_write_data_q	<= fw_read_data2_w;
 			ex_mem_addr_gen_q	<= addr_gen_w;
 			ex_mem_brTaken_q	<= brTaken_w;
@@ -508,8 +531,10 @@ BEGIN
 			ex_mem_Branch_q		<= Branch_ctrl_i;
 			ex_mem_Jal_q		<= Jal_ctrl_i;
 			ex_mem_Jalr_q		<= Jalr_ctrl_i;
+			ex_mem_Reti_q		<= Reti_ctrl_i;
 			ex_mem_MemRead_q	<= MemRead_ctrl_i;
 			ex_mem_MemWrite_q	<= MemWrite_ctrl_i;
+			ex_mem_MemOp_q		<= MemOp_ctrl_i;
 			ex_mem_RegDst_q		<= RegDst_ctrl_i;
 			ex_mem_RegWrite_q	<= RegWrite_ctrl_i;
 			ex_mem_MemtoReg_q	<= MemtoReg_ctrl_i;
@@ -535,10 +560,14 @@ mem_Mul_ctrl_o		<= ex_mem_Mul_q;
 mem_Branch_ctrl_o	<= ex_mem_Branch_q;
 mem_Jal_ctrl_o		<= ex_mem_Jal_q;
 mem_Jalr_ctrl_o		<= ex_mem_Jalr_q;
+mem_Reti_ctrl_o		<= ex_mem_Reti_q;
 mem_MemRead_ctrl_o	<= ex_mem_MemRead_q;
 mem_MemWrite_ctrl_o	<= ex_mem_MemWrite_q;
+mem_MemOp_ctrl_o	<= ex_mem_MemOp_q;
 mem_RegDst_ctrl_o	<= ex_mem_RegDst_q;
 mem_RegWrite_ctrl_o	<= ex_mem_RegWrite_q;
 mem_MemtoReg_ctrl_o	<= ex_mem_MemtoReg_q;
+fw_rs1_o			<= fw_read_data1_w;
+fw_rs2_o			<= fw_read_data2_w;
  
 END struct;

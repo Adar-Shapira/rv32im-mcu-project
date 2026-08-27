@@ -29,6 +29,53 @@ package const_package is
 	constant LUI_OPC		:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "0110111";
 	constant UJTYPE_OPC	:	STD_LOGIC_VECTOR(6 DOWNTO 0) := "1101111";
 --------------------------------------------------------------------
+--	Memory access width and signedness (Phase 3B / pipeline slice 2, gap G-309)
+--	Transcribed from DUT/RV32IMscMCU/const_package.vhd. RISC-V funct3 encodings.
+--------------------------------------------------------------------
+	constant MEM_B		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "000";		--lb  / sb
+	constant MEM_H		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "001";		--lh  / sh
+	constant MEM_W		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "010";		--lw  / sw
+	constant MEM_BU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "100";		--lbu
+	constant MEM_HU		:	STD_LOGIC_VECTOR(2 DOWNTO 0) := "101";		--lhu
+--------------------------------------------------------------------
+--	Memory-mapped I/O map (Phase 5 / pipeline slice 1, gap G-305)
+--	Transcribed from DUT/RV32IMscMCU/const_package.vhd. Source: io_map.s and
+--	Final Project 2026 definition §5/§6. Chip-select index == addr(5 DOWNTO 2).
+--------------------------------------------------------------------
+	constant DATA_ADDR_WIDTH	:	integer := 14;	-- §3: lowest 14-bit address A13..A0
+	constant SFR_CS_NUM			:	integer := 12;	-- one chip select per mapped SFR word
+
+	constant CS_LEDR			:	integer := 0;	-- 0x2000
+	constant CS_HEX01			:	integer := 1;	-- 0x2004 0x2005
+	constant CS_HEX23			:	integer := 2;	-- 0x2008 0x2009
+	constant CS_HEX45			:	integer := 3;	-- 0x200C 0x200D
+	constant CS_SW				:	integer := 4;	-- 0x2010
+	constant CS_PB				:	integer := 5;	-- 0x2014
+	constant CS_UART			:	integer := 6;	-- 0x2018 0x2019 0x201A
+	constant CS_BTCTL			:	integer := 7;	-- 0x201C 0x201D
+	constant CS_BTCMPR0			:	integer := 8;	-- 0x2020
+	constant CS_BTCMPR1			:	integer := 9;	-- 0x2024
+	constant CS_BTCAPR			:	integer := 10;	-- 0x2028
+	constant CS_INTC			:	integer := 11;	-- 0x202C 0x202D 0x202E
+
+	type sfr_lane_mask_t is array (0 TO 15) of STD_LOGIC_VECTOR(3 DOWNTO 0);
+
+	constant SFR_LANE_MASK	:	sfr_lane_mask_t := (
+		CS_LEDR		=> "0001",		-- 0x2000
+		CS_HEX01	=> "0011",		-- 0x2004 0x2005
+		CS_HEX23	=> "0011",		-- 0x2008 0x2009
+		CS_HEX45	=> "0011",		-- 0x200C 0x200D
+		CS_SW		=> "0001",		-- 0x2010
+		CS_PB		=> "0001",		-- 0x2014
+		CS_UART		=> "0111",		-- 0x2018 0x2019 0x201A
+		CS_BTCTL	=> "0011",		-- 0x201C 0x201D
+		CS_BTCMPR0	=> "1111",		-- 0x2020 -- Word resolution
+		CS_BTCMPR1	=> "1111",		-- 0x2024 -- Word resolution
+		CS_BTCAPR	=> "1111",		-- 0x2028 -- Word resolution
+		CS_INTC		=> "0111",		-- 0x202C 0x202D 0x202E
+		OTHERS		=> "0000"		-- 0x2030..0x203F -- no register defined
+	);
+--------------------------------------------------------------------
 -- ALU Operations
 --------------------------------------------------------------------
 	constant ALU_NONE						:	STD_LOGIC_VECTOR(4 DOWNTO 0) :=	"00000";
@@ -145,6 +192,10 @@ package const_package is
 -- jalr
  constant INST_JALR 			:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"67";
  constant INST_JALR_MASK 		:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"707f";
+
+-- reti -- transcribed from DUT/RV32IMscMCU/const_package.vhd (Phase 9B).
+-- io_map.s: `.eqv reti jalr zero,0(tp)`. Exact encoding rd=x0, rs1=x4, imm=0.
+ constant INST_RETI 			:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"20067";
 
 -- beq
  constant INST_BEQ 				:	STD_LOGIC_VECTOR(31 DOWNTO 0) := 32x"63";
