@@ -90,6 +90,19 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
 # it yet -- listed so the file set stays complete, synthesized as an unused
 # entity. Phase 9C wires CS_INTC, the sources and the CPU handshake.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
+# Phase 12A. The USART (bonus, clause 6.iv). PRUNED UNTIL PHASE 12B: nothing
+# instantiates uart_periph yet, so all six synthesize as unused entities.
+# Four are jakubcabal's MIT code -- UART_TX/PARITY/DEBOUNCER byte-identical,
+# UART_RX plus one RX_BUSY port -- UART_CORE is his top level adapted for a
+# runtime rounded baud divider, UART_PERIPH is ours. The MIT licence text
+# lives at Auxiliary/USART Material/UART_FPGA_option1/LICENSE and each file
+# carries the author's own header; the report must attribute it (Phase 16).
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_PARITY.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_DEBOUNCER.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_TX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_RX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_CORE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_PERIPH.vhd
 # Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
 # generate), so both must be listed here.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd

@@ -821,6 +821,60 @@ experiment, and 7A is the correctness step.
 
 ---
 
+## 5A. USART in UART mode — bonus, §6.iv  (numbered 5A so §6–§10 keep their references)
+
+**[REQ p6]** `UTCL` `0x2018`, `RXBF` `0x2019`, `TXBF` `0x201A` — all three Byte resolution, all
+three in SFR word 6, `CS_UART`, split by A1..A0 (**F15**: in the peripherals' space any byte
+address is meaningful). The chip select and its three lanes have existed and been exhaustively
+tested since Phase 5A; Phase 12A is their first consumer.
+
+**[REQ p12]** `UCTL` — the p6 map spells it `UTCL`, the p12 bit-field table is titled `UCTL`. Same
+register, two spellings; **open question P3**, and the code uses the table's name.
+
+| 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| BUSY | OE | PE | FE | BAUDRATE | PEV | PENA | SWRST |
+| r | r | r | r | w | w | w | w |
+
+- `SWRST` 0 = released for operation, 1 = USART logic held in reset.
+- `PENA` parity enable; `PEV` 0 = odd, 1 = even, unused when parity is disabled.
+- **`BAUDRATE` 0 = 9600, 1 = 115200.** This **answers open question P4** from the specification
+  itself: baud is selected by this one bit and there is no separate `UxBRx`/`UxMCTL` register, which
+  is what Figure 11's undocumented "Prescaler/Divider" and "Modulator" blocks had left ambiguous.
+- `FE` framing error; `PE` parity error, **"when PENA = 0, PE is read as 0"**; `OE` overrun, set
+  when a character is transferred into `RXBUF` before the previous one was read; `BUSY` a transmit
+  or receive operation is in progress.
+
+**[REQ p12]** `RXBUF` holds the last received character, and **"reading RXBUF resets the receive-
+error bits, and RXIFG"**. `TXBUF` holds data waiting for the transmit shift register, and
+**"writing to the transmit data buffer clears TXIFG"**. Those two sentences are the second halves
+of clearing rules b and c in §4 — the "or when serviced" halves are already built in
+`INTERRUPT_CTRL.vhd` (`svc_rx_w` / `svc_tx_w`).
+
+### 5A.1 What Phase 12A built
+
+**[OUR CODE + THIRD PARTY]** `UART_PERIPH.vhd` (ours) over `UART_CORE.vhd` (jakubcabal's MIT top
+level, adapted) over his `UART_TX`/`UART_RX`/`UART_DEBOUNCER`/`UART_PARITY`. Provenance, md5s and
+the exact per-file changes are in `DOC/01` §2.5. Verified by `tb_uart.vhd` — a **real txd→rxd
+loopback** for the engine — and `tools/model_uart.py` for the register layer, twelve faithful
+mutations all caught.
+
+- **The baud divider is rounded, and that is a finding, not a preference.** The reference truncates
+  `CLK_FREQ/(16*BAUD)`; at SMCLK = 20 MHz (**F8**, **F11**) and 115200 that gives 10 → 125 000 baud,
+  **+8.5%**, which no 8N1 frame survives. Rounding gives 11 → 113 636, −1.36%. 9600 → 130 → 9615,
+  +0.16%. `UART_CORE.vhd` asserts the resulting error at **elaboration** for any `CLK_HZ`, so a
+  wrong clock is a compile error and not a dead link on the bench.
+- **BUSY is three terms** — receiver mid-frame, transmitter mid-frame, and a byte still queued in
+  `TXBUF`. Dropping the third would let a polling loop write over an unsent character.
+- **The overrun case that is not one:** a character arriving in the same cycle its predecessor is
+  read is not an overrun, because the predecessor was read. The read-clear is sequenced before the
+  arrival-set inside one process for exactly this.
+- **How software knows a character arrived:** there is no "RXBUF full" bit in the p12 table, by
+  design — that is `RXIFG`'s job, read from `IFG` at `0x202D`. Which is why rule b's second half
+  (`rx_clr_o`) has to reach the interrupt controller, and does in Phase 12B.
+
+**Assumptions A25–A28** are in §10, each with what would falsify it.
+
 ## 6. Clocks
 
 **[REQ p3, Figure 1]** `baseclk50MHz → Clock Tree → mclk, accelclk, smclk`. Three named clocks:
@@ -1088,8 +1142,12 @@ Everything in this document that is not cited to a source.
 | A22 | A masked interrupt request is invisible but **remembered**: the raw latch keeps it, and setting the IE bit later makes the flag reappear | The p13 diagram's flop has D='1' and no enable — IE lives one AND gate downstream, on the product the diagram itself labels `IFGx`; the prep session restates the same structure ("the flop output irq is the raw latch; what the register exposes is the AND"). No benchmark can tell: all four clear `IFG` while `IE=0` and only then enable — the W0C store clears the raw latches, which `tb_interrupt_ctrl` P3 proves as the exact test1 init pattern | A benchmark (or Hanan) expecting silence when IE is enabled over an uncleared request — the fix is one AND gate on the set path, and mutant M1 already models it |
 | A23 | The one `RXIFG` bit presents TYPE `08h`, never `04h` | One flag serves two vector-table rows (p14); §4.1 shows words 1 and 2 of every benchmark vector table hold the **same** handler, so the choice cannot change behaviour in any supplied program. Open question 4 / P2 stays open for Phase 12, where the UART could tell error from data at the source | Hanan specifying the error code must win — a side latch remembering which event set the bit, Phase 12 |
 | A24 | Software cannot **set** an `IFG` bit — writes are W0C (0 clears the raw latch, 1 leaves it) | The p13 flop has no software-set path drawn; the only software access in any benchmark is the ISR read-modify-write idiom, which W0C serves exactly (and a hardware set beats a same-edge software clear, so a flag arriving between the `lw` and the `sw` survives) | A benchmark or answer requiring software-triggered interrupts — a write-through arm on the latch, and mutant M3 already models it |
+| A25 | `UCTL` resets to `0x00`, so `SWRST = 0` and the USART is operational out of reset | The p12 table gives SWRST's two meanings but **no reset value**; the MSP430 this peripheral is modelled on resets it to 1. Every other peripheral here resets its interface registers to zero (F16 for the timer), and firmware written either way still works — an MSP430-style driver clears SWRST first, which is a no-op here | A supplied firmware that depends on the USART being *held* in reset until it is configured. One reset value to change |
+| A26 | **Parity is not implemented — the frame is 8N1.** `PENA`/`PEV` are stored and read back; `PE` reads 0 always | REQ p12's own feature list says "8-bit data with non-parity", and its UCTL table says "when PENA = 0, PE is read as 0" — so at the reset state this build is conformant to both statements. The two statements are in tension for `PENA = 1`, which is the part left unbuilt | A benchmark that sets `PENA = 1` and expects a parity bit on the wire. The cost is a runtime "is there a parity bit" input threaded into the author's RX and TX state machines — a real change to code that is otherwise byte-identical, which is why it is staged rather than guessed at |
+| A27 | `TXBUF` is readable | The p12 text calls it "user accessible" and the MSP430's is readable; no supplied program reads it | Nothing that matters — if it should be write-only, delete one reader |
+| A28 | Switching `UCTL[3]` mid-character corrupts that character; no hardware interlock is built | Nothing in the specification describes an interlock, and one would silently delay a software write. What *is* built is `UART_CORE`'s `>=` compare, so a downward switch cannot strand the divider counter above its new maximum — that part is not left to software | A requirement that the rate change take effect only at a frame boundary — one gating term on the counter's maximum |
 
-Twenty-four assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — and A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Twenty-eight assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C), and A25–A28 out of Phase 12A (the USART: its reset value, the 8N1 frame, a readable TXBUF, and baud switching being a program-order responsibility). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of

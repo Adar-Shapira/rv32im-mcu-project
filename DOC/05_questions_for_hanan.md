@@ -251,6 +251,13 @@ Cosmetic, but it goes in the report and in the RTL identifier.
 > address, a bit-field table, or any prose. Is the baud rate controlled solely by `UCTL` bit 3, or is a
 > separate baud register expected?
 
+**Effectively answered by the specification itself — 2026-08-27, reading the p12 table for Phase
+12A.** `UCTL` bit 3 is `BAUDRATE`, "0 = 9600, 1 = 115200", a `w` bit with its own detail rows. Two
+rates, one bit, no address anywhere for `UxBRx` or `UxMCTL`, and neither appears in the p6 map.
+Built that way. Worth one confirmation only because the figure draws blocks the register table does
+not: **is there anything behind `UxBRx`/`UxMCTL` we are expected to implement?** We read them as
+MSP430 heritage in the figure, not requirements.
+
 Affects the UART bonus (Phase 12) only.
 
 ---

@@ -38,7 +38,7 @@ package isa_expected_pkg is
 	-- How many of the stores above are expected to MISMATCH on this core.
 	-- EXPECTED_DEFECT_COUNT is the Lab 5 as-submitted tally (historical).
 	-- EXPECTED_DEFECT_COUNT_REPAIRED is what the ISA-repaired core must produce;
-	-- leftovers are mul-related (G-308, G-326).
+	-- leftovers are mul-related: G-308, G-326
 	constant EXPECTED_DEFECT_COUNT : natural := 21;
 	constant EXPECTED_DEFECT_COUNT_REPAIRED : natural := 5;
 

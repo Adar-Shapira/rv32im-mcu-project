@@ -353,7 +353,7 @@ nowhere (G-205). That folder was rebuilt on 2026-08-23 for the revised pipeline:
 `compile.do`, `golden.do` added, and the stop condition moved from the retired `flush_o` port to
 `MCU/CORE/flush_w`.
 
-### 8.1a Seven tests that need nothing — run them first
+### 8.1a Eight tests that need nothing — run them first
 
 No memory image, no `app_bin` staging. Run them straight after `compile.do`; if any fails, nothing
 after it is meaningful. (Since the clause 10 rewrite `compile.do` compiles only the official
@@ -369,6 +369,7 @@ nothing extra is needed.)
 | `do run_divunit.do` | 7B1 — division subsystem | `VERDICT: PASS`, failures 0, **57 operations** |
 | `do run_timer.do` | 8A — Basic Timer | `VERDICT: PASS`, failures 0, plus the printed **FREQ_5K 4008-cycle** note |
 | `do run_intc.do` | 9A — Interrupt Controller | `VERDICT: PASS`, failures 0. Watch P2b+P3 (the masked-latch pair) and P8a/P8b (release-edge) |
+| `do run_uart.do` | 12A — USART (bonus) | `VERDICT: PASS`, failures 0, ≥5 characters looped. Watch P7a/P7b: the **measured** start bit must be 176 cycles at 115200 and 2080 at 9600 |
 
 `run_clock.do` is quick (about 3.3 µs simulated) but read its header before believing it: **it does
 not verify the PLLs, and it cannot.** `altpll` is an Altera black box needing `altera_mf`, and the

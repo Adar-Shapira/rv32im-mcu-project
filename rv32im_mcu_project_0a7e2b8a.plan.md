@@ -302,7 +302,7 @@ wrong — say so. *(Since 2026-08-26 there is also nothing else in that package 
    it compiles **only the official `tb_RV32IMscMCU`**; every `run_*.do` script compiles its own
    development testbench first, so nothing extra is needed.
 
-   **Then seven tests that need nothing at all** — no images, no `app_bin`. Run them first, because
+   **Then eight tests that need nothing at all** — no images, no `app_bin`. Run them first, because
    if any fails, nothing after it is meaningful:
    - `do run_sync.do` → **Phase 4A**, the CDC synchronizer. Expect `VERDICT: PASS`, zero failures in
      all three checkers.
@@ -317,6 +317,10 @@ wrong — say so. *(Since 2026-08-26 there is also nothing else in that package 
      printed FREQ_5K note (4008 cycles = 4990 Hz — a finding, not a bug).
    - `do run_intc.do` → **Phase 9A**, the Interrupt Controller. Expect `VERDICT: PASS`, failures 0.
      Quick — a few microseconds of simulated time.
+   - `do run_uart.do` → **Phase 12A**, the USART (bonus). Expect `VERDICT: PASS`, failures 0, and at
+     least 5 characters looped back. Report the two MEASURED start-bit widths it prints on failure:
+     176 cycles at 115200 and 2080 at 9600 are the only proof the baud divider is right — the
+     loopback itself cannot tell, since both ends share the divider.
    - `do run_div.do` → **Phase 7A**, the division accelerator. Expect `VERDICT: PASS`, failures 0,
      **65536** operations at N=8 and **517** at N=32. This is the long one — tens of seconds, because
      it sweeps every one of the 65536 operand pairs; it prints a progress line every 16 dividends so
@@ -459,7 +463,9 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
 | 11 Pipeline port | Yehonatan | Adar | needs Phase 0's pipeline counters |
-| 12 UART | Yehonatan | Adar | waits on Q1, Q12 |
+| **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
+| 12B USART onto the bus | Yehonatan | Adar | CS_UART's three lanes (already decoded since 5A), the readers, and the two new interrupt-controller inputs for rules b/c |
+| 12C UART menu firmware + board | Yehonatan | **Adar needs the cable and the board** | clause 8's menu; `LEDG`→`LEDR` is **R2** |
 | **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — `python3 tools/check_staging.py` (clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
@@ -2857,6 +2863,58 @@ sentence in the report's interrupt chapter.
   framing errors.
 
 Gaps: G-313. Blocked on **Q12**, and **Q1/G-504** for the pins.
+
+### Phase 12A — the USART peripheral, leaf  ·  **built, awaiting verification**
+
+**Files:** `DUT/RV32IMscMCU/UART_{PARITY,DEBOUNCER,TX,RX,CORE,PERIPH}.vhd` (new),
+`TB/RV32IMscMCU/tb_uart.vhd` (new), `SIM/RV32IMscMCU/run_uart.do` (new), `tools/model_uart.py`
+(new); `aux_package.vhd`, `compile.do`, `regress.do` and the `.qsf` updated. **Purely additive** —
+no verified file was touched, only the three lists. Not wired to the bus: that is 12B, the same
+split as 8A→8B and 9A→9C.
+
+**What was taken and what was written** — the full per-file table with md5s is in `DOC/01` §2.5.
+Three of jakubcabal's files are **byte-identical** (headers prepended); `UART_RX` gains one port;
+`UART_CORE` is his top level adapted; `UART_PERIPH` is entirely ours, because neither supplied
+option has `RXBUF`/`TXBUF`, overrun logic, an aggregate `BUSY`, `SWRST`, a runtime baud rate or any
+bus interface. `UART_TX` needed **nothing**: its `tx_data` latch condition (`:94`) is exactly the
+handover the register layer needs, so the accept was read out of his file rather than guessed.
+
+**A finding in the given code, and it would have cost a bench session.** The original's divider is
+`CLK_FREQ/(16*BAUD)`, **truncating**. At our SMCLK = 20 MHz and 115200 that is 10 → **125 000 baud,
++8.5%** — no 8N1 frame survives it. Rounding gives 11 → 113 636, −1.36%. At the author's own 50 MHz
+default truncation lands at +0.47%, which is why the formula looks fine where he wrote it. Ours
+rounds and **asserts the resulting error at elaboration** for any `CLK_HZ`, so a wrong clock fails
+to compile instead of failing on a terminal. The `'='` compare also became `'>='`, so switching
+9600→115200 with the counter above the new maximum re-locks immediately instead of stalling.
+
+**Two specification tensions, both resolved from the document and recorded:**
+- The feature list says "8-bit data with **non-parity**" while `UCTL` has `PENA`/`PEV`/`PE`. Built
+  8N1; `PENA`/`PEV` store and read back, `PE` reads 0 — which is what the table itself mandates
+  when `PENA = 0`. **A26**, with the exact cost of doing it properly written down.
+- **P4 is answered by the specification**: `UCTL[3]` *is* the baud control (0 = 9600, 1 = 115200).
+  Figure 11's undocumented `UxBRx`/`UxMCTL` blocks have no address and no table; read as MSP430
+  heritage. One confirmation left in `DOC/05`.
+
+**Verification — the two halves are checked differently on purpose.** The engine gets a **real
+loopback**: `txd_o` wired to `rxd_i`, so two bytes are serialised as actual 8N1 frames at the actual
+divider and must return byte-for-byte. The register layer gets `model_uart.py` — 0 failures, and
+**twelve faithful mutations all caught**. And the one thing a loopback provably cannot do is stated
+in the testbench: it cannot see a baud rate that is wrong but *self-consistent*, because both ends
+share the divider — so the start-bit width is **measured** (176 cycles at 115200, 2080 at 9600),
+with the number stated independently in the RTL, the model and the testbench.
+
+**The mutation runner earned its keep again:** two of the twelve escaped the first draft of the
+phase suite. The TXBUF-collision phase never actually collided (the accept had happened a cycle
+earlier), and the SWRST phase let the queued byte drain before SWRST took effect. Both holes are
+now closed and the reasons are written at the phases.
+
+**Adar's results — Phase 12A**
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| `do run_uart.do` | `VERDICT: PASS`, failures 0, ≥5 characters received and ≥5 sent | |
+| P7a / P7b, the measured start bit | **176** cycles at 115200, **2080** at 9600 | |
+| P5c | a frame with a low stop bit delivers **no** data into RXBUF | |
 
 ## Phase 13 — Regression and evidence  ·  **built 2026-08-26 · Adar runs**
 

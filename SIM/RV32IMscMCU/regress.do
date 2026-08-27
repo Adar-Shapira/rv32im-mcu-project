@@ -59,6 +59,7 @@ quietly set TESTS {
     {run_divunit.do        "7B1 division subsystem"}
     {run_timer.do          "8A  Basic Timer core"}
     {run_intc.do           "9A  Interrupt Controller"}
+    {run_uart.do           "12A USART, with a real txd->rxd loopback"}
     {repair_check.do       "3A+3B conformance, 43 directed checks"}
     {run_isa.do            "2+3 directed ISA suite"}
     {run_mmio.do           "5B  MMIO no longer reaches the DTCM"}

@@ -180,6 +180,27 @@ logic, a parity-error output port, an aggregate `BUSY` status, an `SWRST` path, 
 register, and any MMIO or interrupt wrapper. The bonus is a shift-register core we adopt plus a
 register layer we write.
 
+#### What Phase 12A actually took, file by file (2026-08-27)
+
+| Our file | From | Change |
+| --- | --- | --- |
+| `UART_PARITY.vhd` | `rtl/comp/uart_parity.vhd`, md5 `530bb3ff…` | **body byte-identical**, provenance header prepended |
+| `UART_DEBOUNCER.vhd` | `rtl/comp/uart_debouncer.vhd`, md5 `946d390f…` | **body byte-identical** |
+| `UART_TX.vhd` | `rtl/comp/uart_tx.vhd`, md5 `b2fcd485…` | **body byte-identical** — nothing needed changing; `DIN`/`DIN_VLD`/`DIN_RDY` is a plain valid-ready handshake and `tx_data` is latched by the same condition that leaves idle (`:94`), which is exactly what the register layer hands over on |
+| `UART_RX.vhd` | `rtl/comp/uart_rx.vhd`, md5 `2a856823…` | one semantic change in three places: a `;`, a new `RX_BUSY` port, and one assignment. **`rx_receiving_data` is not that signal** — the FSM drives it only in the `databits` state, so a BUSY built on it blinks mid-character; the port exports `rx_pstate /= idle` |
+| `UART_CORE.vhd` | `rtl/uart.vhd` | adapted: runtime baud select (REQ p12 makes the rate software-selectable, the original freezes it in a generic), **rounded** divider, `>=` compare |
+| `UART_PERIPH.vhd` | — | **ours**: the whole register layer |
+
+Verify any of the byte-identical claims by diffing our file from its first `-----` line against the
+original.
+
+**A finding in the reference, recorded because it changes a number:** the original's
+`CLK_FREQ/(16*BAUD_RATE)` **truncates**. At this project's 20 MHz (F8/F11) and 115200 baud that is
+10, i.e. 125 000 baud — **+8.5%**, which no 8N1 link survives. Rounding gives 11 → 113 636, −1.36%.
+At the author's own default of 50 MHz truncation lands at +0.47%, which is why the formula looks
+harmless in its home configuration. `UART_CORE.vhd` rounds and asserts the resulting error at
+elaboration for any `CLK_HZ`.
+
 ### 2.6 Multiplier scope
 
 `MUL16.vhd` is 16×16 → 32 **unsigned**, built from four 8×8 partial products — exactly LAB5
@@ -239,7 +260,7 @@ continuation of Lab 5, so the honest question about any file is which parts are 
 are new. Regenerate this table by diffing `DUT/RV32IMscMCU/` against
 `Auxiliary/Lab 5/DUT/RV32IM_sc/`.
 
-**11 of the 22 RTL files come straight from Lab 5** — the entire CPU: fetch, decode,
+**11 of the 29 RTL files come straight from Lab 5** — the entire CPU: fetch, decode,
 execute, data memory, the multiplier, the PLL, and all three packages. Nothing about the core was
 rewritten; every ISA repair, the byte enables and the bus interface are edits **on top of** the
 supplied files, which is why the diffs are line counts rather than whole files.
@@ -264,6 +285,12 @@ supplied files, which is why the diffs are line counts rather than whole files.
 | `PLL_GEN.vhd` | new / other lab | **derived from `PLL.vhd`** — four wizard constants promoted to generics; `PLL.vhd` itself left byte-identical. |
 | `RV32IM_CORE.vhd` | Lab 5 | **extended** — 438 changed line(s) vs the Lab 5 single-cycle core |
 | `RV32IMscMCU.vhd` | new / other lab | **new** — §3 requires a structural top. Pattern from `Auxiliary/Lab4/DUT/fpga_hw_interface.vhd`. |
+| `UART_CORE.vhd` | new / other lab | **third-party, adapted** — jakubcabal `rtl/uart.vhd` (MIT) with a runtime, ROUNDED baud divider. Phase 12A. |
+| `UART_DEBOUNCER.vhd` | new / other lab | **third-party, used as is** — body byte-identical to jakubcabal `uart_debouncer.vhd`, md5 `946d390f…`. |
+| `UART_PARITY.vhd` | new / other lab | **third-party, used as is** — body byte-identical, md5 `530bb3ff…`. Compiled but not instantiated: the frame is 8N1 (A26). |
+| `UART_PERIPH.vhd` | new / other lab | **new, Phase 12A** — the whole USART register layer (UCTL/RXBUF/TXBUF, OE/FE/BUSY/SWRST, the interrupt strobes). Neither supplied option has any of it. |
+| `UART_RX.vhd` | new / other lab | **third-party, one added port** — jakubcabal `uart_rx.vhd`, md5 `2a856823…`, plus `RX_BUSY` for UCTL bit 7. |
+| `UART_TX.vhd` | new / other lab | **third-party, used as is** — body byte-identical, md5 `b2fcd485…`. |
 | `SYNC.vhd` | new / other lab | **new** — Figures 10a/10b. Searched: no synchroniser in the material (`IFETCH.vhd`'s "rst_i synchronization" is a single flop, not one). |
 | `aux_package.vhd` | Lab 5 | **extended** — 435 changed line(s) vs the Lab 5 single-cycle core |
 | `cond_compilation_package.vhd` | Lab 5 | **extended** — 23 changed line(s) vs the Lab 5 single-cycle core |

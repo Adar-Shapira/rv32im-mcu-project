@@ -55,6 +55,18 @@ vcom -2008 ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
 # built from REQ p13/p14 and the falsified-A6 forum answer. Instantiates SYNC
 # for the KEY inputs, so SYNC must precede it. A leaf until Phase 9C wires it.
 vcom -2008 ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
+# Phase 12A. The USART (bonus, REQ 6.iv). Four of these files are
+# jakubcabal's MIT code (UART_FPGA_option1) -- UART_TX/PARITY/DEBOUNCER
+# byte-identical, UART_RX plus one RX_BUSY port; UART_CORE is his top level
+# adapted for a runtime, ROUNDED baud divider; UART_PERIPH is ours. Order
+# matters: the leaves first, then the core that instantiates them by direct
+# entity reference, then the register layer. A leaf until Phase 12B wires it.
+vcom -2008 ../../DUT/RV32IMscMCU/UART_PARITY.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/UART_DEBOUNCER.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/UART_TX.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/UART_RX.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/UART_CORE.vhd
+vcom -2008 ../../DUT/RV32IMscMCU/UART_PERIPH.vhd
 # Phase 6A. HEX_DECODER.vhd is the students' Lab 4 file used as is - its body is
 # byte-identical to Auxiliary/Lab4/DUT/hex_decoder.vhd, md5
 # 56f2f16645e9bb4643c3a113c36e49c4. Only a provenance header was added.

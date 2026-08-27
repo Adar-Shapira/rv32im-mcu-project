@@ -329,6 +329,80 @@ package aux_package is
 		);
 	end component;
 ---------------------------------------------------------
+	-- Phase 12A. The USART in UART mode (bonus, REQ 6.iv, gap G-313).
+	--
+	-- uart_core is jakubcabal's MIT top level (UART_FPGA_option1/rtl/uart.vhd)
+	-- adapted for a RUNTIME baud divider -- REQ p12 makes the rate software
+	-- selectable through UCTL[3], while the original freezes it in a generic --
+	-- and for a ROUNDED divider, which at this project's 20 MHz is the
+	-- difference between 113636 baud (-1.4%) and 125000 (+8.5%). Its three
+	-- children (UART_TX, UART_RX, UART_DEBOUNCER, and UART_PARITY beneath
+	-- them) are the author's files and are instantiated by direct entity
+	-- reference, so they need no component declaration here.
+	component uart_core is
+		generic(
+			CLK_HZ			: natural := 20000000;
+			BAUD_LOW		: natural := 9600;
+			BAUD_HIGH		: natural := 115200;
+			MAX_ERR_PCT		: natural := 3;
+			USE_DEBOUNCER	: boolean := TRUE
+		);
+		PORT(
+			--Inputs
+			clk_i			: IN	STD_LOGIC;
+			rst_i			: IN	STD_LOGIC;
+			baud_sel_i		: IN	STD_LOGIC;
+			rxd_i			: IN	STD_LOGIC := '1';
+			din_i			: IN	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			din_vld_i		: IN	STD_LOGIC;
+
+			--Outputs
+			txd_o			: OUT	STD_LOGIC;
+			din_rdy_o		: OUT	STD_LOGIC;
+			dout_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			dout_vld_o		: OUT	STD_LOGIC;
+			frame_err_o		: OUT	STD_LOGIC;
+			rx_busy_o		: OUT	STD_LOGIC
+		);
+	end component;
+---------------------------------------------------------
+	-- Phase 12A. The register layer over that engine: UCTL / RXBUF / TXBUF at
+	-- 0x2018/9/A on CS_UART's three lanes, the overrun and framing flags, the
+	-- aggregate BUSY, SWRST, and the four interrupt-side strobes. All new work
+	-- -- neither supplied UART option has any of it. MemRead_i is a port
+	-- because REQ p12 gives RXBUF a READ side effect ("reading RXBUF resets
+	-- the receive-error bits, and RXIFG"), the only one in this design.
+	component uart_periph is
+		generic(
+			DATA_WIDTH	: integer := 32;
+			CLK_HZ		: natural := 20000000
+		);
+		PORT(
+			--Inputs
+			clk_i			: IN	STD_LOGIC;
+			rst_i			: IN	STD_LOGIC;
+			cs_i			: IN	STD_LOGIC;
+			MemWrite_i		: IN	STD_LOGIC;
+			MemRead_i		: IN	STD_LOGIC;
+			lane0_i			: IN	STD_LOGIC;
+			lane1_i			: IN	STD_LOGIC;
+			lane2_i			: IN	STD_LOGIC;
+			data_i			: IN	STD_LOGIC_VECTOR(DATA_WIDTH-1 DOWNTO 0);
+			rxd_i			: IN	STD_LOGIC := '1';
+
+			--Outputs
+			txd_o			: OUT	STD_LOGIC;
+			rx_ev_o			: OUT	STD_LOGIC;
+			rxerr_ev_o		: OUT	STD_LOGIC;
+			tx_ev_o			: OUT	STD_LOGIC;
+			rx_clr_o		: OUT	STD_LOGIC;
+			tx_clr_o		: OUT	STD_LOGIC;
+			uctl_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			rxbuf_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
+			txbuf_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0)
+		);
+	end component;
+---------------------------------------------------------
 	-- The "Optimized Address Decoder" of Figure 5 (gap G-305). Splits the 14-bit
 	-- data address space of §3 into DTCM and SFR, and produces one chip select
 	-- per mapped SFR word. Phase 5A built it with an exhaustive testbench; Phase
