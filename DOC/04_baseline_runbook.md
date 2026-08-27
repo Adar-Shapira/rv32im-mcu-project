@@ -857,10 +857,11 @@ Until this existed the pipeline had `batch_verify.do` and nothing else, so its *
 testbenches were nine separate commands nobody scored together — a green run of one said nothing
 about the other eight. `regress.do` compiles once, then runs and scores:
 
-- **PART A** — the ten self-checking tests, by the same `VERDICT:` rule the single-cycle table uses:
-  `run_isa.do` (new, §10.1), the GPIO trio, both USART tests, and the four interrupt benchmarks on
-  their **corrected** images. Three of them carry one extra machine-checked fact each and it is
-  folded into the row: test2 and test3 must see `BTCNT` tick, test4 must see **3** capture events.
+- **PART A** — the **thirteen** self-checking tests, by the same `VERDICT:` rule the single-cycle
+  table uses: `run_isa.do` (§10.1), the three integration benches (§10.2), the GPIO trio, both USART
+  tests, and the four interrupt benchmarks on their **corrected** images. Three of them carry one
+  extra machine-checked fact each and it is folded into the row: test2 and test3 must see `BTCNT`
+  tick, test4 must see **3** capture events.
 - **PART B** — `batch_verify.do`, unchanged in what it does: the four **shipped** benchmarks, each
   final DTCM diffed word-by-word against the reference's own capture
   (`Auxiliary\Lab 5\SIM\RV32IM_pipeline\DTCM_testN_MS.mem`), failing a test whose program never
@@ -907,6 +908,38 @@ exit status is **1** and the table names the broken row. A regression nobody has
 regression nobody should trust.
 
 ---
+
+### 10.2 The three integration benches — new 2026-08-27, gap G-408
+
+```
+cd SIM\RV32IMpipelinedMCU
+do run_intr_core.do      REM the entry protocol, cycle by cycle
+do run_timer_mmio.do     REM the timer on the bus, + PWM at the pin
+do run_intr_mmio.do      REM the whole path, real pin to reti
+```
+
+Every peripheral is byte-identical in both DUT trees, so a **leaf** test proven on the single-cycle
+side is proven for the pipeline too — that is what `tools/check_peripheral_copies.py` protects.
+These three are not leaf tests: their subject is the **core's interaction with a peripheral**, and
+the cores are different designs, so their single-cycle results do not carry over. They score
+byte-identical checks against the identical generated programs, staged from `SIM\RV32IMscMCU\`.
+
+**Expect `VERDICT: PASS` from each.** On any failure, run the single-cycle bench of the same name
+first. If that passes and the pipeline one does not, the fault is in the **core**, not in the
+peripheral, the program or the expectations.
+
+**One thing that looks wrong and is not:** `run_intr_core.do` is the only script in that directory
+without `-gMODELSIM=1`. It instantiates the bare `RV32IM_PIPE_CORE`, not the MCU top, so there is no
+`CLOCK_TREE` to send down its FPGA branch — it drives `clk` and `divclk` itself. `check_staging.py`
+derives which testbenches instantiate an MCU top from the TB sources, so it does not flag this and
+would still flag a real omission.
+
+**What `run_intr_core.do` prints, and what to do with it.** `tp1`, `tp3` and the round-3 deferral
+are reported in its summary. `tp1` must sit in 44..48, `tp3` in 100..124, and the deferral at or
+above 12. That deferral floor is not a copied constant: `DIV_ACCEL` is 32 DIVCLK iterations,
+`DIV_UNIT`/`DIV_ACCEL` are byte-identical in both trees, and the bench drives `divclk` at 21 ns —
+so round 3's two back-to-back divides are 1344 ns, or 13.44 core cycles. A *small* deferral means
+the accept gate stopped honouring `div_start`/`div_busy`, which is exactly what clause F13 forbids.
 
 ## 11. Phase 14 — the compile matrix (added 2026-08-27)
 

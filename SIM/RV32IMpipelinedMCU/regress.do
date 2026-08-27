@@ -14,6 +14,12 @@
 #   two USART ones and the four benchmark benches, and nothing scored them
 #   together. A green run of one script says nothing about the other eight.
 #
+#   Thirteen tests now. Phase 11B added the directed ISA suite; G-408 added the
+#   three that test the CORE's interaction with a peripheral and therefore do
+#   NOT transfer from the single-cycle tree the way a leaf test does: the entry
+#   protocol cycle by cycle, the timer on the bus, and the interrupt path end
+#   to end.
+#
 # HOW A TEST IS SCORED
 #   Exactly the rule SIM\RV32IMscMCU\regress.do uses, so the two summaries mean
 #   the same thing:
@@ -83,9 +89,12 @@ echo "compile.do: done (see logs/compile.log for the warning count)"
 # printed in this order and the first FAILED row is the one to read.
 quietly set TESTS {
     {run_isa.do            "11B directed ISA suite, 56 stores (expects 5 mul mismatches)"}
+    {run_intr_core.do      "G-408 the CPU-side entry protocol, REQ p15 cycle by cycle"}
     {run_gpio.do           "11  GPIO test0 on the pipeline"}
     {run_gpio_read.do      "11  GPIO test1, the SFR read path"}
     {run_gpio_directed.do  "11  directed GPIO, 35 exact stores"}
+    {run_timer_mmio.do     "G-408 the Basic Timer on the bus, + PWM at the pin"}
+    {run_intr_mmio.do      "G-408 the interrupt path end to end, 14 exact stores"}
     {run_uart_mmio.do      "12D USART on the bus, pin-to-pin loopback"}
     {run_uart_menu.do      "12D clause 8 menu, bench as the PC (slow: ~75 ms)"}
     {run_bench_test1.do    "11  interrupt benchmark test1 (corrected copy)"}

@@ -462,8 +462,9 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **9C Controller onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_mmio.do` (stages its own `intrmmio/` images).** All 14 expected stores exact; the bus one-hot warning must stay silent (the TYPE push is a new driver) |
 | **10A test1 harness + corrected copies** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test1.do` (stages itself, passes `-gMODELSIM=1`; both fixed 2026-08-26)**. Found+fixed (one word, audited): shipped test1 never enables GIE at SW0=0 — question **B5** |
 | **10B test4 harness; tests 2/3 = FPGA** | **Yehonatan ✔** | **Adar** | **ready — `do run_bench_test4.do` (stages itself).** Expect PASS + `CAPTURE EVENTS: 3 of 3`. **Two NEW findings (B6):** the shipped capture flow zeroes BTINT and holds+clears BTCNT, so the measured runtime is structurally 0 even with the G-327 fix. test2/3 stay FPGA material (B2) |
-| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured + the bonus registration** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 (the four counter triples have never been measured — `batch_verify.do` already prints them, it needs one run) and the bonus registration with Hanan. **Phase 11B (2026-08-27) closed the verification gap this row never named:** the core is a rewrite and the seven ISA repairs had only ever been confirmed by READING it — there is now a directed suite and a `regress.do` on this side too. **G-408** records the three integration benches still single-cycle-only |
+| **11 Pipeline port** | **Adar ✔ (`beee0a7`)** | **Yehonatan ✔ reviewed 2026-08-27 — NOT closed: G-205 unmeasured + the bonus registration** | **Adar ported the whole peripheral set to the pipeline himself**: ADDR_DECODER, BASIC_TIMER, BIDIRPIN, CLOCK_TREE, DIV_ACCEL, DIV_UNIT, GPO_PORT, HEX_DECODER, INTERRUPT_CTRL, PLL_GEN, SYNC, the MCU top, a pinned Quartus project with SignalTap, five testbenches and the run scripts — 27 design files, and he reports the tests passing. **Three things I checked and can confirm**: the wrapper now has real output pins (so the `GEN_DEBUG_PORTS`/SignalTap-off exposure is gone), `RV32IM_PIPE_CORE.vhd:227` is a plain `rst_w <= rst_i` (D-1 not reintroduced), and **all eleven duplicated peripherals are byte-identical to the single-cycle originals** — zero drift, so every leaf verification result transfers unchanged. `tools/check_peripheral_copies.py` now asserts that mechanically, because clause 10 forces the duplication and a one-sided future fix would be silent. **Review pass done 2026-08-27** (details in the Phase 11 section): the interrupt-precision boundary and the divider stall are both sound — the retiring MEM instruction survives the flush by design, the resume PC is right even when it is itself a redirect, `done_o` is not idle-high so the divide cannot escape its stall, and all seven ISA repairs are present in the pipeline tree independently. **One defect found and fixed:** `FHCNT` counted flush *cycles*, so every interrupt entry counted three times and the IPC equation subtracted 9 cycles where 5 are real — it now counts redirect *events*, and the two entry cycles moved to `STCNT` where they belong. **Still open before this phase can close:** G-205 (the four counter triples have never been measured — `batch_verify.do` already prints them, it needs one run) and the bonus registration with Hanan. **Phase 11B (2026-08-27) closed the verification gap this row never named:** the core is a rewrite and the seven ISA repairs had only ever been confirmed by READING it — there is now a directed suite and a `regress.do` on this side too. **G-408**, the three integration benches that were still single-cycle-only, was opened and closed the same day |
 | **11B Pipeline verification suite** | **Yehonatan ✔** | **Adar** | **ready — in `SIM\RV32IMpipelinedMCU`: `do compile.do`, then `do run_isa.do` (expect PASS, exactly 5 mul mismatches), and `vsim -c -do regress.do` for the whole core in one command.** The pipeline had **18 fewer testbenches** than the single-cycle tree; most of that is correct (the peripherals are byte-identical, so their results transfer) but the CORE is a rewrite, and "all seven ISA repairs are present" came from READING it. 43 of the 56 stores are cases no benchmark executes. Also closes the pipeline half of **G-203**, deferred since Phase 13. **Four defects found while wiring it, none in the new code:** `-gMODELSIM=1` missing from five run scripts (both trees' UART bus tests plus 9C's `run_intr_mmio.do` — they would have built the real ALTPLL), two hand-made duplicate image directories that had already drifted, `quit -f` in six scripts that would kill any driver, and stale operator text telling Adar to expect 9 mismatches where the bench prints 5 |
+| **11C Pipeline integration benches** | **Yehonatan ✔** | **Adar** | **ready — `do run_intr_core.do`, `do run_timer_mmio.do`, `do run_intr_mmio.do` in `SIM\RV32IMpipelinedMCU`, or all thirteen at once with `vsim -c -do regress.do`.** Closes **G-408**. The three benches that test the CORE against a peripheral, so unlike the leaf tests their single-cycle results do NOT transfer. `tb_timer_mmio` and `tb_intr_mmio` were mechanical; **`tb_intr_core` was not** — it raises round 3's request off `EXinstruction_o`, because a divide completes IN EX and a MEM watch would have measured a deferral of ~0 and reported PASS having tested nothing. Both timing-dependent expectations re-derived rather than copied, and both survive with the derivation written into the bench: `K` (straight-line code, 1 IPC) and `defer3 >= 12` (a bound from the byte-identical divider, not from either core) |
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
 | **12B USART onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart_mmio.do` (stages its own `uartmmio/` images).** BOTH trees wired; `interrupt_ctrl` gained `rx_clr_i`/`tx_clr_i`, so clearing rules b and c are complete and every input the controller has now has a source. Pins from the Terasic CSV: PIN_G12 / PIN_G9. 22 exact stores; two of the checks exist only because mutation testing showed the first draft could not see a fault (rule c unobservable; RXBUF/TXBUF indistinguishable under a loopback) |
 | **12C UART menu firmware** | **Yehonatan ✔** | **Adar needs the cable and the board for clause 9** | **ready — `do run_uart_menu.do` (stages `menusim/`; SLOW, ~75 ms).** Clause 8's five items, interrupt-driven. The bench acts as the PC: shifts characters in at the real bit time, decodes them out mid-bit. ONE program, two data images differing in one word (`V_HALFSEC` = 9,999,999 board / 1,999 sim), ITCMs byte-identical and asserted so. Item 1 on `PORT_LEDR` — **R2** rewritten, the LEDG claim was wrong |
@@ -2998,6 +2999,71 @@ four packages it uses. All four static checkers, seven generators and five model
 in `SIM\RV32IMpipelinedMCU` is the measurement, and `vsim -c -do regress.do` is now the one command
 for this core.
 
+### Phase 11C — the three integration benches  ·  **built 2026-08-27**  ·  closes G-408
+
+Phase 11B's count opened this and this closes it. Eighteen testbenches existed only in the
+single-cycle tree; fifteen of them correctly, because the peripheral they exercise is byte-identical
+in both trees and the result transfers. **Three did not transfer**, because their subject is the
+CORE's interaction with a peripheral:
+
+| | what it is | what changed |
+| --- | --- | --- |
+| `tb_intr_core` | REQ p15's entry protocol, cycle by cycle, bare core | **not mechanical — see below** |
+| `tb_timer_mmio` | the timer on the bus, + PWM measured at the pin | instantiation only |
+| `tb_intr_mmio` | the whole path, real pin to reti, 14 exact stores | instantiation only |
+
+All three score **byte-identical checks against the identical generated program**, staged from
+`SIM/RV32IMscMCU/` — one copy of each program, not two that can drift.
+
+#### The one that was not mechanical, and why it matters
+
+`tb_intr_core` plays the interrupt controller itself: it drives `intr_i`, checks the one-cycle INTA
+pulse, and pushes TYPE onto `dbus_rdata_i` in the following cycle. **That handshake needed no
+adaptation at all**, which is worth stating as a result rather than a convenience —
+`RV32IM_PIPE_CORE.vhd:274-303` drives `inta_o <= NOT accept_w` and captures `dbus_rdata_i(7 DOWNTO 0)`
+in `I_CYC1`, the same shape as the single-cycle core, and that is exactly what lets
+`INTERRUPT_CTRL.vhd` be reused byte-identical between the trees.
+
+**Round 3 is the part that had to change.** The single-cycle bench raises the request when the div
+word appears on `instruction_o`. Transcribing that to `MEMinstruction_o` would have compiled, run,
+and **passed while testing nothing**: acceptance is gated on `ex_DivStart_w = '0' AND div_busy_w = '0'`
+(`RV32IM_PIPE_CORE.vhd:270-271`), both EX-stage conditions, and a divide completes *in EX* before it
+advances — so by the time the div word reaches MEM the divider is idle again, the request would be
+accepted immediately, and the F13 deferral would measure ~0 against a floor of 12. The bench raises
+the request off `EXinstruction_o` instead, while the divide is actually in flight. **A silent
+vacuous pass is worse than a failure**, which is why this is written into the bench header at
+length rather than left as a line of code.
+
+#### Two timing-dependent expectations, re-derived rather than copied
+
+Both looked like they needed new numbers for a pipeline. Neither does, and the reasons are
+different and are recorded in the benches:
+
+- **`defer3 >= 12`** — the bound comes from the *divider*, not from either core. `DIV_ACCEL` is
+  N = 32 DIVCLK iterations and `DIV_UNIT`/`DIV_ACCEL` are byte-identical in both trees. The bench
+  drives `divclk` itself at 21 ns, so one divide is 672 ns and round 3 issues two back to back:
+  1344 ns, or 13.44 cycles of the 100 ns core clock. At least 12 whole falling edges must pass.
+- **`K`, the captured timer count** (range 1..60, interpreter predicts 10) — `K` is the number of
+  cycles `BTCNT` ran between the run-write and the hold-write, and *everything the program executes
+  between those two stores is straight-line `addi`/`slli`/`sw`*: no branch, no load, no divide, so
+  no flush, no load-use interlock, no divider hold. A five-stage pipeline retires straight-line code
+  at 1 IPC, so the two stores reach the timer the same number of cycles apart and `K` does not move.
+
+`tb_intr_mmio`'s 14 expectations stay **exact, with no ranges**, for a third reason: neither
+interrupt moment is pinned by bench timing. The program is in a poll loop when the key is pressed
+and stays there until the ISR clears it, and round 2 is pinned by a timer count that never involves
+the CPU.
+
+#### Where they run
+
+`SIM/RV32IMpipelinedMCU/regress.do` is now **thirteen** tests. `run_intr_core.do` is the one script
+in that directory that deliberately does **not** pass `-gMODELSIM=1` — it instantiates the bare core,
+so there is no `CLOCK_TREE` to send down its FPGA branch, and it drives `clk` and `divclk` itself.
+`tools/check_staging.py` knows the difference: it derives which testbenches instantiate an MCU top
+from the TB sources rather than from a list.
+
+**Not run.** Nothing here has touched a simulator.
+
 ## Phase 12 — UART  ·  bonus 20%  ·  Yehonatan writes · **Adar needs the cable and the board**
 
 - **Process precondition from the prep session (§1.6.d):** same registration gate as Phase 11, and
@@ -3527,7 +3593,7 @@ pipeline — see §0.a for the before/after line pairs.
 | **G-407** | The seven GPO read-back tri-states of Figure 5 were exercised by nothing — no supplied benchmark reads `PORT_LEDR` or a `PORT_HEXn`. **CLOSED 2026-08-24** by the directed GPIO test, which reads all seven back. Read-back is also what closed G-406, since it is what makes a port's content observable. The paths still rest on assumption **A15**; if Hanan says an output port must not answer a read, the action is `GEN_GPO_READBACK => FALSE` and this suite's read-back cases go with it. |
 | **G-406** | `tb_gpio`'s cross-talk check is one-sided — GPIO test0 writes the *same* value to all seven GPO ports in ascending address order, so a port wrongly capturing a **later** store re-captures a value it already holds and is invisible. **CLOSED 2026-08-24** by the directed GPIO test: `tools/gen_gpio_test.py` writes **different** values to the two halves of each shared chip select in **both** orders and reads both back, so store 3 catches an extra capture by `PORT_HEX0` and store 8 catches one by `PORT_HEX1`. |
 | **G-405** | GPIO suite never writes the DTCM, so no golden-memory comparison is possible. |
-| **G-408** | **NEW 2026-08-27, opened by Phase 11B rather than closed by it.** Three INTEGRATION testbenches still exist only in the single-cycle tree: `tb_intr_core` (the REQ p15 entry protocol, cycle by cycle, including `tp` and the TYPE capture), `tb_timer_mmio` (the timer's interrupt path on the bus) and `tb_intr_mmio` (the interrupt path end to end, 14 exact stores). They test the CORE's interaction with a peripheral, and the cores are different designs, so unlike the leaf benches these results do **not** transfer. Partially covered: `run_uart_mmio.do` and `run_uart_menu.do` do exercise the pipelined interrupt entry end to end, which is why this is a gap and not a hole. The Phase 11 review pass also checked the boundary by reading the RTL. Ports are mechanical — the pattern is settled by `tb_isa_directed` and `tb_uart_mmio` — but each needs its expectations re-derived against MEM-stage retirement rather than copied. Recommended before the demo, but not a blocker: the pipeline is a bonus and its interrupt entry is already exercised end to end. |
+| **G-408** | ~~Three INTEGRATION testbenches existed only in the single-cycle tree.~~ **OPENED AND CLOSED 2026-08-27.** Opened by Phase 11B's count: `tb_intr_core`, `tb_timer_mmio` and `tb_intr_mmio` test the CORE's interaction with a peripheral, and the cores are different designs, so unlike the leaf benches these results do **not** transfer. All three now exist in `TB/RV32IMpipelinedMCU/` with byte-identical checks and the same generated programs (staged from `SIM/RV32IMscMCU/`, one copy each). Two of the three were mechanical; **`tb_intr_core` was not**, and the non-mechanical part is the whole value: it raises round 3's request off `EXinstruction_o` rather than `MEMinstruction_o`, because acceptance is gated on `ex_DivStart_w`/`div_busy_w` and a divide completes **in EX** before it advances -- watching MEM would have raised the request against an already-idle divider, measured a deferral of ~0 and reported PASS having tested nothing. Two timing-dependent expectations were re-derived rather than copied and both survive: the captured count `K` (the run-to-hold window is straight-line code, which a pipeline retires at 1 IPC) and the `defer3 >= 12` floor (two 32-iteration divides at the bench's own 21 ns divclk = 1344 ns = 13.44 core cycles -- a bound that comes from the divider, which is byte-identical in both trees, not from either core). |
 
 ## Documentation and submission
 
