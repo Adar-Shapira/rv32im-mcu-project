@@ -69,6 +69,7 @@ quietly set TESTS {
     {run_timer_mmio.do     "8B  timer on the bus"}
     {run_intr_core.do      "9B  CPU-side interrupt protocol"}
     {run_intr_mmio.do      "9C  interrupt path end to end"}
+    {run_uart_mmio.do      "12B USART on the bus, pin-to-pin loopback"}
     {run_bench_test1.do    "10A benchmark test1"}
     {run_bench_test4.do    "10B benchmark test4"}
 }

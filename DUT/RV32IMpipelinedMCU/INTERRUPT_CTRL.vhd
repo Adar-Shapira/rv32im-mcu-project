@@ -77,10 +77,19 @@
 --
 -- CLEARING RULES a-f OF REQ p13, WHO IMPLEMENTS WHICH
 --   a  BTIFG auto-clears when serviced          -> HERE, at the INTA edge
---   b  RXIFG auto-clears when serviced          -> HERE (source in Ph.12);
---        ... or when RXBUF is read              -> Phase 12
---   c  TXIFG auto-clears when serviced          -> HERE (source in Ph.12);
---        ... or when TXBUF is written           -> Phase 12
+--   b  RXIFG auto-clears when serviced          -> HERE (svc_rx_w);
+--        ... or when RXBUF is read              -> HERE since Phase 12B,
+--        rx_clr_i, a one-cycle pulse from uart_periph's RXBUF read strobe
+--   c  TXIFG auto-clears when serviced          -> HERE (svc_tx_w);
+--        ... or when TXBUF is written           -> HERE since Phase 12B,
+--        tx_clr_i, from uart_periph's TXBUF write strobe
+--        REQ p12's own words for both halves: "reading RXBUF resets the
+--        receive-error bits, and RXIFG" / "writing to the transmit data
+--        buffer clears TXIFG". Both arrive on this clock (uart_periph is on
+--        pclk_w too), and both clear the RAW latch, not the masked view --
+--        so a read of RXBUF retires the request even while RXIE is 0, which
+--        is what makes polled operation possible at all: without it a
+--        masked-pending RXIFG would fire the instant software enabled RXIE.
 --   d  KEYiIFG cleared manually by software     -> the W0C write path;
 --        NO auto-clear at service for the KEYs, deliberately -- the
 --        benchmark ISRs all do the manual clear, and it must find the
@@ -165,9 +174,15 @@ ENTITY interrupt_ctrl IS
 		bt_ifg_set_i	: IN	STD_LOGIC := '0';					-- one-cycle pulse, same clock
 		key_pressed_i	: IN	STD_LOGIC_VECTOR(3 DOWNTO 1) := "000";	-- '1' while held, asynchronous;
 												-- the request event is the FALLING edge = the RELEASE
-		rxerr_ev_i		: IN	STD_LOGIC := '0';	-- Phase 12 (UART); defaulted so
-		rx_ev_i			: IN	STD_LOGIC := '0';	-- today's instantiation elaborates
-		tx_ev_i			: IN	STD_LOGIC := '0';
+		rxerr_ev_i		: IN	STD_LOGIC := '0';	-- Phase 12B (UART): all five are
+		rx_ev_i			: IN	STD_LOGIC := '0';	-- driven now. Still defaulted so
+		tx_ev_i			: IN	STD_LOGIC := '0';	-- tb_interrupt_ctrl and every
+													-- pre-12B instantiation elaborates
+		-- Clearing rules b and c, software side (REQ p12). One-cycle pulses from
+		-- uart_periph, same clock: rx_clr_i = RXBUF was read, tx_clr_i = TXBUF
+		-- was written. They clear the RAW latch, exactly like the W0C path.
+		rx_clr_i		: IN	STD_LOGIC := '0';
+		tx_clr_i		: IN	STD_LOGIC := '0';
 
 		-- CPU handshake (REQ p13 / p15; Phase 9B is the other end)
 		gie_i			: IN	STD_LOGIC;			-- gp[0], tapped in IDECODE (Phase 9B)
@@ -266,8 +281,8 @@ BEGIN
 	svc_tx_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_TX)) ELSE '0';
 	svc_bt_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_BT)) ELSE '0';
 
-	clr_w(0)	<= (ifg_wr_w AND (NOT data_i(0))) OR svc_rx_w;
-	clr_w(1)	<= (ifg_wr_w AND (NOT data_i(1))) OR svc_tx_w;
+	clr_w(0)	<= (ifg_wr_w AND (NOT data_i(0))) OR svc_rx_w OR rx_clr_i;
+	clr_w(1)	<= (ifg_wr_w AND (NOT data_i(1))) OR svc_tx_w OR tx_clr_i;
 	clr_w(2)	<= (ifg_wr_w AND (NOT data_i(2))) OR svc_bt_w;
 	clr_w(3)	<= ifg_wr_w AND (NOT data_i(3));
 	clr_w(4)	<= ifg_wr_w AND (NOT data_i(4));

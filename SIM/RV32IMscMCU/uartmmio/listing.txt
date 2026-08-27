@@ -1,0 +1,44 @@
+Directed MCU-level USART test -- tools/gen_uart_mmio_test.py
+146 instructions. Five bytes go out on TXD and come back on
+RXD; the testbench's only job is to tie the two pins together.
+
+  UCTL  0x2018 lane 0     IE   0x202c lane 0
+  RXBUF 0x2019 lane 1     IFG  0x202d lane 1
+  TXBUF 0x201a lane 2     TYPE 0x202e lane 2
+
+  BAUDRATE=1 -> divider 11 at 20000000 Hz, so one 8N1 frame is
+  10*16*11 = 1760 cycles. Five frames plus polling: the
+  interpreter reaches the sentinel in 8941 cycles.
+
+  ISR_RX = 0x0218 -> DTCM word 2 (TYPE 08h, UART RX)
+
+Expected DTCM after the sentinel -- 22 stores, ALL EXACT:
+  [0x0008] = 0x218
+  [0x0100] = 0x08
+  [0x0104] = 0x88
+  [0x0108] = 0x5a
+  [0x010c] = 0x00
+  [0x0110] = 0x08
+  [0x0114] = 0x48
+  [0x0118] = 0x3c
+  [0x011c] = 0x08
+  [0x0120] = 0x02
+  [0x0124] = 0x00
+  [0x0128] = 0x71
+  [0x012c] = 0x3c
+  [0x0130] = 0x02
+  [0x0134] = 0x71
+  [0x0138] = 0x00
+  [0x013c] = 0x01
+  [0x0140] = 0x5d
+  [0x0180] = 0x00
+  [0x0184] = 0x44
+  [0x0188] = 0x00
+  [0x0200] = 0x01
+
+Derived twice: declared in gen_uart_mmio_test.py's EXPECT and
+reproduced by executing the program against model_uart.UartPeriph +
+model_interrupt_ctrl.Intc composed on an emulated bus, with the loop-
+back modelled at transaction level and the 9B entry protocol between
+them. Bit TIMING is not this file's claim -- tb_uart.vhd measures the
+start bit against the real engine.

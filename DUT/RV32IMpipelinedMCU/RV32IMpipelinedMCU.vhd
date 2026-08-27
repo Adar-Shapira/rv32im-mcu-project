@@ -57,6 +57,13 @@ ENTITY RV32IMpipelinedMCU IS
 		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 
+		-- USART -- Phase 12B. Pin names and locations from the course's own
+		-- Terasic table, Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv:
+		-- UART_RXD = PIN_G12 (input), UART_TXD = PIN_G9 (output), 3.3-V LVTTL.
+		-- RXD defaults to the idle '1' so every pre-12B testbench elaborates.
+		UART_RXD_i			:IN		STD_LOGIC := '1';
+		UART_TXD_o			:OUT	STD_LOGIC;
+
 		IFpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		IFinstruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
 		IDpc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
@@ -118,7 +125,19 @@ ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 	SIGNAL gpo_cs_w				: STD_LOGIC;
 	SIGNAL timer_cs_w			: STD_LOGIC;
 	SIGNAL intc_cs_w			: STD_LOGIC;
+	SIGNAL uart_cs_w			: STD_LOGIC;	-- Phase 12B
 	SIGNAL sfr_rd_impl_w		: STD_LOGIC;
+
+	-- Phase 12B -- the USART's read-backs, its three interrupt sources and the
+	-- two software-side clears of rules b/c.
+	SIGNAL uctl_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL rxbuf_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL txbuf_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL uart_rx_ev_w			: STD_LOGIC;
+	SIGNAL uart_rxerr_ev_w		: STD_LOGIC;
+	SIGNAL uart_tx_ev_w			: STD_LOGIC;
+	SIGNAL uart_rx_clr_w		: STD_LOGIC;
+	SIGNAL uart_tx_clr_w		: STD_LOGIC;
 
 	SIGNAL btctl1_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL btctl2_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
@@ -161,11 +180,15 @@ ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 	CONSTANT RD_IFG			: integer := 12;
 	CONSTANT RD_TYPE		: integer := 13;
 	CONSTANT RD_TYPEPUSH	: integer := 14;
-	CONSTANT NRD_BYTE	: integer := 15;
-	CONSTANT RD_BTCMPR0	: integer := 15;
-	CONSTANT RD_BTCMPR1	: integer := 16;
-	CONSTANT RD_BTCAPR	: integer := 17;
-	CONSTANT NRD		: integer := 18;
+	-- Phase 12B: the USART's three byte registers, word 6, lanes 0/1/2
+	CONSTANT RD_UCTL	: integer := 15;	-- 0x2018  byte, lane0
+	CONSTANT RD_RXBUF	: integer := 16;	-- 0x2019  byte, lane1 (read has a side effect)
+	CONSTANT RD_TXBUF	: integer := 17;	-- 0x201A  byte, lane2
+	CONSTANT NRD_BYTE	: integer := 18;
+	CONSTANT RD_BTCMPR0	: integer := 18;
+	CONSTANT RD_BTCMPR1	: integer := 19;
+	CONSTANT RD_BTCAPR	: integer := 20;
+	CONSTANT NRD		: integer := 21;
 
 	type rd_byte_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 	type rd_word_array_t is array (0 TO NRD-1) of STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -340,6 +363,9 @@ BEGIN
 	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w;
 	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w;
 	rd_en_w(RD_TYPEPUSH) <= type_push_w;
+	rd_en_w(RD_UCTL)  <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_RXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_TXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane2_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -356,6 +382,9 @@ BEGIN
 	rd_byte_w(RD_IFG)      <= intc_ifg_rd_w;
 	rd_byte_w(RD_TYPE)     <= intc_type_rd_w;
 	rd_byte_w(RD_TYPEPUSH) <= type_capt_w;
+	rd_byte_w(RD_UCTL)  <= uctl_rd_w;
+	rd_byte_w(RD_RXBUF) <= rxbuf_rd_w;
+	rd_byte_w(RD_TXBUF) <= txbuf_rd_w;
 
 	WEXT:
 	for i in 0 to NRD_BYTE-1 generate
@@ -396,9 +425,10 @@ BEGIN
 				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
 
 	intc_cs_w <= sfr_cs_w(CS_INTC);
+	uart_cs_w <= sfr_cs_w(CS_UART);		-- Phase 12B: word 6, the last one
 
 	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
-					 OR timer_cs_w OR intc_cs_w;
+					 OR timer_cs_w OR intc_cs_w OR uart_cs_w;
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -410,15 +440,18 @@ BEGIN
 				if dbus_MemRead_w = '1' and dtcm_cs_w = '0' and sfr_rd_impl_w = '0'
 				   and not told_rd_v then
 					told_rd_v := TRUE;
-					report "RV32IMpipelinedMCU: SFR READ of a word with no reader " &
-						   "(USART not attached; Phase 12). Once per run."
+					report "RV32IMpipelinedMCU: SFR READ of a word with no reader. " &
+						   "Since Phase 12B every mapped word answers, so this needs " &
+						   "GEN_GPO_READBACK => FALSE. Once per run."
 						severity note;
 				end if;
 				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
-				   and timer_cs_w = '0' and intc_cs_w = '0' and not told_wr_v then
+				   and timer_cs_w = '0' and intc_cs_w = '0' and uart_cs_w = '0'
+				   and not told_wr_v then
 					told_wr_v := TRUE;
-					report "RV32IMpipelinedMCU: SFR WRITE discarded (USART not " &
-						   "attached; PORT_PB is read-only). Once per run."
+					report "RV32IMpipelinedMCU: SFR WRITE discarded. Since Phase 12B " &
+						   "the only read-only words left are PORT_SW and PORT_PB. " &
+						   "Once per run."
 						severity note;
 				end if;
 			end if;
@@ -541,6 +574,39 @@ BEGIN
 		capin2_w <= CAPIN2_i;
 	end generate SIM_CAPIN;
 
+	--=======================================
+	-- USART -- Phase 12B, identical wiring to the single-cycle tree
+	--=======================================
+	-- CLK_HZ is passed explicitly: UART_CORE turns it into the baud divider at
+	-- ELABORATION and asserts the resulting error, so a wrong value here is a
+	-- compile error rather than a dead serial link on the bench.
+	UART : uart_periph
+	generic map(
+		DATA_WIDTH	=> DATA_BUS_WIDTH,
+		CLK_HZ		=> 20000000				-- SMCLK, F8/F11
+	)
+	PORT MAP (
+		clk_i		=> pclk_w,
+		rst_i		=> sys_rst_w,
+		cs_i		=> sfr_cs_w(CS_UART),
+		MemWrite_i	=> dbus_MemWrite_w,
+		MemRead_i	=> dbus_MemRead_w,		-- RXBUF's read side effect (REQ p12)
+		lane0_i		=> lane0_w,				-- 0x2018 UCTL
+		lane1_i		=> lane1_w,				-- 0x2019 RXBUF
+		lane2_i		=> lane2_w,				-- 0x201A TXBUF
+		data_i		=> data_bus_w,
+		rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
+		txd_o		=> UART_TXD_o,			-- PIN_G9
+		rx_ev_o		=> uart_rx_ev_w,
+		rxerr_ev_o	=> uart_rxerr_ev_w,
+		tx_ev_o		=> uart_tx_ev_w,
+		rx_clr_o	=> uart_rx_clr_w,
+		tx_clr_o	=> uart_tx_clr_w,
+		uctl_o		=> uctl_rd_w,
+		rxbuf_o		=> rxbuf_rd_w,
+		txbuf_o		=> txbuf_rd_w
+	);
+
 	INTC : interrupt_ctrl
 	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
 	PORT MAP (
@@ -553,6 +619,11 @@ BEGIN
 		data_i			=> data_bus_w,
 		bt_ifg_set_i	=> bt_ifg_set_w,
 		key_pressed_i	=> key_pressed_w,
+		rxerr_ev_i		=> uart_rxerr_ev_w,
+		rx_ev_i			=> uart_rx_ev_w,
+		tx_ev_i			=> uart_tx_ev_w,
+		rx_clr_i		=> uart_rx_clr_w,
+		tx_clr_i		=> uart_tx_clr_w,
 		gie_i			=> gie_w,
 		inta_i			=> inta_w,
 		intr_o			=> intr_w,

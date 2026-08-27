@@ -62,10 +62,12 @@ class Intc:
         return 0
 
     def edge(self, rst=0, wr=None, bt=0, keys=(0, 0, 0), gie=0, inta=1,
-             rx=0, rxerr=0, tx=0):
+             rx=0, rxerr=0, tx=0, rx_clr=0, tx_clr=0):
         """wr = ("ie"|"ifg", value) for a one-edge bus write, else None.
-        keys are the PRESSED levels ('1' while held). Returns the pre-edge
-        visible outputs as a dict."""
+        keys are the PRESSED levels ('1' while held). rx_clr/tx_clr are the
+        Phase 12B software-side halves of clearing rules b and c: uart_periph
+        pulses them when RXBUF is READ and when TXBUF is WRITTEN (REQ p12).
+        Returns the pre-edge visible outputs as a dict."""
         # ---- pre-edge combinational view --------------------------------
         set_w = [0] * 6
         set_w[0] = 1 if (rx or rxerr) else 0
@@ -88,6 +90,10 @@ class Intc:
                 clr_w[i] = 1                     # software W0C, on the RAW latch
         if inta == 0 and type_w in AUTOCLR:
             clr_w[AUTOCLR[type_w]] = 1           # service auto-clear, a/b/c
+        if rx_clr:
+            clr_w[0] = 1                         # rule b: RXBUF was read
+        if tx_clr:
+            clr_w[1] = 1                         # rule c: TXBUF was written
 
         pre_s1, pre_s2 = list(self.key_s1), list(self.key_s2)
 
@@ -291,6 +297,56 @@ def main():
     step(wr=("ie", 0x04))
     v = step()
     chk(v["ifg"] == 0x04, "P9b the masked BT request was not remembered (A22)")
+
+    # ---- P10 rules b and c, the SOFTWARE halves -- Phase 12B -----------------
+    # REQ p12: "reading RXBUF resets the receive-error bits, and RXIFG" and
+    # "writing to the transmit data buffer clears TXIFG". These clear the RAW
+    # latch, which is what makes POLLED operation possible: without them a
+    # request latched while RXIE was 0 would fire the moment software enabled
+    # RXIE, even though the character had already been consumed (A22's comeback
+    # working against us).
+    step(wr=("ie", 0x00))
+    step(wr=("ifg", 0x00))
+    step(wr=("ie", 0x03))                # RXIE | TXIE
+    step(rx=1)                           # a character lands
+    v = step()
+    chk(v["ifg"] == 0x01, f"P10a RXIFG={v['ifg']:#04x} != 0x01 after rx")
+    step(rx_clr=1)                       # software reads RXBUF
+    v = step()
+    chk(v["ifg"] == 0x00, f"P10b IFG={v['ifg']:#04x}: reading RXBUF must clear "
+        "RXIFG with no W0C write anywhere (rule b, REQ p12)")
+
+    step(tx=1)                           # the transmitter took a byte
+    v = step()
+    chk(v["ifg"] == 0x02, f"P10c TXIFG={v['ifg']:#04x} != 0x02 after tx")
+    step(tx_clr=1)                       # software writes TXBUF
+    v = step()
+    chk(v["ifg"] == 0x00, f"P10d IFG={v['ifg']:#04x}: writing TXBUF must clear "
+        "TXIFG (rule c, REQ p12)")
+
+    # and the one ordering that matters: a character arriving in the SAME edge
+    # as the read must survive -- set beats a same-edge clear, or a byte that
+    # arrived while its predecessor was being consumed would be lost silently
+    step(rx=1)
+    v = step(rx=1, rx_clr=1)             # read and arrive together
+    step()
+    v = step()
+    chk(v["ifg"] == 0x01, f"P10e IFG={v['ifg']:#04x}: a character arriving in "
+        "the same edge as the RXBUF read must leave RXIFG SET -- the set term "
+        "wins, or the new byte is announced to nobody")
+    step(wr=("ifg", 0x00))
+    step(rx_clr=1)
+
+    # a clear with the flag MASKED still empties the raw latch, so enabling the
+    # interrupt afterwards must stay quiet (the A22 comeback, deliberately
+    # defeated by rule b -- this is the pair to P2b)
+    step(wr=("ie", 0x00))
+    step(rx=1)                           # latches invisibly
+    step(rx_clr=1)                       # ...and is consumed while masked
+    step(wr=("ie", 0x01))
+    v = step()
+    chk(v["ifg"] == 0x00, f"P10f IFG={v['ifg']:#04x}: a request already "
+        "consumed through RXBUF must NOT come back when RXIE is enabled")
 
     print(f"checks failed: {len(fails)}")
     for m in fails:

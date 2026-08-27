@@ -86,12 +86,14 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
 # pins waiting on B1/F18 for locations.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
 # Phase 9A. The Interrupt Controller (IE/IFG/TYPE, the falsified-A6 latches,
-# priority onto TYPE, INTR/INTA). PRUNED UNTIL PHASE 9C: nothing instantiates
-# it yet -- listed so the file set stays complete, synthesized as an unused
-# entity. Phase 9C wires CS_INTC, the sources and the CPU handshake.
+# priority onto TYPE, INTR/INTA). Wired since 9C; since 12B its three UART
+# source inputs and the two rule-b/c clear inputs are driven too, so every
+# input it has now has a real source.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
-# Phase 12A. The USART (bonus, clause 6.iv). PRUNED UNTIL PHASE 12B: nothing
-# instantiates uart_periph yet, so all six synthesize as unused entities.
+# Phase 12A/12B. The USART (bonus, clause 6.iv). INSTANTIATED SINCE 12B: the
+# MCU top wires uart_periph to CS_UART's three lanes and brings UART_RXD_i /
+# UART_TXD_o out to PIN_G12 / PIN_G9, so all six are now live logic and their
+# area belongs in the PPA tables.
 # Four are jakubcabal's MIT code -- UART_TX/PARITY/DEBOUNCER byte-identical,
 # UART_RX plus one RX_BUSY port -- UART_CORE is his top level adapted for a
 # runtime rounded baud divider, UART_PERIPH is ours. The MIT licence text
@@ -354,6 +356,19 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO
 set_instance_assignment -name VIRTUAL_PIN ON -to PWM_o
 set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN1_i
 set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN2_i
+
+# --- Clause 9 / 6.iv: the USART's two RS-232 pins (Phase 12B) ---
+# Locations and I/O standard from the course's own Terasic table,
+# Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv:
+#     UART_RXD, Input,  PIN_G12, 3.3-V LVTTL
+#     UART_TXD, Output, PIN_G9,  3.3-V LVTTL
+# UART_CTS (PIN_G14) and UART_RTS (PIN_J13) are in that table too but this
+# USART is 8N1 with no hardware flow control, so they are deliberately left
+# unassigned rather than tied to an invented level.
+set_location_assignment PIN_G12 -to UART_RXD_i
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD_i
+set_location_assignment PIN_G9 -to UART_TXD_o
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD_o
 
 # --- Observation ports: entity stays, no FPGA balls (clause 7) ---
 set_instance_assignment -name VIRTUAL_PIN ON -to pc_o

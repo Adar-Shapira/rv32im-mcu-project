@@ -76,6 +76,12 @@ set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/FORWARD_UNIT.
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/EXECUTE.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/DMEMORY.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/CONTROL.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_PARITY.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_DEBOUNCER.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_TX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_RX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_CORE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/UART_PERIPH.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/const_package.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/cond_compilation_package.vhd
 set_global_assignment -name VHDL_FILE ../../DUT/RV32IMpipelinedMCU/aux_package.vhd
@@ -259,6 +265,19 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO
 set_instance_assignment -name VIRTUAL_PIN ON -to PWM_o
 set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN1_i
 set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN2_i
+
+# --- Clause 9 / 6.iv: the USART's two RS-232 pins (Phase 12B) ---
+# Locations and I/O standard from the course's own Terasic table,
+# Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv:
+#     UART_RXD, Input,  PIN_G12, 3.3-V LVTTL
+#     UART_TXD, Output, PIN_G9,  3.3-V LVTTL
+# UART_CTS (PIN_G14) and UART_RTS (PIN_J13) are in that table too but this
+# USART is 8N1 with no hardware flow control, so they are deliberately left
+# unassigned rather than tied to an invented level.
+set_location_assignment PIN_G12 -to UART_RXD_i
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD_i
+set_location_assignment PIN_G9 -to UART_TXD_o
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD_o
 
 # --- Observation / debug ports: entity stays, no FPGA balls (clause 7) ---
 set_instance_assignment -name VIRTUAL_PIN ON -to BPADDR_i

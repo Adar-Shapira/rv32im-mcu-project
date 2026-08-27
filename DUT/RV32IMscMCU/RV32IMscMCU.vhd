@@ -211,6 +211,21 @@ ENTITY RV32IMscMCU IS
 		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 
+		--=== USART — Phase 12B (bonus, clause 6.iv / clause 9) ===
+		-- The two RS-232 pins of the DE2-115, named exactly as the course's own
+		-- Terasic table names them so the pin assignment is checkable by eye:
+		-- Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv
+		--     UART_RXD, Input,  PIN_G12, 3.3-V LVTTL
+		--     UART_TXD, Output, PIN_G9,  3.3-V LVTTL
+		-- (that file also lists UART_CTS/PIN_G14 and UART_RTS/PIN_J13 -- hardware
+		-- flow control, which 8N1 without handshaking does not use, so they are
+		-- left unassigned rather than tied to something invented.)
+		--
+		-- RXD is defaulted to '1' -- the idle line -- so that every testbench
+		-- written before this phase still elaborates and sees a quiet receiver.
+		UART_RXD_i			:IN		STD_LOGIC := '1';
+		UART_TXD_o			:OUT	STD_LOGIC;
+
 		--=== Observation ports — Signal-Tap only, gated by GEN_DEBUG_PORTS ===
 		pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 		instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -362,6 +377,20 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL gie_w				: STD_LOGIC;
 	SIGNAL intc_cs_w			: STD_LOGIC;	-- for the stub notices below
 
+	-- Phase 12B -- the USART's read-backs, its three interrupt sources and the
+	-- two software-side clears of rules b/c. rx_ev/tx_ev/rxerr_ev go to the
+	-- interrupt controller's inputs, which have existed since 9A and were
+	-- defaulted to '0' waiting for exactly this.
+	SIGNAL uctl_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL rxbuf_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL txbuf_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL uart_rx_ev_w			: STD_LOGIC;
+	SIGNAL uart_rxerr_ev_w		: STD_LOGIC;
+	SIGNAL uart_tx_ev_w			: STD_LOGIC;
+	SIGNAL uart_rx_clr_w		: STD_LOGIC;
+	SIGNAL uart_tx_clr_w		: STD_LOGIC;
+	SIGNAL uart_cs_w			: STD_LOGIC;	-- for the stub notices below
+
 	-- Each port's stored byte, and each display's seven segments. Local array
 	-- types rather than one flat vector, so an index is a display number and not
 	-- an arithmetic slice. A TYPE declaration needs no package body.
@@ -407,11 +436,22 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	CONSTANT RD_IFG			: integer := 12;	-- 0x202D  byte, lane1
 	CONSTANT RD_TYPE		: integer := 13;	-- 0x202E  byte, lane2, read-only
 	CONSTANT RD_TYPEPUSH	: integer := 14;	-- entry Cycle 1, enable = type_push_w
-	CONSTANT NRD_BYTE	: integer := 15;	-- indices 0..14 are byte-wide
-	CONSTANT RD_BTCMPR0	: integer := 15;	-- 0x2020  word
-	CONSTANT RD_BTCMPR1	: integer := 16;	-- 0x2024  word
-	CONSTANT RD_BTCAPR	: integer := 17;	-- 0x2028  word
-	CONSTANT NRD		: integer := 18;
+	-- Phase 12B: the USART's three byte registers -- word 6, lanes 0/1/2, the
+	-- second and last lane-2 word in the map. All three are Byte resolution
+	-- (REQ p6), so they belong below NRD_BYTE with the rest. RXBUF's reader is
+	-- the one register in this design whose READ HAS A SIDE EFFECT (REQ p12:
+	-- reading it clears the error bits and RXIFG), which is why uart_periph
+	-- takes MemRead_i and derives the strobe itself instead of reusing the
+	-- enable below -- the two must be the same event, and it is cleaner to have
+	-- one owner of it than two expressions that have to stay equal.
+	CONSTANT RD_UCTL	: integer := 15;	-- 0x2018  byte, lane0
+	CONSTANT RD_RXBUF	: integer := 16;	-- 0x2019  byte, lane1
+	CONSTANT RD_TXBUF	: integer := 17;	-- 0x201A  byte, lane2
+	CONSTANT NRD_BYTE	: integer := 18;	-- indices 0..17 are byte-wide
+	CONSTANT RD_BTCMPR0	: integer := 18;	-- 0x2020  word
+	CONSTANT RD_BTCMPR1	: integer := 19;	-- 0x2024  word
+	CONSTANT RD_BTCAPR	: integer := 20;	-- 0x2028  word
+	CONSTANT NRD		: integer := 21;
 
 	type rd_byte_array_t is array (0 TO NRD_BYTE-1) of STD_LOGIC_VECTOR(7 DOWNTO 0);
 
@@ -747,6 +787,15 @@ BEGIN
 	rd_en_w(RD_IFG)      <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane1_w;
 	rd_en_w(RD_TYPE)     <= sfr_cs_w(CS_INTC) AND dbus_MemRead_w AND lane2_w;
 	rd_en_w(RD_TYPEPUSH) <= type_push_w;
+	-- Phase 12B. UCTL/RXBUF/TXBUF share word 6, split by A1..A0 like IE/IFG/TYPE.
+	-- TXBUF is readable as well as writable: REQ p12 calls it the buffer holding
+	-- "data waiting to be moved into the transmit shift register", and nothing in
+	-- the table marks it write-only, so it reads back like every other register
+	-- here (assumption A28). RXBUF's enable is ALSO the read-side-effect event --
+	-- see the constant's comment above.
+	rd_en_w(RD_UCTL)  <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane0_w;
+	rd_en_w(RD_RXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane1_w;
+	rd_en_w(RD_TXBUF) <= sfr_cs_w(CS_UART) AND dbus_MemRead_w AND lane2_w;
 
 	rd_byte_w(RD_SW)   <= sw_sync_w;
 	rd_byte_w(RD_LEDR) <= ledr_q;
@@ -763,6 +812,9 @@ BEGIN
 	rd_byte_w(RD_IFG)      <= intc_ifg_rd_w;	-- the MASKED view (falsified A6)
 	rd_byte_w(RD_TYPE)     <= intc_type_rd_w;
 	rd_byte_w(RD_TYPEPUSH) <= type_capt_w;		-- frozen at the accept edge (9A)
+	rd_byte_w(RD_UCTL)  <= uctl_rd_w;			-- BUSY/OE/PE/FE live, four bits stored
+	rd_byte_w(RD_RXBUF) <= rxbuf_rd_w;
+	rd_byte_w(RD_TXBUF) <= txbuf_rd_w;
 
 	-- Zero-extend each byte register to the full bus width. This IS assumption
 	-- A11, expressed once, in the only place it belongs. Phase 8B: the range is
@@ -907,8 +959,10 @@ BEGIN
 	-- built (9A) and verified to that convention. INTA is active-low as drawn.
 	--   Sources: bt_ifg_set_w is Phase 8B's event pulse, consumed at last;
 	-- key_pressed_w is Phase 6C's normalized pressed level -- the controller
-	-- fires on its FALLING edge, the release (DOC/03 section C). UART events
-	-- stay at their '0' defaults until Phase 12.
+	-- fires on its FALLING edge, the release (DOC/03 section C). As of Phase 12B
+	-- the three UART sources and the two rule-b/c clears are driven too, so
+	-- every input of this controller now has a real source: all seven vector
+	-- table entries of REQ p14 can fire.
 	INTC : interrupt_ctrl
 	generic map( DATA_WIDTH => DATA_BUS_WIDTH )
 	PORT MAP (
@@ -921,6 +975,11 @@ BEGIN
 		data_i			=> data_bus_w,
 		bt_ifg_set_i	=> bt_ifg_set_w,
 		key_pressed_i	=> key_pressed_w,
+		rxerr_ev_i		=> uart_rxerr_ev_w,
+		rx_ev_i			=> uart_rx_ev_w,
+		tx_ev_i			=> uart_tx_ev_w,
+		rx_clr_i		=> uart_rx_clr_w,
+		tx_clr_i		=> uart_tx_clr_w,
 		gie_i			=> gie_w,
 		inta_i			=> inta_w,
 		intr_o			=> intr_w,
@@ -931,11 +990,56 @@ BEGIN
 		type_o			=> intc_type_rd_w
 	);
 
+	--=======================================
+	-- USART -- Phase 12B (REQ p6/p12 onto Figure 5's bus; bonus, clause 6.iv)
+	--=======================================
+	-- The last of the twelve SFR words to be attached. Same conventions as every
+	-- peripheral since 6A: pclk_w (F11), sys_rst_w, and the write data taken FROM
+	-- the shared bidirectional bus rather than from a private path.
+	--
+	-- CLK_HZ is passed explicitly rather than left at the component's default,
+	-- because UART_CORE turns it into the baud divider AT ELABORATION and asserts
+	-- the resulting error: with SMCLK = 20 MHz (F8/F11) the divisors are 130 and
+	-- 11, and a wrong CLK_HZ here is a compile error rather than a dead serial
+	-- link on the bench. It is written as a literal for the same reason
+	-- CLOCK_TREE states its frequencies three times -- one number, three
+	-- independent statements of it, so a change that misses one is caught.
+	--
+	-- MemRead_i is what makes RXBUF's read side effect (REQ p12) possible; no
+	-- other peripheral here needs the read strobe.
+	UART : uart_periph
+	generic map(
+		DATA_WIDTH	=> DATA_BUS_WIDTH,
+		CLK_HZ		=> 20000000				-- SMCLK, F8/F11 -- see CLOCK_TREE.vhd
+	)
+	PORT MAP (
+		clk_i		=> pclk_w,
+		rst_i		=> sys_rst_w,
+		cs_i		=> sfr_cs_w(CS_UART),
+		MemWrite_i	=> dbus_MemWrite_w,
+		MemRead_i	=> dbus_MemRead_w,
+		lane0_i		=> lane0_w,				-- 0x2018 UCTL
+		lane1_i		=> lane1_w,				-- 0x2019 RXBUF
+		lane2_i		=> lane2_w,				-- 0x201A TXBUF
+		data_i		=> data_bus_w,
+		rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
+		txd_o		=> UART_TXD_o,			-- PIN_G9
+		rx_ev_o		=> uart_rx_ev_w,
+		rxerr_ev_o	=> uart_rxerr_ev_w,
+		tx_ev_o		=> uart_tx_ev_w,
+		rx_clr_o	=> uart_rx_clr_w,
+		tx_clr_o	=> uart_tx_clr_w,
+		uctl_o		=> uctl_rd_w,
+		rxbuf_o		=> rxbuf_rd_w,
+		txbuf_o		=> txbuf_rd_w
+	);
+
 	-- Which SFR words actually have a peripheral behind them today. Phase 6A
 	-- attached the four GPO words; Phase 8B the timer's four (a write to BTCAPR
 	-- reaches the timer and is IGNORED there by design -- capture hardware owns
 	-- that register -- which is different from a write falling into a stub).
-	-- Phases 9 and 12 extend these terms as they attach theirs.
+	-- Phase 9C attached the interrupt controller and Phase 12B the USART, which
+	-- was the last one: every mapped SFR word now has hardware behind it.
 	gpo_cs_w <=	sfr_cs_w(CS_LEDR)  OR sfr_cs_w(CS_HEX01) OR
 				sfr_cs_w(CS_HEX23) OR sfr_cs_w(CS_HEX45);
 
@@ -943,12 +1047,15 @@ BEGIN
 				  sfr_cs_w(CS_BTCMPR1) OR sfr_cs_w(CS_BTCAPR);
 
 	intc_cs_w <= sfr_cs_w(CS_INTC);		-- Phase 9C: word 11 has a peripheral now
+	uart_cs_w <= sfr_cs_w(CS_UART);		-- Phase 12B: word 6, the last one
 
 	-- Which SFR words answer a READ today: PORT_SW and PORT_PB always, the four
-	-- GPO words when read-back is enabled, the timer's four words, and the
-	-- interrupt controller's word (Phase 9C).
+	-- GPO words when read-back is enabled, the timer's four words, the interrupt
+	-- controller's word (Phase 9C) and the USART's (Phase 12B). With
+	-- GEN_GPO_READBACK => TRUE that is now EVERY mapped word, so the read notice
+	-- below can only fire with read-back compiled out.
 	sfr_rd_impl_w <= sfr_cs_w(CS_SW) OR sfr_cs_w(CS_PB) OR (gpo_cs_w AND rdbk_w)
-					 OR timer_cs_w OR intc_cs_w;
+					 OR timer_cs_w OR intc_cs_w OR uart_cs_w;
 
 	SFRSTUB:
 	if (MODELSIM = 1) generate
@@ -972,24 +1079,33 @@ BEGIN
 				   and not told_rd_v then
 					told_rd_v := TRUE;
 					report "RV32IMscMCU: an SFR READ reached a word with no readable " &
-						   "register behind it and returned zero. PORT_SW, PORT_PB, the " &
-						   "seven GPO read-backs, the Basic Timer's five registers and " &
-						   "the interrupt controller's IE/IFG/TYPE DO answer; this is " &
-						   "the USART (Phase 12). Once per run." severity note;
+						   "register behind it and returned zero. Since Phase 12B EVERY " &
+						   "mapped SFR word answers a read, so the only way to get here " &
+						   "is GEN_GPO_READBACK => FALSE and a read of PORT_LEDR or a " &
+						   "PORT_HEX, or a read of an address the decoder does not map " &
+						   "at all, which unmapped_o reports separately. Once per run."
+						   severity note;
 				end if;
 
-				-- WRITES: only the four GPO words are implemented. A write to any
-				-- other SFR word really is discarded, and that is worth saying.
+				-- WRITES: as of Phase 12B every SFR word that has writable
+				-- hardware takes its write. What is left is the read-only ports,
+				-- so this notice changed meaning: it no longer says "not built
+				-- yet", it says "you wrote to something that cannot be written".
 				if dbus_MemWrite_w = '1' and dtcm_cs_w = '0' and gpo_cs_w = '0'
-				   and timer_cs_w = '0' and intc_cs_w = '0' and not told_wr_v then
+				   and timer_cs_w = '0' and intc_cs_w = '0' and uart_cs_w = '0'
+				   and not told_wr_v then
 					told_wr_v := TRUE;
-					report "RV32IMscMCU: an SFR WRITE reached a word with no peripheral " &
-						   "behind it yet and was discarded. The seven GPO ports, the " &
-						   "Basic Timer and the interrupt controller (IE/IFG; TYPE is " &
-						   "read-only by REQ p14) DO take their writes; this is the " &
-						   "USART (Phase 12). " &
-						   "Note PORT_PB is READ-ONLY, so a write there is discarded by " &
-						   "design, not by omission. Once per run."
+					report "RV32IMscMCU: an SFR WRITE reached a word with no writable " &
+						   "register behind it and was discarded. Since Phase 12B this " &
+						   "is no longer a missing peripheral: the seven GPO ports, " &
+						   "the Basic Timer, the interrupt controller (IE/IFG) and the " &
+						   "USART (UCTL/TXBUF) all take their writes. It means the " &
+						   "target is READ-ONLY BY DESIGN, and the only two such " &
+						   "words left are PORT_SW (0x2010) and PORT_PB (0x2014). " &
+						   "A write to a read-only LANE of a word that does have " &
+						   "hardware (TYPE at 0x202E, RXBUF at 0x2019) does not " &
+						   "reach here: that word's chip select is claimed, and the " &
+						   "peripheral drops the write itself. Once per run."
 						severity note;
 				end if;
 			end if;

@@ -56,6 +56,11 @@ package aux_package is
 			HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 			HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
 
+			-- Phase 12B: the USART's two RS-232 pins. RXD carries the entity's
+			-- '1' default so testbenches written before 12B still elaborate.
+			UART_RXD_i			:IN		STD_LOGIC := '1';
+			UART_TXD_o			:OUT	STD_LOGIC;
+
 			--Outputs (Signal-Tap observation, gated by GEN_DEBUG_PORTS)
 			pc_o				:OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
 			instruction_o		:OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
@@ -316,6 +321,8 @@ package aux_package is
 			rxerr_ev_i		: IN	STD_LOGIC := '0';
 			rx_ev_i			: IN	STD_LOGIC := '0';
 			tx_ev_i			: IN	STD_LOGIC := '0';
+			rx_clr_i		: IN	STD_LOGIC := '0';	-- Phase 12B, rule b
+			tx_clr_i		: IN	STD_LOGIC := '0';	-- Phase 12B, rule c
 			gie_i			: IN	STD_LOGIC;
 			inta_i			: IN	STD_LOGIC := '1';
 
