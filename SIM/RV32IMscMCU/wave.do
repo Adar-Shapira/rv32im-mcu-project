@@ -40,6 +40,7 @@ add wave -noupdate -expand -group GPIO /tb_rv32imscmcu/PWM_o
 add wave -noupdate -expand -group GPIO /tb_rv32imscmcu/CAPIN1_i
 add wave -noupdate -expand -group GPIO /tb_rv32imscmcu/CAPIN2_i
 
+add wave -noupdate -divider {DIV}
 add wave -noupdate -expand -group DIV /tb_rv32imscmcu/MCU/CORE/CTL/DivStart_ctrl_o
 add wave -noupdate -expand -group DIV /tb_rv32imscmcu/MCU/CORE/CTL/DivSigned_ctrl_o
 add wave -noupdate -expand -group DIV /tb_rv32imscmcu/MCU/CORE/CTL/DivRem_ctrl_o

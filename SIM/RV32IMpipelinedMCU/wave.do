@@ -41,6 +41,7 @@ add wave -noupdate -expand -group MUL_STAGE1 -radix hexadecimal /tb_rv32impipeli
 add wave -noupdate -expand -group MUL_STAGE1 -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/EXE/MUL1/p3_o
 add wave -noupdate -expand -group MUL_STAGE2 -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/MEM/mul_res_w
 add wave -noupdate -expand -group MUL_STAGE2 -radix hexadecimal /tb_rv32impipelinedmcu/MCU/CORE/MEM/mem_result_w
+add wave -noupdate -divider {DIV}
 add wave -noupdate -expand -group DIV /tb_rv32impipelinedmcu/MCU/CORE/CTL/DivStart_ctrl_o
 add wave -noupdate -expand -group DIV /tb_rv32impipelinedmcu/MCU/CORE/CTL/DivSigned_ctrl_o
 add wave -noupdate -expand -group DIV /tb_rv32impipelinedmcu/MCU/CORE/CTL/DivRem_ctrl_o

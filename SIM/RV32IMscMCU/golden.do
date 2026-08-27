@@ -310,7 +310,7 @@ add wave -noupdate -expand -group MUL16 -color Cyan -itemcolor Cyan -radix hexad
 #=============================================================================
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
-add wave -noupdate -divider {DIVIDER}
+add wave -noupdate -divider {DIV}
 add wave -noupdate -expand -group DIV_CORE ${CORE}/div_start_w
 add wave -noupdate -expand -group DIV_CORE ${CORE}/div_start_gated_w
 add wave -noupdate -expand -group DIV_CORE ${CORE}/div_signed_w

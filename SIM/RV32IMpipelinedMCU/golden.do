@@ -27,6 +27,20 @@ add wave -noupdate -color Yellow -itemcolor Yellow -radix unsigned ${TB}/STCNT_o
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
+add wave -noupdate -divider {GPIO}
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/SW_i
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/LEDR_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/ledr_q
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/hex_q
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX0_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX1_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX2_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX3_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX4_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX5_o
+
+TreeUpdate [SetDefaultTree]
+quietly WaveActivateNextPane
 add wave -noupdate -divider {PIPELINE CONTROL}
 add wave -noupdate -expand -group PIPE_CONTROL -color Yellow -itemcolor Yellow ${CORE}/stall_w
 add wave -noupdate -expand -group PIPE_CONTROL -color Orange -itemcolor Orange ${CORE}/hold_w
@@ -150,7 +164,7 @@ add wave -noupdate -expand -group MULT_STAGE2 -color Cyan -itemcolor Cyan -radix
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
-add wave -noupdate -divider {DIVIDER}
+add wave -noupdate -divider {DIV}
 add wave -noupdate -expand -group DIV_CORE -color Magenta -itemcolor Magenta ${CORE}/div_start_w
 add wave -noupdate -expand -group DIV_CORE ${CORE}/div_signed_w
 add wave -noupdate -expand -group DIV_CORE ${CORE}/div_rem_w
