@@ -13,8 +13,13 @@
 #       hitting the 5 ms bound instead of the stop condition;
 #     * prints one summary table and `quit -code 1` if anything failed.
 #   The single-cycle equivalent is SIM\RV32IMscMCU\regress.do, which also scores
-#   that core's 18 self-checking tests; the pipeline has no such suite yet, so
-#   this stays benchmark-only.
+#   that core's self-checking tests. This script stays benchmark-only, but the
+#   pipeline is no longer without a self-checking suite: since Phase 12B/12C it
+#   has run_uart_mmio.do and run_uart_menu.do, which point the single-cycle
+#   tests' own exact expectations at THIS core (the peripherals are byte-
+#   identical in both trees, so what those two runs actually exercise is the
+#   pipelined interrupt entry). Run them alongside this script; they stage the
+#   single-cycle tree's generated images and need nothing else.
 #
 # HOW TO RUN
 #       cd SIM\RV32IMpipelinedMCU

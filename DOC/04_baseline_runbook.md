@@ -642,6 +642,15 @@ waiting:
   the closest thing to the demo-day evidence that can be produced without the cable. If it times out
   having decoded nothing, run `run_uart.do` and `run_uart_mmio.do` first — a fault there explains it
   and this test does not;
+- **the PIPELINE's two new runs** (Phase 12B/12C, added 2026-08-27): in
+  `SIM\RV32IMpipelinedMCU`, `do compile.do` then `do run_uart_mmio.do` and
+  `do run_uart_menu.do`. They stage the single-cycle tree's generated images, so
+  there is nothing to set up. **What they test is the pipelined CORE, not the
+  USART** — every peripheral is byte-identical in both trees and
+  `check_peripheral_copies.py` enforces that, so if the single-cycle run of the
+  same test passes and the pipelined one does not, the fault is in the core's
+  interrupt entry. The menu firmware is the densest exercise of that entry in
+  the project: three interrupt sources, any of which can land mid-character;
 - `run_divunit.do`'s verdict and operation count (Phase 7B1). This is the one that exercises the
   clock-domain crossings, so a failure here is worth reporting in detail: **which** property failed
   tells us which half broke. `P5 latency_bound` means the handshake HUNG, not that it was slow —

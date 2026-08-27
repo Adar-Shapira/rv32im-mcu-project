@@ -466,6 +466,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **12A USART peripheral (leaf)** | **Yehonatan ✔** | **Adar** | **ready to run — `do run_uart.do`, needs nothing staged.** Real txd→rxd loopback + a measured divider. Found: the reference's truncating divider is **+8.5% at 20 MHz** and would not have worked |
 | **12B USART onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart_mmio.do` (stages its own `uartmmio/` images).** BOTH trees wired; `interrupt_ctrl` gained `rx_clr_i`/`tx_clr_i`, so clearing rules b and c are complete and every input the controller has now has a source. Pins from the Terasic CSV: PIN_G12 / PIN_G9. 22 exact stores; two of the checks exist only because mutation testing showed the first draft could not see a fault (rule c unobservable; RXBUF/TXBUF indistinguishable under a loopback) |
 | **12C UART menu firmware** | **Yehonatan ✔** | **Adar needs the cable and the board for clause 9** | **ready — `do run_uart_menu.do` (stages `menusim/`; SLOW, ~75 ms).** Clause 8's five items, interrupt-driven. The bench acts as the PC: shifts characters in at the real bit time, decodes them out mid-bit. ONE program, two data images differing in one word (`V_HALFSEC` = 9,999,999 board / 1,999 sim), ITCMs byte-identical and asserted so. Item 1 on `PORT_LEDR` — **R2** rewritten, the LEDG claim was wrong |
+| **12D both bonuses on both cores** | **Yehonatan ✔** | **Adar** | **ready — in `SIM\RV32IMpipelinedMCU`: `do compile.do`, then `do run_uart_mmio.do` and `do run_uart_menu.do`.** The pipeline's FIRST self-checking tests; identical checks, pointed at the pipelined interrupt entry. Found and fixed: the pipeline's `compile.do` never got the six UART files, so `check_quartus_filelists.py` now checks compile scripts too |
 | **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the three static checkers (`check_staging.py`, `check_quartus_filelists.py`, `check_peripheral_copies.py`; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | 14 Quartus PPA | Yehonatan | **Adar** | six revisions to compile |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
@@ -2997,6 +2998,36 @@ one edited is the exact failure shape that bit this project in `5d540c0`.
 
 **Still Adar's, and still open:** clause 9 itself — a real terminal over the FTDI cable at 115200
 8N1, on the board. That is Phase 15 work and needs the `.sof`, the cable and the board.
+
+### Phase 12D — both bonuses verified on both cores  ·  **built 2026-08-27**
+
+Clause 10 gives each design its own `TB/` and `SIM/`, and until now the pipeline had **no
+self-checking test of its own at all** — only the four benchmarks and the GPIO set. So both 12B and
+12C were ported to it:
+
+**Files:** `TB/RV32IMpipelinedMCU/tb_uart_{mmio,menu}.vhd` (new),
+`SIM/RV32IMpipelinedMCU/run_uart_{mmio,menu}.do` (new), `SIM/RV32IMpipelinedMCU/compile.do`,
+`tools/check_quartus_filelists.py`, `batch_verify.do`'s stale claim.
+
+- The two testbenches carry **identical check bodies** to the single-cycle ones. Only the
+  instantiation differs: store observation from `MemWrite_ctrl_o` / `alu_res_o` / `read_data2_o`
+  (Adar's own pattern in `tb_gpio_directed.vhd`), and the sentinel watched in the **MEM** stage,
+  because branches resolve there and a decode-stage watch would stop on a speculative fetch of the
+  final self-jump — the trap `batch_verify.do` already documents.
+- They stage the **single-cycle tree's** generated images. The program is core-agnostic, so there is
+  one copy of it rather than two that can drift apart.
+- **What they actually test is the pipelined core**, since every peripheral is byte-identical in
+  both trees and a checker enforces it. The menu firmware is the densest exercise of the pipelined
+  interrupt entry anywhere in the project: three sources, any of which can land in the middle of a
+  character being pushed out.
+
+**A defect in my own 12B, found while doing this and fixed:** the six UART files went into both DUT
+trees, both `.qsf` files and the single-cycle `compile.do` — and **not** the pipelined `compile.do`.
+That tree would have failed to elaborate `uart_periph`. **Two lists, one edited, for the third time
+in this project** (`5d540c0` was the `.qsf`, `94112f5` was the peripheral copies). So
+`check_quartus_filelists.py` now checks **`compile.do` as well as the `.qsf`** against the design
+directory, for both trees — three lists per tree, all cross-checked. Verified by deleting a line and
+watching it fail.
 
 ### Phase 12A — the USART peripheral, leaf  ·  **built, awaiting verification**
 

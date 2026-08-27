@@ -39,6 +39,12 @@ vcom -2008 ../../DUT/RV32IMpipelinedMCU/DIV_ACCEL.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/DIV_UNIT.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/BASIC_TIMER.vhd
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/INTERRUPT_CTRL.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_PARITY.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_DEBOUNCER.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_TX.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_RX.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_CORE.vhd
+vcom -2008 ../../DUT/RV32IMpipelinedMCU/UART_PERIPH.vhd
 
 # split multiplier, pipeline stages, hazard/forwarding units, top, testbench
 vcom -2008 ../../DUT/RV32IMpipelinedMCU/MULT_1.vhd

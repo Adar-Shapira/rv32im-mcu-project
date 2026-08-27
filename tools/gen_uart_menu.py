@@ -37,7 +37,7 @@ ITEM 1 SAYS LEDG. THAT IS A REAL CONFLICT, AND NOT THE ONE THE PLAN RECORDED.
     ask for, which is exactly what the project rules forbid.
 
 WHAT THIS PROGRAM IS
-    An interrupt-driven menu server, ~250 instructions, using every peripheral
+    An interrupt-driven menu server, 154 instructions, using every peripheral
     the project has: the USART (RX interrupt for commands, TXBUF for the text),
     the Basic Timer (EQU0 as the ~0.5 s tick), PORT_LEDR, KEY1 through the
     interrupt controller, and the two-cycle interrupt entry with reti.
@@ -678,22 +678,28 @@ def main():
     # this project has already been bitten once by two lists with one edited
     # (5d540c0). So the generator READS THE TESTBENCH BACK and fails if the
     # lines it would have written are not there verbatim.
-    tb = ROOT / "TB" / "RV32IMscMCU" / "tb_uart_menu.vhd"
     want = [f"\tconstant MENU_TXT  : string := {vhdl_string(MENU)};",
             f"\tconstant NEGEV_TXT : string := {vhdl_string(NEGEV)};"]
-    if tb.exists():
-        tbtxt = tb.read_text()
-        missing = [w for w in want if w not in tbtxt]
+    # BOTH copies: clause 10 gives each design its own TB directory, so the
+    # menu test exists twice and there are three copies of this text in all.
+    checked = 0
+    for tree in ("RV32IMscMCU", "RV32IMpipelinedMCU"):
+        tb = ROOT / "TB" / tree / "tb_uart_menu.vhd"
+        if not tb.exists():
+            print(f"  TB/{tree}/tb_uart_menu.vhd not present yet; "
+                  f"its constants are:")
+            for w in want:
+                print(w)
+            continue
+        missing = [w for w in want if w not in tb.read_text()]
         if missing:
-            sys.exit("DRIFT: tb_uart_menu.vhd does not carry the text this "
-                     "generator puts in the DTCM image. Replace the two lines "
-                     "between the GENERATED markers with:\n\n" +
+            sys.exit(f"DRIFT: TB/{tree}/tb_uart_menu.vhd does not carry the "
+                     "text this generator puts in the DTCM image. Replace the "
+                     "two lines between the GENERATED markers with:\n\n" +
                      "\n".join(want) + "\n")
-        print("  tb_uart_menu.vhd carries exactly these two strings")
-    else:
-        print("  tb_uart_menu.vhd not present yet; its constants are:")
-        for w in want:
-            print(w)
+        checked += 1
+    if checked:
+        print(f"  {checked} testbench(es) carry exactly these two strings")
 
     print(f"  {len(prog)} instructions, ITCM identical in both image sets")
     print(f"  menu {len(MENU)} chars, message {len(NEGEV)} chars, "
