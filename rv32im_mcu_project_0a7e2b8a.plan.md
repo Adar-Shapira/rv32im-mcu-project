@@ -467,6 +467,7 @@ Straight into this file, in the phase's own table — Phase 0, Phase 1 and Phase
 | **12B USART onto the bus** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart_mmio.do` (stages its own `uartmmio/` images).** BOTH trees wired; `interrupt_ctrl` gained `rx_clr_i`/`tx_clr_i`, so clearing rules b and c are complete and every input the controller has now has a source. Pins from the Terasic CSV: PIN_G12 / PIN_G9. 22 exact stores; two of the checks exist only because mutation testing showed the first draft could not see a fault (rule c unobservable; RXBUF/TXBUF indistinguishable under a loopback) |
 | **12C UART menu firmware** | **Yehonatan ✔** | **Adar needs the cable and the board for clause 9** | **ready — `do run_uart_menu.do` (stages `menusim/`; SLOW, ~75 ms).** Clause 8's five items, interrupt-driven. The bench acts as the PC: shifts characters in at the real bit time, decodes them out mid-bit. ONE program, two data images differing in one word (`V_HALFSEC` = 9,999,999 board / 1,999 sim), ITCMs byte-identical and asserted so. Item 1 on `PORT_LEDR` — **R2** rewritten, the LEDG claim was wrong |
 | **12D both bonuses on both cores** | **Yehonatan ✔** | **Adar** | **ready — in `SIM\RV32IMpipelinedMCU`: `do compile.do`, then `do run_uart_mmio.do` and `do run_uart_menu.do`.** The pipeline's FIRST self-checking tests; identical checks, pointed at the pipelined interrupt entry. Found and fixed: the pipeline's `compile.do` never got the six UART files, so `check_quartus_filelists.py` now checks compile scripts too |
+| **12E USART parity** | **Yehonatan ✔** | **Adar** | **ready — `do run_uart.do`, phase P9 is new.** **A26 retired:** `PENA`/`PEV` were stored bits with no consumer and `PE` was a constant 0 — one of the three error flags §6.iv mandates. Now runtime, with the parity bit **measured on the wire** (a `0x00` character is low for 9 bit times in 8N1, 10 in 8E1). Nine mutations, nine caught; two escaped the first draft and the phase was fixed |
 | **13 Regression** | **Yehonatan ✔** | **Adar** | **ready — the FOUR static checkers (`check_staging.py`, `check_quartus_filelists.py` — which since 2026-08-27 also checks both `compile.do` files and forbids any `.qsf` pointing into `db/`, `check_peripheral_copies.py`, `check_config_defaults.py` — new, asserts `G_MODELSIM` and `G_GEN_INTERRUPT` are at their shipping values; all clean today), then `vsim -c -do regress.do` and check the exit status.** G-203 closed for the SC side; every script stages its own images now |
 | **14 Quartus PPA** | **Yehonatan ✔ prep** | **Adar compiles** | **The requirement was misread until 2026-08-27: each of clause 6's three tables has THREE ROWS, and row 1 is an interrupt-free build that had no configuration.** Built `GEN_INTERRUPT` for it (removes exactly §6's twelve addresses — `PORT_PB` included, which is easy to miss), plus `run_ppa_row1.do` to prove that build WORKS before its area is reported. Both clean-room hazards cleared: the `.qsf` files no longer point into `db/`, and they ship SignalTap **OFF** — which makes the shipped state the demo-day build. **Five compiles, matrix in `DOC/04` §11** |
 | 15 Hardware validation | Yehonatan | **Adar only** | needs the board |
@@ -2932,6 +2933,64 @@ Gaps: G-313. **Pins found:** `UART_RXD` = PIN_G12, `UART_TXD` = PIN_G9, from
 `Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv` — G-504's UART half is closed. Still open:
 **Q12** (whether a further UART handout supersedes option 1), and the cable and terminal, which are
 Adar's.
+
+### Phase 12E — parity, and the retirement of A26  ·  **built 2026-08-27**
+
+**Files:** `DUT/*/UART_{TX,RX,CORE,PERIPH}.vhd` (both trees), both `aux_package.vhd`,
+`tools/model_uart.py`, `TB/RV32IMscMCU/tb_uart.vhd`, `SIM/RV32IMscMCU/run_uart.do`.
+**No new files.** Nothing about the bus, the menu or the interrupt path changed.
+
+**Why it was reopened.** Phase 12A recorded **A26**: *"parity is not implemented — the frame is
+8N1"*, on the grounds that REQ p12's feature list says "8-bit data with non-parity". But the **same
+page's** UCTL table defines `PENA` as *"Parity enabled. Parity bit is generated (TXD) and expected
+(RXD)"*, `PEV` as odd/even, and `PE` as a readable parity-error flag. Both statements cannot be
+true, and 12A picked the cheaper one. Three things make the register table the right source:
+
+1. a string generic cannot implement a **writable register field**;
+2. a bit software can write that changes nothing is a **stub**, and `PENA`/`PEV` were exactly that —
+   stored, read back, connected to nothing;
+3. §6.iv's feature list also asks for *"Status flags for error detection"*. There are three — `FE`,
+   `PE`, `OE` — and `PE` was the missing one. **A third of a mandated feature.**
+
+**The change, in full.** Two input ports and one output port on the third-party TX/RX, three touched
+lines in each. The `PARITY_BIT` string generic is gone; `UART_PARITY` is instantiated
+**unconditionally** as `"even"` with odd taken as its inverse — odd parity *is* the inverse of even
+parity — so **`UART_PARITY.vhd` stays byte-identical to upstream** and no second instance is spent.
+The register layer gains a sticky `pe_q` cleared by an RXBUF read alongside `FE` and `OE` (REQ p12:
+*"resets the receive-error **bits**"*, plural), `rxerr_ev_o` gains the parity term because TYPE 04h
+is *"USART status error"* and all three are status errors, and `UCTL[5]` reads `pe_q AND PENA`
+because the specification says *"when PENA = 0, PE is read as 0"* outright.
+
+**The one hazard the change introduces, and it is not obvious.** The receiver's parity-check
+register samples on **every** `rx_clk_en`, not only in the `paritybit` state — upstream could leave
+it ungated because the whole process only existed in a parity build. Made runtime and left ungated,
+an 8N1 frame would latch a meaningless comparison and `DOUT_VLD <= NOT rx_parity_error AND UART_RXD`
+would **drop perfectly good characters about half the time**. Hence `AND PARITY_EN`, which pins it at
+`'0'` exactly as the deleted no-parity branch did. With `PARITY_EN = '0'` the `paritybit` state is
+unreachable too, so **the 8N1 path is bit-for-bit the path 12A verified**.
+
+**Verification, split by where each half can actually be proven.**
+- *Register layer:* `model_uart.py` phase **P6B**, and **nine mutations of the parity logic, all nine
+  caught**. Two of them escaped the first draft of the phase and the phase was fixed, not the count:
+  it sampled `RXBUF` one edge too early (`edge()` returns the pre-edge view, so an overwrite is
+  invisible on the same step), and it tested the no-overrun property on a buffer that was *already
+  full*, where a mutant that also marks it full changes nothing. A third mutant, "SWRST no longer
+  clears PE", exposed a stimulus bug instead of an RTL bug — the SWRST write was `0x09` and UCTL is a
+  whole-byte write, so **software** had cleared `PENA`, not SWRST. The model reported it correctly
+  and the stimulus was wrong.
+- *Engine:* `tb_uart.vhd` phase **P9**, which does what a loopback alone never can, because both ends
+  agree on whatever format is in force: it **measures the parity bit on the wire**. A `0x00`
+  character is low for **9 bit times in 8N1 and 10 in 8E1** — every data bit and the even parity of
+  zero are `0`. Then 8O1 round-trips (this is what discriminates `PEV`), a hand-driven frame with an
+  **inverted** parity bit sets `PE`, raises the error event, is **not delivered** and does **not**
+  set `OE`, reading RXBUF clears `PE`, and a hand-driven frame with the *right* parity bit **is**
+  delivered — so P9g is about parity, not about hand-driven frames.
+
+**A26 is retired. A30 is new:** a parity-errored character is not delivered — `RXBUF` keeps what it
+held and `RXIFG` is not raised by it. That is **upstream's own choice**, kept rather than changed:
+`DOUT_VLD <= NOT rx_parity_error AND UART_RXD`. REQ p12 defines `PE` and says nothing about delivery,
+so changing it would have been inventing. The MSP430 this peripheral is modelled on *does* deliver
+the character, which is what would falsify A30.
 
 ### Phase 12B — the USART onto the bus  ·  **built 2026-08-27, awaiting verification**
 

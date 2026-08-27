@@ -88,6 +88,31 @@
 #   bit. Two of those twelve escaped the first draft of that phase suite and
 #   the holes were closed; the notes are in the model at P3f and P9a.
 
+# PHASE 12E ADDED P9 -- PARITY, THE WHOLE FEATURE
+#   Until 12E, PENA and PEV were stored bits with no consumer and PE was a
+#   constant 0 (assumption A26). REQ p12 defines all three; a bit software can
+#   write that changes nothing is a stub, and PE is one of the three error
+#   flags clause 6.iv's feature list asks for. P9 proves the feature the only
+#   way a loopback cannot:
+#     P9a/P9b  the parity bit is MEASURED ON THE WIRE. A 0x00 character is low
+#              for 9 bit times in 8N1 and 10 in 8E1, because the data bits and
+#              the even parity of zero are all 0. Expect 1584 and 1760 cycles.
+#     P9c-P9f  8E1 and then 8O1 round-trip through the real loopback. 8O1 is
+#              what discriminates PEV: the two parity bits for a byte are
+#              inverses, so a receiver locked to one polarity would reject
+#              every frame of the other.
+#     P9g-P9j  a hand-driven frame with an INVERTED parity bit sets PE, raises
+#              the status-error event, is NOT delivered (A30), and does not
+#              set OE -- nothing was overwritten because nothing arrived.
+#     P9k      reading RXBUF resets PE, like FE and OE.
+#     P9l-P9n  a hand-driven frame with the RIGHT parity bit IS delivered, so
+#              P9g is about parity and not about hand-driven frames.
+#     P9o/P9p  back to 8N1: the link still works and PE reads 0 with PENA = 0.
+#   If P9a passes and P9b fails by exactly one bit time, PARITY_EN is not
+#   reaching UART_TX. If P9e fails but P9c passes, PEV is not reaching both
+#   ends. If P9i fails, the receiver is delivering a character it knows is
+#   corrupt.
+
 onerror {quit -code 1}
 
 # Development-only testbench: compile.do compiles just the clause 10 official

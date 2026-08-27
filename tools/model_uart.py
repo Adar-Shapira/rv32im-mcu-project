@@ -59,6 +59,7 @@ class UartPeriph:
         self.txbuf_vld = 0
         self.full = 0
         self.fe = 0
+        self.pe = 0          # Phase 12E: a real flag, not a constant 0
         self.oe = 0
 
     # ---- combinational views -------------------------------------------
@@ -66,11 +67,16 @@ class UartPeriph:
         return self.ctl & 1
 
     def uctl_read(self, busy):
-        # PE is 0 by construction (A26 / "when PENA = 0, PE is read as 0")
-        return (busy << 7) | (self.oe << 6) | (0 << 5) | (self.fe << 4) | self.ctl
+        # Phase 12E: PE is stored and ANDed with PENA on the way out, because
+        # REQ p12 says "when PENA = 0, PE is read as 0". The receiver also
+        # cannot set it with parity disabled, so the bit reads 0 in 8N1 for two
+        # independent reasons.
+        pe_read = self.pe & (self.ctl >> 1) & 1
+        return (busy << 7) | (self.oe << 6) | (pe_read << 5) | \
+               (self.fe << 4) | self.ctl
 
     def edge(self, rst=0, wr=None, rd=None, dout_vld=0, dout=0,
-             frame_err=0, rx_busy=0, din_rdy=1):
+             frame_err=0, parity_err=0, rx_busy=0, din_rdy=1):
         """wr = "uctl"|"txbuf" with value, as ("uctl", v); rd = "rxbuf" or None.
         The engine-side signals are inputs, per the boundary note above.
         Returns the pre-edge visible outputs and the event strobes."""
@@ -84,8 +90,9 @@ class UartPeriph:
         busy = 1 if (rx_busy or (not din_rdy) or self.txbuf_vld) else 0
 
         out = dict(uctl=self.uctl_read(busy), rxbuf=self.rxbuf, txbuf=self.txbuf,
-                   busy=busy, fe=self.fe, oe=self.oe, full=self.full,
-                   rx_ev=dout_vld, rxerr_ev=1 if (frame_err or oe_set) else 0,
+                   busy=busy, fe=self.fe, pe=self.pe, oe=self.oe, full=self.full,
+                   rx_ev=dout_vld,
+                   rxerr_ev=1 if (frame_err or parity_err or oe_set) else 0,
                    tx_ev=tx_accept, rx_clr=rxbuf_rd, tx_clr=1 if txbuf_wr else 0)
 
         # ---- commit ----------------------------------------------------
@@ -96,6 +103,7 @@ class UartPeriph:
             self.txbuf_vld = 0
             self.full = 0
             self.fe = 0
+            self.pe = 0
             self.oe = 0
             return out
 
@@ -115,12 +123,14 @@ class UartPeriph:
             self.txbuf_vld = 0
 
         # RXBUF + flags: read clears FIRST, then this cycle's arrivals set
-        full_v, fe_v, oe_v = self.full, self.fe, self.oe
+        full_v, fe_v, pe_v, oe_v = self.full, self.fe, self.pe, self.oe
         if sw:
-            full_v = fe_v = oe_v = 0
+            full_v = fe_v = pe_v = oe_v = 0
         else:
             if rxbuf_rd:
-                full_v = fe_v = oe_v = 0
+                # REQ p12: "reading RXBUF resets the receive-error BITS" --
+                # plural, so PE clears with FE and OE
+                full_v = fe_v = pe_v = oe_v = 0
             if dout_vld:
                 self.rxbuf = dout & 0xFF
                 if full_v:
@@ -128,7 +138,13 @@ class UartPeriph:
                 full_v = 1
             if frame_err:
                 fe_v = 1
-        self.full, self.fe, self.oe = full_v, fe_v, oe_v
+            # Phase 12E. Deliberately NOT setting full_v and NOT writing
+            # rxbuf: a parity-errored character is not delivered (the engine
+            # holds dout_vld low for it -- A30), so PE and the error interrupt
+            # are how software learns and RXBUF keeps what it held.
+            if parity_err:
+                pe_v = 1
+        self.full, self.fe, self.pe, self.oe = full_v, fe_v, pe_v, oe_v
 
         return out
 
@@ -248,6 +264,70 @@ def main():
     chk(v["uctl"] & 0x10 == 0x00, "P6c reading RXBUF did not reset FE "
         "(REQ p12: 'reading RXBUF resets the receive-error bits')")
 
+    # ---- P6B parity: PE, and the "read as 0 when PENA = 0" rule ----------
+    # Phase 12E. Everything about this phase is new: before it, PE was the
+    # constant 0 and PENA/PEV were stored bits with no consumer.
+    step(wr=("uctl", 0x00))               # parity disabled
+    v = step(parity_err=1)                # (cannot happen with PENA=0, but the
+    chk(v["rxerr_ev"] == 1, "P6Ba a parity error must raise rxerr_ev, "
+        "because REQ p14 gives TYPE 04h to 'USART status error' and PE is one "
+        "of the three status errors")
+    v = step()
+    chk(v["uctl"] & 0x20 == 0x00, f"P6Bb UCTL = {v['uctl']:#04x}: with "
+        "PENA = 0, PE must read 0 -- REQ p12 says so outright, and the model "
+        "must not report a flag the specification says is invisible")
+    # ...and with PENA = 1 the same stored flag becomes visible
+    step(wr=("uctl", 0x02))               # PENA = 1, odd parity
+    v = step()
+    chk(v["uctl"] & 0x20 == 0x20, f"P6Bc UCTL = {v['uctl']:#04x}: with "
+        "PENA = 1 the stored PE must be visible")
+    chk(v["uctl"] & 0x02 == 0x02, "P6Bd PENA did not read back")
+    step(rd="rxbuf")
+    v = step()
+    chk(v["uctl"] & 0x20 == 0x00, "P6Be reading RXBUF did not reset PE "
+        "(REQ p12: 'resets the receive-error bits', plural -- FE, PE and OE)")
+
+    # a parity-errored character must NOT land in RXBUF and must NOT make the
+    # buffer full, so it cannot cause a later overrun either (A30)
+    step(wr=("uctl", 0x02))
+    step(dout_vld=1, dout=0x77)           # a good character arrives, unread
+    step(parity_err=1, dout=0x33)         # then a bad one, with a DIFFERENT
+                                          # byte on the engine's output
+    # NOTE the edge this is read on. edge() returns the PRE-edge view, so
+    # asking on the same step as the parity error would still show 0x77 even if
+    # the errored byte were being written -- the first draft did exactly that
+    # and a mutant that overwrites RXBUF escaped. And `dout` has to differ from
+    # the good byte, or the check cannot discriminate either: with dout at its
+    # default of 0 an overwrite would show, but with dout = 0x77 nothing would.
+    v = step()
+    chk(v["rxbuf"] == 0x77, f"P6Bf RXBUF = {v['rxbuf']:#04x}: a parity-errored "
+        "character must not overwrite the previous one -- it was never "
+        "delivered (A30)")
+    chk(v["uctl"] & 0x40 == 0x00, f"P6Bg UCTL = {v['uctl']:#04x}: OE must NOT "
+        "be set by a parity-errored character -- nothing was overwritten, so "
+        "nothing was lost to an overrun")
+    chk(v["uctl"] & 0x20 == 0x20, "P6Bh PE did not set")
+    step(rd="rxbuf")
+
+    # ...and the same on an EMPTY buffer, which is the ordering that actually
+    # discriminates. The pair above cannot: there, the buffer was already full
+    # from the good character, so a mutant that ALSO marks it full on a parity
+    # error changes nothing observable. Here the buffer starts empty, so if the
+    # errored character wrongly marks it full, the next good character reports
+    # an overrun that never happened -- and a driver would report data loss on
+    # a clean line.
+    v = step(parity_err=1)                # empty buffer, bad character
+    chk(v["full"] == 0, "P6Bi a parity-errored character must not mark RXBUF "
+        "full: nothing was delivered")
+    v = step(dout_vld=1, dout=0x55)       # the next good one
+    v = step()
+    chk(v["uctl"] & 0x40 == 0x00, f"P6Bj UCTL = {v['uctl']:#04x}: OE set after "
+        "a good character followed a parity-errored one into an EMPTY buffer. "
+        "Nothing was overwritten, so nothing was lost")
+    chk(v["rxbuf"] == 0x55, "P6Bk the good character did not land in RXBUF")
+    step(rd="rxbuf")
+    step(wr=("uctl", 0x00))
+
     # ---- P7 overrun -- and the case that is NOT one -----------------------
     step(dout_vld=1, dout=0x01)       # first character, left unread
     v = step(dout_vld=1, dout=0x02)   # second arrives: overrun
@@ -290,8 +370,10 @@ def main():
     # before SWRST ever took effect -- there was nothing left for SWRST to
     # drop, and mutant M12 (SWRST leaving the byte queued, a silent hang)
     # escaped. The state SWRST clears has to still exist when it arrives.
-    step(wr=("uctl", 0x08), din_rdy=0)           # BAUDRATE = 1
-    step(dout_vld=1, dout=0x99, frame_err=1, din_rdy=0)
+    step(wr=("uctl", 0x0A), din_rdy=0)           # BAUDRATE = 1, PENA = 1 (12E:
+                                                # so the PE set below is
+                                                # VISIBLE and P9e can see it)
+    step(dout_vld=1, dout=0x99, frame_err=1, parity_err=1, din_rdy=0)
     step(wr=("txbuf", 0x88), din_rdy=0)          # queued, and it stays queued
     v = step(din_rdy=0)
     chk(v["full"] == 1 and (v["uctl"] & 0x10) == 0x10,
@@ -301,20 +383,28 @@ def main():
     # so it takes effect the cycle AFTER the write lands, and what it clears is
     # visible the cycle after that. Two edges, not one; the first draft of this
     # phase checked one edge early and the model caught it.
-    step(wr=("uctl", 0x09), din_rdy=0)  # SWRST = 1, BAUDRATE stays 1
+    # 0x0B, not 0x09: UCTL is a plain register write and overwrites all four
+    # stored bits, so the write that raises SWRST has to carry BAUDRATE and
+    # PENA with it or SOFTWARE is what cleared them, not SWRST. The first
+    # draft of this line wrote 0x09 and the model reported "SWRST cleared
+    # PENA" -- which was true of the stimulus and false of the hardware.
+    step(wr=("uctl", 0x0B), din_rdy=0)  # SWRST = 1, BAUDRATE and PENA stay
     step(din_rdy=0)                    # SWRST now high: this is the clearing edge
     v = step(din_rdy=0)
     chk(v["uctl"] & 0x08 == 0x08, f"P9b UCTL = {v['uctl']:#04x}: SWRST cleared "
         "BAUDRATE -- the link would silently drop to 9600")
     chk(v["uctl"] & 0x01 == 0x01, "P9c SWRST cleared itself -- unexitable")
     chk(v["full"] == 0, "P9d SWRST did not clear the receive state")
-    chk(v["uctl"] & 0x50 == 0x00, "P9e SWRST did not clear FE/OE")
+    chk(v["uctl"] & 0x70 == 0x00, "P9e SWRST did not clear FE/PE/OE -- all "
+        "three error bits, 12E added PE to the mask")
+    chk(v["uctl"] & 0x02 == 0x02, "P9e2 SWRST cleared PENA -- it must keep "
+        "the frame format for the same reason it keeps BAUDRATE")
     chk(v["busy"] == 1, "P9f setup: din_rdy is still low so BUSY must hold")
     v = step(din_rdy=1)
     chk(v["busy"] == 0, "P9g SWRST left a byte queued in TXBUF -- it can never "
         "leave, because the engine is held in reset")
     # and it is exitable
-    step(wr=("uctl", 0x08))
+    step(wr=("uctl", 0x0A))
     v = step(din_rdy=1)
     chk(v["uctl"] & 0x01 == 0x00, "P9h SWRST could not be cleared")
 

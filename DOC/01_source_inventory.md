@@ -168,7 +168,7 @@ material we are expected to use.
 | Oversampling | 16×, samples mid-bit (`rx_ticks = "0111"`, `rtl/comp/uart_rx.vhd:78`) | — |
 | Frame | 1 start / 8 data / 1 stop, LSB-first (`rx_data <= UART_RXD & rx_data(7 downto 1)`, `uart_rx.vhd:113`) | same |
 | Parity | yes — none/even/odd/mark/space, `rtl/comp/uart_parity.vhd` | none |
-| Error flags exported | one of three: `FRAME_ERROR <= NOT UART_RXD` (`uart_rx.vhd:162`). Parity error computed at `:139` but **never exported** | none |
+| Error flags exported | one of three: `FRAME_ERROR <= NOT UART_RXD` (`uart_rx.vhd:162`). Parity error computed at `:139` but **never exported** — Phase 12E exports it as `PARITY_ERROR`, which is UCTL[5]; overrun has no equivalent upstream and is the register layer's own | none |
 | Testbench | `tb & sim/uart_tb.vhd` — no `assert`, no `report`. `example/uart_loopback_tb.vhd` is **broken as shipped**: it port-maps `DIN_RDY` and `FRAME_ERR`, which the `UART_LOOPBACK` entity does not declare | none |
 
 **Verdict: adapt Option 1.** It is the only one with a usable licence, the only one with parity, and
@@ -186,8 +186,8 @@ register layer we write.
 | --- | --- | --- |
 | `UART_PARITY.vhd` | `rtl/comp/uart_parity.vhd`, md5 `530bb3ff…` | **body byte-identical**, provenance header prepended |
 | `UART_DEBOUNCER.vhd` | `rtl/comp/uart_debouncer.vhd`, md5 `946d390f…` | **body byte-identical** |
-| `UART_TX.vhd` | `rtl/comp/uart_tx.vhd`, md5 `b2fcd485…` | **body byte-identical** — nothing needed changing; `DIN`/`DIN_VLD`/`DIN_RDY` is a plain valid-ready handshake and `tx_data` is latched by the same condition that leaves idle (`:94`), which is exactly what the register layer hands over on |
-| `UART_RX.vhd` | `rtl/comp/uart_rx.vhd`, md5 `2a856823…` | one semantic change in three places: a `;`, a new `RX_BUSY` port, and one assignment. **`rx_receiving_data` is not that signal** — the FSM drives it only in the `databits` state, so a BUSY built on it blinks mid-character; the port exports `rx_pstate /= idle` |
+| `UART_TX.vhd` | `rtl/comp/uart_tx.vhd`, md5 `b2fcd485…` | **12A: body byte-identical** — `DIN`/`DIN_VLD`/`DIN_RDY` is a plain valid-ready handshake and `tx_data` is latched by the same condition that leaves idle (`:94`), which is exactly what the register layer hands over on. **12E: one semantic change, three places** — the `PARITY_BIT` string generic is replaced by `PARITY_EN`/`PARITY_EVEN` ports, `UART_PARITY` is instantiated unconditionally as `"even"` with odd as its inverse, and the `databits` state tests the port. REQ p12 makes parity two *writable register bits*, and a generic cannot implement a register field |
+| `UART_RX.vhd` | `rtl/comp/uart_rx.vhd`, md5 `2a856823…` | **two** semantic changes. *12A:* a `;`, a new `RX_BUSY` port, and one assignment — **`rx_receiving_data` is not that signal**, the FSM drives it only in the `databits` state so a BUSY built on it blinks mid-character; the port exports `rx_pstate /= idle`. *12E:* runtime parity — the generic replaced by `PARITY_EN`/`PARITY_EVEN`, a new `PARITY_ERROR` output for UCTL[5], and **`AND PARITY_EN` on the parity-check register**, which is load-bearing: that register samples on every `rx_clk_en`, not only in the `paritybit` state, so without the gate an 8N1 frame would drop valid characters |
 | `UART_CORE.vhd` | `rtl/uart.vhd` | adapted: runtime baud select (REQ p12 makes the rate software-selectable, the original freezes it in a generic), **rounded** divider, `>=` compare |
 | `UART_PERIPH.vhd` | — | **ours**: the whole register layer |
 
@@ -289,8 +289,8 @@ supplied files, which is why the diffs are line counts rather than whole files.
 | `UART_DEBOUNCER.vhd` | new / other lab | **third-party, used as is** — body byte-identical to jakubcabal `uart_debouncer.vhd`, md5 `946d390f…`. |
 | `UART_PARITY.vhd` | new / other lab | **third-party, used as is** — body byte-identical, md5 `530bb3ff…`. Compiled but not instantiated: the frame is 8N1 (A26). |
 | `UART_PERIPH.vhd` | new / other lab | **new, Phase 12A** — the whole USART register layer (UCTL/RXBUF/TXBUF, OE/FE/BUSY/SWRST, the interrupt strobes). Neither supplied option has any of it. |
-| `UART_RX.vhd` | new / other lab | **third-party, one added port** — jakubcabal `uart_rx.vhd`, md5 `2a856823…`, plus `RX_BUSY` for UCTL bit 7. |
-| `UART_TX.vhd` | new / other lab | **third-party, used as is** — body byte-identical, md5 `b2fcd485…`. |
+| `UART_RX.vhd` | new / other lab | **third-party, two adaptations** — jakubcabal `uart_rx.vhd`, md5 `2a856823…`, plus `RX_BUSY` for UCTL[7] (12A) and runtime parity with `PARITY_ERROR` for UCTL[5] (12E). |
+| `UART_TX.vhd` | new / other lab | **third-party, one adaptation** — md5 `b2fcd485…`, byte-identical until 12E made parity runtime. |
 | `SYNC.vhd` | new / other lab | **new** — Figures 10a/10b. Searched: no synchroniser in the material (`IFETCH.vhd`'s "rst_i synchronization" is a single flop, not one). |
 | `aux_package.vhd` | Lab 5 | **extended** — 435 changed line(s) vs the Lab 5 single-cycle core |
 | `cond_compilation_package.vhd` | Lab 5 | **extended** — 23 changed line(s) vs the Lab 5 single-cycle core |

@@ -52,11 +52,18 @@
 --
 -- 4. RX_BUSY IS BROUGHT OUT (see UART_RX.vhd) for UCTL bit 7.
 --
--- 5. PARITY IS "none" -- 8N1. REQ p12's own feature list says "8-bit data
---    with non-parity", and its UCTL table says "when PENA = 0, PE is read as
---    0". The register layer above stores PENA/PEV and reads PE as 0, which
---    satisfies both statements for PENA = 0. Runtime parity would need the
---    RX and TX state machines to gain a runtime "is there a parity bit"
+-- 5. PARITY IS RUNTIME -- CHANGED IN PHASE 12E. It used to be the string
+--    generic PARITY_BIT => "none", i.e. 8N1 welded in at compile time, on the
+--    grounds that REQ p12's feature list says "8-bit data with non-parity".
+--    But the SAME PAGE's UCTL table defines PENA as "Parity enabled. Parity
+--    bit is generated (TXD) and expected (RXD)", PEV as odd/even, and PE as a
+--    readable parity-error flag. The two statements contradict each other, and
+--    the register table is the more specific source: a generic cannot
+--    implement a writable register field, and a bit software can write that
+--    does nothing is a stub. §6.iv's feature list also asks for "Status flags
+--    for error detection" -- there are three, FE, PE and OE, and PE was the
+--    missing one. So PENA and PEV are now ports, wired from UCTL[2:1], and PE
+--    comes back out. The generic is gone from both children
 --    input, which is a real change to the author's FSMs; it is deliberately
 --    NOT done here and is recorded as an assumption with what would falsify
 --    it. See UART_PERIPH.vhd.
@@ -88,6 +95,11 @@ ENTITY uart_core IS
 												-- author's convention; SWRST
 												-- reaches the core through it)
 		baud_sel_i		: IN	STD_LOGIC;		-- UCTL[3]: 0 = BAUD_LOW, 1 = BAUD_HIGH
+		-- PHASE 12E. Parity, at RUNTIME, because REQ p12 makes it two writable
+		-- register bits and not a build-time choice. Defaulted to "off" so any
+		-- instantiation written before 12E still means 8N1.
+		parity_en_i		: IN	STD_LOGIC := '0';	-- UCTL[1] PENA
+		parity_even_i	: IN	STD_LOGIC := '1';	-- UCTL[2] PEV: 1 = even, 0 = odd
 		rxd_i			: IN	STD_LOGIC := '1';	-- idle high
 
 		-- transmit side, the author's valid/ready handshake
@@ -100,6 +112,7 @@ ENTITY uart_core IS
 		dout_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
 		dout_vld_o		: OUT	STD_LOGIC;		-- one cycle per good character
 		frame_err_o		: OUT	STD_LOGIC;		-- one cycle; stop bit was low
+		parity_err_o	: OUT	STD_LOGIC;		-- one cycle; UCTL[5] PE (12E)
 		rx_busy_o		: OUT	STD_LOGIC		-- a frame is in progress
 	);
 END uart_core;
@@ -224,11 +237,14 @@ BEGIN
 		rxd_deb_w <= rxd_i;
 	end generate NODEBG;
 
+	-- Phase 12E: the PARITY_BIT generic is gone from both children and the two
+	-- control bits are wired straight through from UCTL. See note 5.
 	TX : entity work.UART_TX
-	generic map( PARITY_BIT => "none" )			-- note 5
 	PORT MAP(
 		CLK			=> clk_i,
 		RST			=> rst_i,
+		PARITY_EN	=> parity_en_i,
+		PARITY_EVEN	=> parity_even_i,
 		UART_CLK_EN	=> clk_en_w,
 		UART_TXD	=> txd_o,
 		DIN			=> din_i,
@@ -237,16 +253,18 @@ BEGIN
 	);
 
 	RX : entity work.UART_RX
-	generic map( PARITY_BIT => "none" )			-- note 5
 	PORT MAP(
 		CLK			=> clk_i,
 		RST			=> rst_i,
+		PARITY_EN	=> parity_en_i,
+		PARITY_EVEN	=> parity_even_i,
 		UART_CLK_EN	=> clk_en_w,
 		UART_RXD	=> rxd_deb_w,
 		DOUT		=> dout_o,
 		DOUT_VLD	=> dout_vld_o,
 		FRAME_ERROR	=> frame_err_o,
-		RX_BUSY		=> rx_busy_o				-- the one added port
+		PARITY_ERROR=> parity_err_o,			-- 12E
+		RX_BUSY		=> rx_busy_o				-- the port added in 12A
 	);
 
 END structure;

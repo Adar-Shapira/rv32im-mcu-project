@@ -149,6 +149,7 @@ BEGIN
 	stim : process
 		variable p, f	: natural := 0;
 		variable base	: natural;
+		variable basee	: natural;	-- a second baseline, for n_rxerr (12E)
 
 		procedure chk(constant ok : boolean; constant msg : string) is
 		begin
@@ -249,6 +250,67 @@ BEGIN
 				". The baud divider is wrong; and a loopback cannot see " &
 				"this, because both ends share it");
 		end procedure measure_start_bit;
+
+		-- PHASE 12E. The same technique, generalised, and it is what PROVES a
+		-- parity bit is physically on the wire -- which a loopback alone cannot,
+		-- because both ends agree on the format whatever it is.
+		--
+		-- Send 0x00. Every data bit is then low, so the low pulse runs from the
+		-- start bit through the last data bit, and what follows it is the whole
+		-- question:
+		--     8N1   start + 8 zeros            =  9 bit times low
+		--     8E1   start + 8 zeros + even(0)=0 = 10 bit times low
+		--     8O1   start + 8 zeros + odd(0) =1 =  9 bit times low
+		-- So 8N1 against 8E1 is a one-bit-time difference in a measured pulse,
+		-- and 8O1 is distinguished from 8N1 by the frame's total length instead
+		-- (checked separately by the round trip). No inference, no waveform.
+		procedure measure_zero_pulse(constant want : IN NATURAL;
+									 constant tag  : IN STRING) is
+			variable n : natural := 0;
+			variable g : natural := 0;
+		begin
+			wr_txbuf(x"00");
+			while txd_w /= '0' and g < 4*want loop
+				wait until falling_edge(clk); g := g + 1;
+			end loop;
+			chk(g < 4*want, tag & ": txd never went low - nothing was sent");
+			while txd_w = '0' and n < 4*want loop
+				wait until falling_edge(clk); n := n + 1;
+			end loop;
+			chk(n = want, tag & ": the low pulse of a 0x00 character measured " &
+				integer'image(n) & " cycles, expected " & integer'image(want) &
+				". One bit time short means the parity bit is not being sent; " &
+				"one long means it is being sent when it should not be");
+		end procedure measure_zero_pulse;
+
+		-- PHASE 12E. One frame WITH a parity bit, hand-driven, so the parity
+		-- bit can be deliberately wrong -- the only way to produce a PARITY
+		-- ERROR, exactly as drive_frame above is the only way to produce a
+		-- framing error.
+		procedure drive_frame_par(constant v    : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+								  constant par  : IN STD_LOGIC;
+								  constant bitc : IN NATURAL) is
+		begin
+			rxd_drv <= '0'; settle(bitc);					-- start bit
+			for i in 0 to 7 loop
+				rxd_drv <= v(i); settle(bitc);				-- LSB first
+			end loop;
+			rxd_drv <= par; settle(bitc);					-- the parity bit
+			rxd_drv <= '1'; settle(bitc);					-- stop bit
+			rxd_drv <= '1';
+		end procedure drive_frame_par;
+
+		-- even parity of a byte, computed here so the expectations below are
+		-- independent of UART_PARITY.vhd rather than quoting it
+		function even_of(constant v : STD_LOGIC_VECTOR(7 DOWNTO 0))
+			return STD_LOGIC is
+			variable r : STD_LOGIC := '0';
+		begin
+			for i in 0 to 7 loop
+				r := r XOR v(i);
+			end loop;
+			return r;
+		end function even_of;
 
 	begin
 		wait until rst = '0';
@@ -361,6 +423,103 @@ BEGIN
 		chk(rxbuf = x"5A", "P8i the link did not recover after SWRST: RXBUF = 0x"
 			& to_hstring(rxbuf) & ", expected 0x5A");
 
+		-- ---- P9 PARITY -- Phase 12E, the whole feature ----------------------
+		-- Before 12E, PENA and PEV were stored bits with no consumer and PE was
+		-- a constant 0. REQ p12 defines all three; a register software can
+		-- write that changes nothing is a stub, and PE is one of the three
+		-- error flags clause 6.iv's feature list asks for.
+
+		-- P9a: the parity bit is PHYSICALLY ON THE WIRE. 0x00 with even parity
+		-- is low for 10 bit times where 8N1 is low for 9. A loopback can never
+		-- show this -- both ends agree on whatever format is in force.
+		loopback <= TRUE;
+		wr_uctl(x"08"); settle(4);					-- 8N1, 115200
+		measure_zero_pulse(9*BITC_115, "P9a 8N1");
+		settle(2*BITC_115);
+		read_rxbuf; settle(2);						-- drain: that 0x00 arrived
+		wr_uctl(x"0E"); settle(4);					-- PENA=1, PEV=1 (even)
+		measure_zero_pulse(10*BITC_115, "P9b 8E1");
+		settle(2*BITC_115);
+		read_rxbuf; settle(2);						-- and so did this one, so
+													-- the parity checks below
+													-- start from a clean OE
+
+		-- P9c: and an 8E1 frame still round-trips through the real loopback,
+		-- i.e. the receiver expects the bit the transmitter sends
+		base := n_rx;
+		wr_txbuf(x"96");
+		wait_rx(base, 4*FRAME_115, "P9c");
+		settle(4);
+		chk(rxbuf = x"96", "P9c RXBUF = 0x" & to_hstring(rxbuf) &
+			", expected 0x96: an 8E1 character did not survive the loopback");
+		chk(uctl(5) = '0', "P9d PE set on a good 8E1 character");
+		read_rxbuf; settle(2);
+
+		-- P9e: ODD parity round-trips too, which is what discriminates PEV.
+		-- If PEV were ignored, one of P9c/P9e would fail: the two parity bits
+		-- for a given byte are inverses, so a receiver locked to one polarity
+		-- rejects every frame of the other.
+		wr_uctl(x"0A"); settle(4);					-- PENA=1, PEV=0 (odd)
+		base := n_rx;
+		wr_txbuf(x"96");
+		wait_rx(base, 4*FRAME_115, "P9e");
+		settle(4);
+		chk(rxbuf = x"96", "P9e RXBUF = 0x" & to_hstring(rxbuf) &
+			", expected 0x96: an 8O1 character did not survive the loopback, " &
+			"so PEV is not reaching both ends");
+		chk(uctl(5) = '0', "P9f PE set on a good 8O1 character");
+		read_rxbuf; settle(2);
+
+		-- P9g: A WRONG PARITY BIT MUST BE CAUGHT. Break the loopback and drive
+		-- an 11-bit frame by hand with the parity bit inverted.
+		wr_uctl(x"0E"); settle(4);					-- back to even
+		loopback <= FALSE;
+		rxd_drv  <= '1';
+		settle(4);
+		base := n_rx;
+		basee := n_rxerr;
+		drive_frame_par(x"96", NOT even_of(x"96"), BITC_115);
+		settle(8);
+		chk(uctl(5) = '1', "P9g UCTL = 0x" & to_hstring(uctl) &
+			": a frame with a deliberately inverted parity bit did not set PE");
+		chk(n_rxerr > basee, "P9h the parity error raised no status-error " &
+			"event, so TYPE 04h could never fire for it");
+		chk(n_rx = base, "P9i a parity-errored character was DELIVERED: " &
+			"the receiver holds DOUT_VLD low for it (A30), so RXBUF must keep " &
+			"what it held and RXIFG must not be raised by it");
+		chk(uctl(6) = '0', "P9j a parity-errored character set OE: nothing " &
+			"was overwritten, because nothing was delivered");
+
+		-- P9k: reading RXBUF clears PE, like FE and OE ("resets the
+		-- receive-error bits", plural)
+		read_rxbuf; settle(2);
+		chk(uctl(5) = '0', "P9k reading RXBUF did not reset PE");
+
+		-- P9l: the CORRECT parity bit, hand-driven, IS accepted -- so P9g is
+		-- about the parity bit and not about hand-driven frames in general
+		base := n_rx;
+		drive_frame_par(x"3C", even_of(x"3C"), BITC_115);
+		settle(8);
+		chk(n_rx > base, "P9l a hand-driven frame with the RIGHT parity bit " &
+			"was rejected, so P9g proves nothing about parity");
+		chk(rxbuf = x"3C", "P9m RXBUF = 0x" & to_hstring(rxbuf) &
+			", expected 0x3C");
+		chk(uctl(5) = '0', "P9n PE set on a correct hand-driven 8E1 frame");
+		read_rxbuf;
+
+		-- P9o: back to 8N1 and the link still works -- the 12A path is intact
+		loopback <= TRUE;
+		wr_uctl(x"08"); settle(4);
+		base := n_rx;
+		wr_txbuf(x"A5");
+		wait_rx(base, 3*FRAME_115, "P9o");
+		settle(4);
+		chk(rxbuf = x"A5", "P9o RXBUF = 0x" & to_hstring(rxbuf) &
+			", expected 0xA5: 8N1 stopped working after the parity phases");
+		chk(uctl(5) = '0', "P9p PE reads non-zero with PENA = 0, which REQ " &
+			"p12 forbids outright");
+		read_rxbuf;
+
 		-- ---- anti-vacuity ---------------------------------------------------
 		chk(n_rx >= 5, "the receiver delivered only " & integer'image(n_rx) &
 			" characters in the whole run; expected at least 5, so most " &
@@ -376,10 +535,14 @@ BEGIN
 			integer'image(n_rx) & ", bytes sent " & integer'image(n_tx) &
 			", error events " & integer'image(n_rxerr) & ")" severity note;
 		if f = 0 then
-			report "  VERDICT: PASS - real 8N1 frames looped from txd to rxd " &
-				"at both baud rates, the measured start bit matches the " &
-				"rounded divider at each, and the register layer's flags, " &
-				"read-clears, BUSY and SWRST all behave." severity note;
+			report "  VERDICT: PASS - real frames looped from txd to rxd at " &
+				"both baud rates and in 8N1, 8E1 and 8O1; the measured start " &
+				"bit matches the rounded divider at each rate; the parity bit " &
+				"is MEASURED on the wire (a 0x00 character is low for 9 bit " &
+				"times without it and 10 with it); an inverted parity bit is " &
+				"caught and its character withheld; and the register layer's " &
+				"flags, read-clears, BUSY and SWRST all behave."
+				severity note;
 		else
 			report "  VERDICT: FAIL - " & integer'image(f) &
 				" failure(s). Read the FAIL lines above." severity error;

@@ -527,6 +527,8 @@ package aux_package is
 			clk_i			: IN	STD_LOGIC;
 			rst_i			: IN	STD_LOGIC;
 			baud_sel_i		: IN	STD_LOGIC;
+			parity_en_i		: IN	STD_LOGIC := '0';	-- Phase 12E, UCTL[1] PENA
+			parity_even_i	: IN	STD_LOGIC := '1';	-- Phase 12E, UCTL[2] PEV
 			rxd_i			: IN	STD_LOGIC := '1';
 			din_i			: IN	STD_LOGIC_VECTOR(7 DOWNTO 0);
 			din_vld_i		: IN	STD_LOGIC;
@@ -537,6 +539,7 @@ package aux_package is
 			dout_o			: OUT	STD_LOGIC_VECTOR(7 DOWNTO 0);
 			dout_vld_o		: OUT	STD_LOGIC;
 			frame_err_o		: OUT	STD_LOGIC;
+			parity_err_o	: OUT	STD_LOGIC;			-- Phase 12E, UCTL[5] PE
 			rx_busy_o		: OUT	STD_LOGIC
 		);
 	end component;

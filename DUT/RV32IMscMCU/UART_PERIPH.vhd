@@ -139,6 +139,7 @@ ARCHITECTURE behavior OF uart_periph IS
 	SIGNAL txbuf_vld_q	: STD_LOGIC;	-- a byte is queued for the transmitter
 	SIGNAL full_q		: STD_LOGIC;	-- RXBUF holds a character nobody has read
 	SIGNAL fe_q			: STD_LOGIC;
+	SIGNAL pe_q			: STD_LOGIC;	-- Phase 12E: UCTL[5], a real flag now
 	SIGNAL oe_q			: STD_LOGIC;
 
 	-- bus strobes
@@ -152,6 +153,8 @@ ARCHITECTURE behavior OF uart_periph IS
 	SIGNAL dout_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL dout_vld_w	: STD_LOGIC;
 	SIGNAL frame_err_w	: STD_LOGIC;
+	SIGNAL parity_err_w	: STD_LOGIC;	-- Phase 12E, from the receiver
+	SIGNAL pe_read_w	: STD_LOGIC;	-- what a read of UCTL[5] returns
 	SIGNAL rx_busy_w	: STD_LOGIC;
 
 	SIGNAL tx_accept_w	: STD_LOGIC;
@@ -189,6 +192,18 @@ BEGIN
 		clk_i		=> clk_i,
 		rst_i		=> core_rst_w,
 		baud_sel_i	=> ctl_q(3),			-- UCTL[3]: 0 = 9600, 1 = 115200
+		-- Phase 12E. These two used to have no consumer: PENA and PEV were
+		-- stored and read back and changed nothing, which made them stubs.
+		-- Now they reach the shift registers.
+		--
+		-- One thing worth naming: nothing interlocks a change of PENA against a
+		-- character already on the wire, for the same reason nothing interlocks
+		-- BAUDRATE (A28) -- an interlock would silently defer a software write,
+		-- and the specification describes none. Changing the frame format
+		-- mid-character corrupts that character, and that is program order's
+		-- responsibility. BUSY is what software polls to know it is safe.
+		parity_en_i	=> ctl_q(1),			-- UCTL[1] PENA
+		parity_even_i	=> ctl_q(2),		-- UCTL[2] PEV: 1 = even, 0 = odd
 		rxd_i		=> rxd_i,
 		din_i		=> txbuf_q,
 		din_vld_i	=> txbuf_vld_q,
@@ -197,6 +212,7 @@ BEGIN
 		dout_o		=> dout_w,
 		dout_vld_o	=> dout_vld_w,
 		frame_err_o	=> frame_err_w,
+		parity_err_o	=> parity_err_w,		-- Phase 12E
 		rx_busy_o	=> rx_busy_w
 	);
 
@@ -267,27 +283,34 @@ BEGIN
 	process(clk_i, rst_i)
 		variable full_v	: STD_LOGIC;
 		variable fe_v	: STD_LOGIC;
+		variable pe_v	: STD_LOGIC;
 		variable oe_v	: STD_LOGIC;
 	begin
 		if rst_i = '1' then
 			rxbuf_q	<= (OTHERS => '0');
 			full_q	<= '0';
 			fe_q	<= '0';
+			pe_q	<= '0';
 			oe_q	<= '0';
 		elsif rising_edge(clk_i) then
 			full_v := full_q;
 			fe_v   := fe_q;
+			pe_v   := pe_q;
 			oe_v   := oe_q;
 
 			if swrst_w = '1' then
 				full_v := '0';
 				fe_v   := '0';
+				pe_v   := '0';
 				oe_v   := '0';
 			else
-				-- 1. the software read clears first
+				-- 1. the software read clears first. REQ p12: "reading RXBUF
+				-- resets the receive-error BITS, and RXIFG" -- plural, so PE
+				-- clears here exactly like FE and OE. Phase 12E.
 				if rxbuf_rd_w = '1' then
 					full_v := '0';
 					fe_v   := '0';
+					pe_v   := '0';
 					oe_v   := '0';
 				end if;
 				-- 2. then this cycle's arrivals set
@@ -301,10 +324,22 @@ BEGIN
 				if frame_err_w = '1' then
 					fe_v := '1';
 				end if;
+				-- Phase 12E. Note what is NOT here: no `full_v := '1'` and no
+				-- rxbuf_q write. A parity-errored character is not delivered --
+				-- the receiver holds DOUT_VLD low for it (upstream's own
+				-- choice, kept: assumption A30) -- so PE plus the error
+				-- interrupt is how software learns, and RXBUF keeps whatever it
+				-- held. The alternative, delivering a byte known to be corrupt,
+				-- would be inventing behaviour the specification does not
+				-- describe.
+				if parity_err_w = '1' then
+					pe_v := '1';
+				end if;
 			end if;
 
 			full_q	<= full_v;
 			fe_q	<= fe_v;
+			pe_q	<= pe_v;
 			oe_q	<= oe_v;
 		end if;
 	end process;
@@ -316,15 +351,24 @@ BEGIN
 	busy_w <= rx_busy_w OR (NOT din_rdy_w) OR txbuf_vld_q;
 
 	rx_ev_o		<= dout_vld_w;
-	rxerr_ev_o	<= frame_err_w OR oe_set_w;
+	-- Phase 12E adds the parity error. REQ p14 gives TYPE 04h to "USART status
+	-- error" and all three of FE, PE and OE are status errors, so all three
+	-- raise the same request.
+	rxerr_ev_o	<= frame_err_w OR parity_err_w OR oe_set_w;
 	tx_ev_o		<= tx_accept_w;
 	rx_clr_o	<= rxbuf_rd_w;
 	tx_clr_o	<= txbuf_wr_w;
 
 	-- [7] BUSY  [6] OE  [5] PE  [4] FE  [3] BAUDRATE  [2] PEV  [1] PENA  [0] SWRST
-	-- PE is '0' by construction: A26, and REQ p12's own "when PENA = 0, PE is
-	-- read as 0".
-	uctl_o		<= busy_w & oe_q & '0' & fe_q & ctl_q;
+	--
+	-- PE, Phase 12E. REQ p12 says "when PENA = 0, PE is read as 0", so the
+	-- stored flag is ANDed with PENA on the way out rather than being prevented
+	-- from setting: the receiver already cannot set it with parity disabled
+	-- (its check register is gated by PARITY_EN), so this AND is the second of
+	-- two independent reasons the bit reads 0 in 8N1 -- belt and braces on a
+	-- sentence the specification states outright.
+	pe_read_w	<= pe_q AND ctl_q(1);
+	uctl_o		<= busy_w & oe_q & pe_read_w & fe_q & ctl_q;
 	rxbuf_o		<= rxbuf_q;
 	txbuf_o		<= txbuf_q;		-- A27
 

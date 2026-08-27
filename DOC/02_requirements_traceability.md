@@ -845,6 +845,17 @@ register, two spellings; **open question P3**, and the code uses the table's nam
   when a character is transferred into `RXBUF` before the previous one was read; `BUSY` a transmit
   or receive operation is in progress.
 
+**The contradiction on this page, and how it was resolved.** The feature list a few lines above says
+"1-start bit, 1-stop-bit, 8-bit data with **non-parity**", while this table defines `PENA`, `PEV` and
+`PE`. Both cannot be true. **Phase 12A read the feature list and left parity out** — `PENA`/`PEV`
+stored and inert, `PE` a constant 0 — recorded as **A26**. **Phase 12E reversed that.** The register
+table is the more specific source; a generic cannot implement a writable register field; a bit
+software can write that changes nothing is a stub; and `PE` is one of the three error flags the
+feature list *itself* asks for under "Status flags for error detection". Parity is now runtime,
+selected by `PENA`/`PEV` and reported by `PE`. 8N1 remains the reset state and what every supplied
+program uses, so nothing that worked before changed. **A26 is retired**; **A30** records what happens
+to a character whose parity is wrong.
+
 **[REQ p12]** `RXBUF` holds the last received character, and **"reading RXBUF resets the receive-
 error bits, and RXIFG"**. `TXBUF` holds data waiting for the transmit shift register, and
 **"writing to the transmit data buffer clears TXIFG"**. Those two sentences are the second halves
@@ -873,7 +884,37 @@ mutations all caught.
   design — that is `RXIFG`'s job, read from `IFG` at `0x202D`. Which is why rule b's second half
   (`rx_clr_o`) has to reach the interrupt controller, and does in Phase 12B.
 
-**Assumptions A25–A28** are in §10, each with what would falsify it.
+### 5A.1b What Phase 12E built — parity, because a stored bit that does nothing is a stub
+
+**[REQ p12 → CODE]** `PENA` and `PEV` reach the shift registers and `PE` comes back. Two input ports
+and one output port on the third-party `UART_TX`/`UART_RX`, and three touched lines in each:
+
+- the `PARITY_BIT` **string generic is gone**, replaced by `PARITY_EN`/`PARITY_EVEN` ports, both
+  defaulted so an upstream-style instantiation still means "none";
+- `UART_PARITY` is instantiated **unconditionally** with `PARITY_TYPE => "even"` and odd is one
+  inversion of it — odd parity *is* the inverse of even parity — so **`UART_PARITY.vhd` stays
+  byte-identical to upstream** and no second instance is spent on it;
+- the receiver's parity-check register gains **`AND PARITY_EN`**, which is load-bearing: it samples
+  on every `rx_clk_en`, not only in the `paritybit` state, so without the gate an 8N1 frame would
+  latch a meaningless comparison and *valid characters would be dropped about half the time*.
+  Upstream could leave it ungated because the whole process only existed in a parity build.
+
+With `PARITY_EN = '0'` the `paritybit` state is unreachable and the check register is pinned at `'0'`,
+so the 8N1 path is **bit-for-bit the path Phase 12A verified**.
+
+**Verified where each half can be.** The register layer: `model_uart.py` phase **P6B**, plus nine
+mutations of the parity logic, all nine caught — two of them only after the phase itself was fixed,
+because the first draft sampled `RXBUF` one edge too early and tested the no-overrun property on a
+buffer that was already full. The engine: `tb_uart.vhd` phase **P9**, which does what a loopback alone
+cannot — it **measures the parity bit on the wire**. A `0x00` character is low for 9 bit times in 8N1
+and 10 in 8E1, because the data bits and the even parity of zero are all `0`. Then 8O1 round-trips —
+which is what discriminates `PEV`, since the two parity bits for a byte are inverses and a receiver
+locked to one polarity rejects every frame of the other — a hand-driven frame with an **inverted**
+parity bit sets `PE` and is **not delivered**, and a hand-driven frame with the right one is, so the
+failure is about parity and not about hand-driven frames.
+
+**Assumptions A25, A27, A28 and A30** are in §10, each with what would falsify it. **A26 is
+retired** — it was the assumption that parity could be left out.
 
 ### 5A.2 What Phase 12B built — the USART on the bus
 
@@ -1244,13 +1285,14 @@ Everything in this document that is not cited to a source.
 | A23 | The one `RXIFG` bit presents TYPE `08h`, never `04h` | One flag serves two vector-table rows (p14); §4.1 shows words 1 and 2 of every benchmark vector table hold the **same** handler, so the choice cannot change behaviour in any supplied program. Open question 4 / P2 stays open for Phase 12, where the UART could tell error from data at the source | Hanan specifying the error code must win — a side latch remembering which event set the bit, Phase 12 |
 | A24 | Software cannot **set** an `IFG` bit — writes are W0C (0 clears the raw latch, 1 leaves it) | The p13 flop has no software-set path drawn; the only software access in any benchmark is the ISR read-modify-write idiom, which W0C serves exactly (and a hardware set beats a same-edge software clear, so a flag arriving between the `lw` and the `sw` survives) | A benchmark or answer requiring software-triggered interrupts — a write-through arm on the latch, and mutant M3 already models it |
 | A25 | `UCTL` resets to `0x00`, so `SWRST = 0` and the USART is operational out of reset | The p12 table gives SWRST's two meanings but **no reset value**; the MSP430 this peripheral is modelled on resets it to 1. Every other peripheral here resets its interface registers to zero (F16 for the timer), and firmware written either way still works — an MSP430-style driver clears SWRST first, which is a no-op here | A supplied firmware that depends on the USART being *held* in reset until it is configured. One reset value to change |
-| A26 | **Parity is not implemented — the frame is 8N1.** `PENA`/`PEV` are stored and read back; `PE` reads 0 always | REQ p12's own feature list says "8-bit data with non-parity", and its UCTL table says "when PENA = 0, PE is read as 0" — so at the reset state this build is conformant to both statements. The two statements are in tension for `PENA = 1`, which is the part left unbuilt | A benchmark that sets `PENA = 1` and expects a parity bit on the wire. The cost is a runtime "is there a parity bit" input threaded into the author's RX and TX state machines — a real change to code that is otherwise byte-identical, which is why it is staged rather than guessed at |
+| A26 | ~~**Parity is not implemented — the frame is 8N1.**~~ **RETIRED 2026-08-27 by Phase 12E: parity is implemented, at runtime.** The assumption was that REQ p12's feature list ("8-bit data with non-parity") outweighed the same page's UCTL table, which defines `PENA` as "Parity enabled. Parity bit is generated (TXD) and expected (RXD)", `PEV` as odd/even and `PE` as a readable error flag. That was the cheap reading, not the right one: a generic cannot implement a writable register field, a bit software can write that changes nothing is a stub, and `PE` is one of the three error flags §6.iv's own feature list requires ("Status flags for error detection"). The predicted cost — "a runtime *is there a parity bit* input threaded into the author's RX and TX state machines" — was right, and it came to two ports and three touched lines per file | The specification's own register table, which is the more specific of the two conflicting statements | Nothing now: both readings are satisfied. 8N1 is still the reset state and what every supplied program uses, `PE` still reads 0 whenever `PENA = 0` — the specification says so outright — and `PENA = 1` now does what the table says it does |
 | A27 | `TXBUF` is readable | The p12 text calls it "user accessible" and the MSP430's is readable; no supplied program reads it | Nothing that matters — if it should be write-only, delete one reader |
 | A28 | Switching `UCTL[3]` mid-character corrupts that character; no hardware interlock is built | Nothing in the specification describes an interlock, and one would silently delay a software write. What *is* built is `UART_CORE`'s `>=` compare, so a downward switch cannot strand the divider counter above its new maximum — that part is not left to software | A requirement that the rate change take effect only at a frame boundary — one gating term on the counter's maximum |
 
 | A29 | PPA table row 1, "MCU with GPIO", means none of §6's twelve interrupt-capable addresses — so no interrupt controller, no Basic Timer, no USART and no `PORT_PB` — while the CPU core is the same core as in row 2 | The two clause titles: §5 is "GPIO peripherals ... **without** interrupt capability" (eight devices), §6 is "Peripherals **with** interrupt capability" (twelve addresses, `PORT_PB` among them). The row labels are the document's own | A statement that row 1 also drops the divider accelerator (§6.iii, no MMIO address, part of the CPU as we read it), or that it keeps `PORT_PB` because that device is physically GPIO |
+| A30 | A character whose parity bit is wrong is **not delivered**: `RXBUF` keeps what it held, `RXIFG` is not raised by it, and software learns of it through `PE` and the status-error interrupt (TYPE 04h) | This is the third-party receiver's own behaviour, not ours — `uart_rx.vhd` holds `DOUT_VLD` low for a parity-errored frame (`DOUT_VLD <= NOT rx_parity_error AND UART_RXD`), and it was kept rather than changed. REQ p12 defines `PE` and says nothing about whether the character is delivered | A statement that a parity-errored character must still land in `RXBUF` (which is the MSP430's behaviour). The cost is one term in `UART_RX`'s output register and one line in the register layer, both already identified |
 
-Twenty-nine assumptions, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C), and A25–A28 out of Phase 12A (the USART: its reset value, the 8N1 frame, a readable TXBUF, and baud switching being a program-order responsibility), and A29 out of Phase 14 (what PPA row 1 contains). **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
+Thirty assumptions, one of them (A26) since **retired**, of which **five were settled by Hanan's forum answers on 2026-08-24** — A1, A2, A7 and A14 confirmed, and **A6 falsified**. A17 was raised in `DOC/05` on the same day and is entered here only now; A18 came out of Phase 7A, A19 out of Phase 4B, A20/A21 out of Phase 8A — note A20 is only the half of B4 the benchmarks do NOT pin — A22/A23/A24 out of Phase 9A (the falsified-A6 structure's observable corners: the masked-request memory, the `RXIFG` TYPE choice, and W0C), and A25–A28 out of Phase 12A (the USART: its reset value, the 8N1 frame, a readable TXBUF, and baud switching being a program-order responsibility), A29 out of Phase 14 (what PPA row 1 contains), and A30 out of Phase 12E (what happens to a parity-errored character). **A26 is the one that has been retired**: Phase 12E implemented the parity it assumed away. **A19 is the one to send with A15** — like A15 it is a genuine conflict between two sources rather than a gap, and it decides whether the core-to-peripheral bus is one clock domain or two. See `DOC/03_open_questions.md`, section "ANSWERS FROM HANAN'S FORUM", for the wording of each and for the three answers that contradict code already written.
 
 None blocks Step 2. A1, A2, A4 and A5 must be settled before the Basic Timer
 (roadmap Step 9) is verified against real constants; A10 before pin planning. A11 and A12 came out of
