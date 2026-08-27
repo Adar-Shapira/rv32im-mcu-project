@@ -653,54 +653,99 @@ waiting:
 
 ---
 
-## 9. The demo-day protocol — decoded from Hanan's inspection guide (added 2026-08-25)
+## 9. The demo-day protocol — Hanan's inspection guide (added 2026-08-25, **corrected against the PDF 2026-08-27**)
 
-**Source:** `Auxiliary/מבנה הצגה ובדיקת פרויקט מסכם.md` — the instructor-facing protocol for the
-final-project presentation and inspection. The file is a garbled PDF extraction (Hebrew stored
-character-reversed, column order scrambled); this section is the decoded reconstruction. Where the
-scramble left something unrecoverable, that is said explicitly rather than guessed.
+**Source:** `Auxiliary/מבנה הצגה ובדיקת פרויקט מסכם.pdf` — one page, the instructor-facing
+protocol for the final-project presentation and inspection.
 
-**Part 1 — download and burn, in real time [5–10 min].** At the start of the meeting the students
-download **their own submission** from the Moodle box (VPL) — *"the goal is to verify that the
-submitted code is what is being tested"* — compile it in the personal Quartus environment **with no
-file edited**, and burn the design to the FPGA. Dev environments (Quartus, ModelSim, RARS) are
-opened in parallel.
+> **This section was rewritten on 2026-08-27.** It was first written from the `.md` extraction of
+> the same document, which is garbled (Hebrew stored character-reversed, column order scrambled).
+> The reconstruction was right in outline and **wrong in three details**: the parts are numbered
+> **0–3**, not 1–4; the six levels *are* fully specified and are transcribed below (the old text
+> said levels 2–5 were unrecoverable); and it missed the requirement that the design is compiled
+> **without the SignalTap file**, which is a real technical constraint — see the consequences at
+> the end. Total wall clock: **27 minutes**.
 
-Consequence for us: **the clean-room build of Phase 16 is not a nicety — it is literally the first
-ten minutes of the grade.** The ZIP must compile untouched on a machine that has only the ZIP.
+**חלק 0 — download and burn, in real time [5 min].** The students download, live, from **their own
+personal VPL submission box** on Moodle **the content of the `DUT` folder**, extract every MCU
+design file from it, load those into Quartus, and **compile — explicitly, and underlined in the
+source — WITHOUT the SignalTap file** (*"ולקמפל ללא קובץ Signal Tap"*), then burn the design to the
+FPGA. ModelSim and RARS are opened in parallel. The instructor's note gives the reason: *"the goal
+is to verify that the code that was submitted is the one being tested."*
 
-**Part 2 — one application, per readiness level [~7+ min].** The MCU design is burned **once
-only**; the applications (`ITCM.hex`, `DTCM.hex`, downloaded from Moodle in real time) are loaded
-**through ISMCE** — the protocol itself stresses the separation between the MCU design and the
-applications that run on it. The students choose the application **according to their system's
-readiness level** out of **six inspection levels** (רמת בדיקה 1–6). The level table's geometry was
-destroyed by the extraction; what is certain from the fragments: level 1 is the **full system**
-(*"באופן מלא"*), the gradations pass through *"without interrupt support"* (twice — two adjacent
-levels differ on interrupts), through combinations of the DIVIDER accelerator / BT Timer / GPIO,
-down to *"GPIO בלבד"* (GPIO only) at the bottom. **The exact feature list of levels 2–5 is NOT
-fully recoverable from this file** — ask Hanan or a classmate for the original table if the choice
-ever matters; we build for level 1 regardless.
+**חלק 1 — one application, per readiness level [7 min].** Also downloaded live: the binaries
+(`ITCM.hex`, `DTCM.hex`) of **one** application from the list below, "which constitutes test code
+of the project requirements". The students choose it **at this point, according to their system's
+readiness level**.
 
-After the run, **two things per level tested**: (i) a detailed manual log of the execution
-description (against the `ReadMe`'s described behaviour), and (ii) **a screenshot of the ISMCE
-window showing the DTCM content**. Our golden-model DTCM comparisons are exactly this check done
-in advance.
+> **Note, verbatim in the source:** the MCU design is burned to the FPGA **once only**; the
+> applications must be loaded into the MCU **through the ISMCE interface**. *"It is very important
+> to understand the separation between the MCU design and the applications running on the MCU."*
 
-**Part 3 — a personal question, each student separately [5 min × 2].** A question on the HDL code
-at the presented level, based on the development chain (Quartus / ModelSim / RARS), and a request
-that the student **show the relevant part in the design code** (VHDL, a ModelSim wave window).
-Consequence: **both of us must be able to navigate and justify every module** — the traceability
-docs (DOC/02) and each file's header citations are the preparation material for exactly this.
+The six inspection levels, transcribed:
 
-**Part 4 — submission-folder inspection [3–5 min].** The instructor checks the Moodle submission
-tree against the project requirements and asks the students to open the documentation ZIP and show
-the required sections exist.
+| רמה | What is inspected |
+| --- | --- |
+| **1** | The project requirements **in full** |
+| 2 | **Including** the BT Timer module, **without** the DIVIDER hardware accelerator |
+| 3 | **Not including** the BT Timer or the DIVIDER accelerator |
+| 4 | The **GPIO part and the DIVIDER accelerator** — *without interrupt support* |
+| 5 | The **GPIO part only** — without interrupt support and without the DIVIDER accelerator |
+| 6 | The **DIVIDER accelerator part only** |
 
-**What this changes in our plan:** nothing structural — it *confirms* Phase 16's clean-room gate
-(the full-2048-word DTCM dumps that closed G-204 are exactly the coverage the inspection
-screenshot needs), and re-confirms that `ENABLE_RUNTIME_MOD = YES` + the `ITCM`/`DTCM` instance
-names (inherited from Lab 5 and already carried through every phase) are load-bearing demo
-machinery — the ISMCE check already in section 7's record list is the guard.
+Levels 1–3 carry interrupt support; interrupts are what separates level 3 from level 4. **We
+present level 1** — GPIO, Basic Timer, divider accelerator and interrupts are all built.
+
+Per level tested, the instructor does two things: (i) a **detailed manual log** of the execution
+description, following the applications' `ReadMe`; and (ii) **a screenshot of the ISMCE window
+showing the DTCM memory content**, taken *after the application run finishes*, again per the
+`ReadMe`. Our golden-model DTCM comparisons are that same check done in advance.
+
+**חלק 2 — a personal question, each student separately [5 min each = 10 min].** A question on the
+**HDL code describing a requested part of the system**, plus understanding built on the development
+environments (Quartus, ModelSim, RARS) as the question requires and following the system's
+development chain. The instructor picks the question **by the level chosen for presentation**, and
+asks the student to **show the relevant part in the design code (VHDL), in the ModelSim wave
+window, and so on.**
+
+Consequence: **both of us must be able to open any module and justify it on the spot** — DOC/02's
+traceability and each file's header citations are the preparation material for exactly this.
+
+**חלק 3 — submission-folder inspection [5 min].** The instructor examines the Moodle submission
+folder against the project requirements, and asks the students to open the ZIP holding the project
+documentation and confirm the required sections are present.
+
+### 9.1 What this changes for us — two live consequences
+
+**1. The submission must compile with SignalTap OFF, and that is not how our revision ships.**
+`Quartus/RV32IMscMCU/RV32IMscMCU.qsf` currently carries `ENABLE_SIGNALTAP ON` plus
+`USE_SIGNALTAP_FILE`/`SIGNALTAP_FILE stp_pwm.stp` and the embedded `auto_signaltap_0` SLD block —
+the right shape for the board bring-up it was built for (§1.7.e of the plan), and the wrong shape
+for חלק 0. Three things follow, none of them urgent but all of them cheap:
+
+- **The demo build is `ENABLE_SIGNALTAP OFF`.** With it off Quartus ignores the whole SLD section,
+  so no edit beyond that one line is needed. Whether the *shipped* `.qsf` should default to OFF is
+  a Phase 16 packaging decision and Adar's call — his board flow wants it ON.
+- **One clean-room hazard is already visible in the file**: the last SignalTap line is
+  `set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp`, and `db/` is a *generated*
+  directory that does not exist in a fresh clone or in the ZIP. Harmless with SignalTap off
+  (ignored) and normally regenerated with it on, but it is a `.qsf` line pointing into build
+  output, which is exactly what a clean-room build punishes.
+- **The single-cycle design is safe under SignalTap-off by construction** — `LEDR`, the six `HEX`
+  displays and `GPIO` are real pins driven through the peripherals, so nothing load-bearing can be
+  optimised away. **The pipeline is not**: all fourteen of its wrapper outputs are observation
+  ports, which is the same exposure as the `GEN_DEBUG_PORTS => FALSE` defect fixed in `5d540c0`.
+  If the pipeline is ever presented, its SignalTap-off build must be checked, not assumed.
+
+**2. Clause 10 wants a `.stp` in the ZIP; חלק 0 compiles without it.** Both are true and they do
+not conflict: the `.stp` ships as the clause 7 SignalTap-validation deliverable and as evidence,
+while the build performed in the room is a plain functional one. Worth knowing so nobody "fixes"
+one against the other.
+
+And it re-confirms two things already in place: Phase 16's clean-room gate is literally the first
+five minutes of the grade, and `ENABLE_RUNTIME_MOD = YES` on the `ITCM`/`DTCM` instances (inherited
+from Lab 5, carried through every phase) is load-bearing demo machinery — the ISMCE check in
+section 7's record list is its guard.
 
 ---
 

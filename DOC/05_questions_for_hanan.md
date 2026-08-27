@@ -268,6 +268,28 @@ Affects the UART bonus (Phase 12) only.
 
 Tied to **B1**.
 
+### R4 — Does the ZIP's `Quartus` folder include the `.qsf`/`.qpf`? (added 2026-08-27)
+
+> **Ask:** Clause 10 Table 1 says the `Quartus` folder holds "a Signal-Tap file, an SDC file, and a
+> SOF file" per design, and adds "do not place files that are not relevant for compilation". But the
+> inspection protocol's חלק 0 has us compile the design in Quartus on the spot and burn it, which
+> needs the project files and the pin assignments — i.e. the `.qsf` and `.qpf`. Should they be
+> included?
+
+**Meanwhile:** we include `.qsf` and `.qpf`. They are unambiguously "relevant for compilation", the
+103 pin assignments live only there, and without them the on-the-spot build cannot drive the board.
+Nothing else is added — no `db/`, no `output_files/`, no `.mpf`.
+
+### R5 — Is the demo-day build the SignalTap-off build? (added 2026-08-27)
+
+> **Ask:** חלק 0 of the inspection protocol says to compile **without the SignalTap file**, while
+> clause 7 makes SignalTap validation mandatory and clause 10 asks for a `.stp` in the ZIP. We read
+> that as: the `.stp` ships as the clause 7 deliverable, and the build performed in the room is a
+> plain functional one with `ENABLE_SIGNALTAP OFF`. Correct?
+
+**Meanwhile:** built that way — the `.stp` stays in the ZIP, and the SignalTap-off build is treated
+as the one that must work on the board. See `DOC/04` §9.1.
+
 ### R3 — How should we present the ISA-conformance gap?
 
 > **Ask:** Our directed ISA test checks full RV32IM conformance and therefore reports five permanent

@@ -2947,7 +2947,20 @@ pipeline has no `run_*.do` set of its own yet. That is Phase 11's work, not this
 - **Settings are part of the measurement.** `POWER_DEFAULT_TOGGLE_RATE 12.5%` was added in commit 2
   and changes the power numbers; "Use smart compilation" and "Advanced Physical Optimization = Off"
   were circled in staff-supplied photos — **G-208**, confirm whether these are instructions.
-- **Exit:** all six revisions fit and meet the chosen clock with clean constraints.
+- **A SEVENTH configuration is the one the grade actually runs — added 2026-08-27.** The inspection
+  protocol's חלק 0 compiles the submitted design **without the SignalTap file** and burns it
+  (`DOC/04` §9.1). That is **pinned + SignalTap off**, which is neither of the six above: the perf
+  revisions have no pins so they cannot be burned, and the hw revisions have SignalTap on. It costs
+  nothing to produce — the hw revision with `ENABLE_SIGNALTAP OFF` — but it must be *compiled and
+  burned at least once before the demo*, because it is what the room will run and it has never been
+  built. The single-cycle design is safe under it by construction (`LEDR`/`HEX`/`GPIO` are real
+  pins); the **pipeline is not** — all fourteen wrapper outputs are observation ports, the same
+  exposure as the `GEN_DEBUG_PORTS => FALSE` defect fixed in `5d540c0`.
+- One clean-room hazard to clear while here: the `.qsf`'s last SignalTap line is
+  `SLD_FILE db/stp_pwm_auto_stripped.stp`, pointing into generated build output that no fresh clone
+  or ZIP contains.
+- **Exit:** all six revisions fit and meet the chosen clock with clean constraints, **and** the
+  pinned SignalTap-off build compiles and runs on the board.
 
 Gaps: G-206, G-208.
 
@@ -2979,6 +2992,20 @@ Blocked on **Q1**.
   wording and was accepted with five.
 - **Exit:** unzip into a clean location and compile both ModelSim and Quartus projects from the
   packaged files alone, with zero missing files and no absolute-path dependency.
+- **The packaging rules the inspection protocol adds — 2026-08-27, `DOC/04` §9.1:**
+  - חלק 0 downloads **the `DUT` folder** and compiles from it **without the SignalTap file**. So the
+    shipped Quartus project must build with `ENABLE_SIGNALTAP OFF` and no `db/` present — see the
+    `SLD_FILE db/...` line noted in Phase 14.
+  - Include `.qsf` and `.qpf` in the `Quartus` folders (**R4**): the 103 pin assignments live only
+    there, and without them the on-the-spot build cannot drive the board. Exclude everything
+    generated — `db/`, `incremental_db/`, `output_files/`, `.mpf`, `.qws`.
+  - **`SIM` ships only the course-convention scripts** — clause 10 Table 1 says "the ModelSim `*.do`
+    file", singular. That means `compile.do`, `run_test.do`, `golden.do`, `wave.do` (+ `mem_dump.do`
+    where it is referenced), and **not** the eighteen development `run_*.do` scripts or `regress.do`.
+    They stay in the repository — `regress.do` is the whole regression and drives every one of them —
+    but they are not deliverables, exactly as the development testbenches are not.
+  - `TB` ships exactly `tb_RV32IMscMCU.vhd` / `tb_RV32IMpipelinedMCU.vhd`, per Adar's clause 10
+    rewrite (§1.7.c), plus any expected-value package those two actually need.
 
 Gaps: G-501…G-505.
 
