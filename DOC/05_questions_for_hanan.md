@@ -338,6 +338,45 @@ interrupt-free configuration is simulated as well as synthesized so the row's nu
 build that demonstrably works. Recorded as **A29** in `DOC/02` §10. If either reading is wrong the
 fix is one line of the generate condition, not a redesign.
 
+### R7 — On which applications can the IPC identity actually be checked? (added 2026-08-28)
+
+> **Ask:** Clause 8.c.iii asks to check the IPC "by comparing the two sides of the equation in
+> clause 6.iii.b", and adds that IPC accuracy matters. The right-hand side of that equation is
+> `InstructionCounter / CLKCNT`, so the check needs an instruction count obtained **independently**
+> of the counters. That is available only for a program that runs to a deterministic end, and of
+> the eight supplied benchmarks exactly one does:
+>
+> | benchmark | ends? |
+> | --- | --- |
+> | `RV32IM/test1` | **yes** — `finish: beq x0,x0,finish` after a fixed 8-iteration loop |
+> | `GPIO` test0 / test1 / test2 | no — `j Loop`, forever |
+> | `Intrrupt-based IO` test1–test4 | no — event-driven FSM; work happens only inside ISRs, and the main loop never terminates |
+>
+> For the seven that do not end there is no instant at which an independent instruction count
+> exists, because RARS cannot reproduce the KEY-press and timer stimulus that drives them. We can
+> still *report* IPC from the counters at an arbitrary moment, but that is one side of the equation,
+> not a comparison of two.
+>
+> On `RV32IM/test1` the identity closes exactly, from three independent directions:
+>
+> ```
+> static count from test1.s                 11 + 15×8 + 1              = 132
+> single-cycle   372 cycles − 16 divides × 15 cycles                   = 132
+> pipeline       405 − (248 + 4 + 3×7)                                 = 132
+> ```
+>
+> Is that sufficient for clause 8.c.iii, or do you want IPC reported for the other applications too
+> — and if so, over which window, given they never terminate?
+
+**Meanwhile:** the report presents the exact three-way verification on `RV32IM/test1` and states why
+that is the only benchmark the identity is well-posed on. If the answer is that more is wanted, the
+counters are already exported on both cores and `batch_verify.do` prints the triples, so adding rows
+is a run, not a change.
+
+**Why this is worth asking rather than assuming:** the phrase "IPC accuracy matters" reads like it
+expects more than one data point, but the benchmark set makes that impossible to do rigorously. That
+tension is in the supplied material, not in our design.
+
 ### R3 — How should we present the ISA-conformance gap?
 
 > **Ask:** Our directed ISA test checks full RV32IM conformance and therefore reports five permanent
