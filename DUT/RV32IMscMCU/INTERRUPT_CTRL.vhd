@@ -69,11 +69,13 @@
 --   TYPE, priority 1 (highest) .. 7, from p14's own priority column:
 --     x"04" UART err > x"08" UART RX > x"0C" UART TX > x"10" BT
 --     > x"14" KEY1 > x"18" KEY2 > x"1C" KEY3;  x"00" when nothing pends.
---   RXIFG is ONE bit serving TWO TYPE codes (04h and 08h). This controller
---   presents x"08" for it (Assumption A23). DOC/02 section 4.1 proves the
---   choice cannot change behaviour in any supplied benchmark: words 1 and
---   2 of every benchmark vector table hold the SAME handler. Phase 12
---   (UART) revisits if Hanan answers open question 4.
+--   RXIFG is ONE bit serving TWO TYPE codes (04h and 08h). A side latch
+--   (rxerr_q) remembers whether the pending RXIFG was set by a status
+--   error (FE/PE/OE from uart_periph). The encoder presents 04h when that
+--   latch is set, 08h otherwise. When both a good character and an error
+--   land on the same cycle (overrun), 04h wins -- p14's own priority
+--   column, which is also the answer to open question P2. This is not a
+--   second IFG bit: software still sees one RXIFG at bit 0.
 --
 -- CLEARING RULES a-f OF REQ p13, WHO IMPLEMENTS WHICH
 --   a  BTIFG auto-clears when serviced          -> HERE, at the INTA edge
@@ -204,7 +206,8 @@ END interrupt_ctrl;
 ARCHITECTURE behavior OF interrupt_ctrl IS
 	-- TYPE codes, REQ p14's vector table (priority 1..7 = the listing order)
 	CONSTANT TYPE_NONE	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"00";
-	CONSTANT TYPE_RX	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"08";	-- A23: one RXIFG bit, code 08h
+	CONSTANT TYPE_RXERR	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"04";	-- UART status error (p14)
+	CONSTANT TYPE_RX	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"08";	-- UART RX; same RXIFG bit as 04h
 	CONSTANT TYPE_TX	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"0C";
 	CONSTANT TYPE_BT	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"10";
 	CONSTANT TYPE_KEY1	: STD_LOGIC_VECTOR(7 DOWNTO 0) := x"14";
@@ -227,6 +230,7 @@ ARCHITECTURE behavior OF interrupt_ctrl IS
 	SIGNAL svc_tx_w		: STD_LOGIC;
 	SIGNAL svc_bt_w		: STD_LOGIC;
 	SIGNAL type_w		: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL rxerr_q		: STD_LOGIC;	-- pending RXIFG was (also) a status error
 
 	SIGNAL type_capt_q	: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL push_q		: STD_LOGIC;
@@ -277,7 +281,7 @@ BEGIN
 	-- rule d. A set beats a same-edge clear (the OR below), so a hardware
 	-- event cannot be swallowed by a concurrent read-modify-write.
 	--=======================================================================
-	svc_rx_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_RX)) ELSE '0';
+	svc_rx_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_RX OR type_w = TYPE_RXERR)) ELSE '0';
 	svc_tx_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_TX)) ELSE '0';
 	svc_bt_w	<= '1' WHEN (inta_i = '0' AND (type_w = TYPE_BT)) ELSE '0';
 
@@ -318,15 +322,42 @@ BEGIN
 	end process;
 
 	--=======================================================================
+	-- RXIFG cause latch -- REQ p14's two TYPE codes on one flag bit.
+	-- Set with the RX event; error wins over a clean character, including
+	-- when both pulses arrive together (overrun) or when an error arrives
+	-- onto an already-pending clean RX. Cleared with RXIFG itself. A
+	-- same-edge set-and-clear retires the old cause and takes only the new
+	-- event's, matching irq_q's "set beats clear" for the new request.
+	--=======================================================================
+	process(clk_i, rst_i)
+	begin
+		if rst_i = '1' then
+			rxerr_q <= '0';
+		elsif rising_edge(clk_i) then
+			if set_w(0) = '1' then
+				if clr_w(0) = '1' then
+					rxerr_q <= rxerr_ev_i;
+				else
+					rxerr_q <= rxerr_q OR rxerr_ev_i;
+				end if;
+			elsif clr_w(0) = '1' then
+				rxerr_q <= '0';
+			end if;
+		end if;
+	end process;
+
+	--=======================================================================
 	-- The MASKED view -- the p13 AND gates, their outputs labelled IFGx.
 	-- Everything downstream (read-back, TYPE, INTR) sees ONLY this.
 	--=======================================================================
 	ifg_w	<= irq_q AND ie_q;
 
 	--=======================================================================
-	-- TYPE -- the priority encoder, REQ p14's order, x"00" when idle
+	-- TYPE -- the priority encoder, REQ p14's order, x"00" when idle.
+	-- RXIFG is inspected first; the cause latch picks 04h over 08h.
 	--=======================================================================
-	type_w	<=	TYPE_RX		WHEN ifg_w(0) = '1' ELSE
+	type_w	<=	TYPE_RXERR	WHEN (ifg_w(0) = '1' AND rxerr_q = '1') ELSE
+				TYPE_RX		WHEN ifg_w(0) = '1' ELSE
 				TYPE_TX		WHEN ifg_w(1) = '1' ELSE
 				TYPE_BT		WHEN ifg_w(2) = '1' ELSE
 				TYPE_KEY1	WHEN ifg_w(3) = '1' ELSE

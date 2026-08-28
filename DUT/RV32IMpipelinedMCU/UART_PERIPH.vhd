@@ -42,8 +42,9 @@
 --   rx_ev_o     a good character reached RXBUF (the core's dout_vld). RXIFG.
 --   rxerr_ev_o  a framing error, or an overrun being set. REQ p14 gives the
 --               UART status error its own TYPE (04h) but the SAME flag bit as
---               UART RX -- one RXIFG serving two vector rows, which is
---               assumption A23; the controller presents 08h.
+--               UART RX -- one RXIFG serving two vector rows. The controller
+--               presents 04h when this event set (or later upgraded) the
+--               pending RXIFG, and 08h for a clean character.
 --   tx_ev_o     the transmitter took the byte OUT of TXBUF, so TXBUF is free
 --               again. That is the MSP430 meaning of TXIFG and the only one
 --               consistent with "writing TXBUF clears TXIFG": the flag says

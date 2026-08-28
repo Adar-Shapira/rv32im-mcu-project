@@ -224,7 +224,7 @@ begin
     end process;
 
     -- NEXT STATE AND OUTPUTS LOGIC
-    process (tx_pstate, DIN_VLD, tx_clk_en, tx_bit_count)
+    process (tx_pstate, DIN_VLD, tx_clk_en, tx_bit_count, PARITY_EN)
     begin
 
         case tx_pstate is

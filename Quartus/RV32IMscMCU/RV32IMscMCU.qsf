@@ -39,7 +39,11 @@
 
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE115F29C7
-set_global_assignment -name TOP_LEVEL_ENTITY RV32IMscMCU
+# Board-only wrapper in RV32IMscMCU.vhd. RV32IMscMCU itself still has the
+# ModelSim observation ports; compiling THAT as top is what produced
+# "Total virtual pins = 274" (VIRTUAL_PIN ON on those ports + PWM/CAPIN
+# copies). This wrapper exposes only the 105 assigned MCU I/O balls.
+set_global_assignment -name TOP_LEVEL_ENTITY RV32IMscMCU_FPGA
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 21.1.0
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "23:52:42  JULY 14, 2026"
 set_global_assignment -name LAST_QUARTUS_VERSION "21.1.0 Lite Edition"
@@ -199,8 +203,9 @@ set_global_assignment -name AUTO_MERGE_PLLS OFF
 #           PWM / CAPIN (timer)          -> GPIO[9] / [8] / [10]  (F18: choose
 #                                           three header pins. GPIO[9] is the
 #                                           Figure 4b scope CH1 pin.)
-# Clause 7  only MCU I/O to Pin Planner  -> board ports have locations;
-#           observation ports VIRTUAL_PIN; PWM is tapped in SignalTap on
+# Clause 7  only MCU I/O to Pin Planner  -> board ports have locations on
+#           RV32IMscMCU_FPGA. Observation ports are not on that top (they
+#           stay on RV32IMscMCU for ModelSim). PWM is tapped in SignalTap on
 #           GPIO[9] (stp_pwm.stp), not as extra board pins.
 # USART (0x2018..) is bonus; no UART pins until that peripheral is wired.
 # ============================================================================
@@ -314,8 +319,7 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX5_o
 
 # --- Expansion header J15 / JP5: GPIO[35:0] (Terasic CSV). 40-pin header
 # includes VCC/GND which are not FPGA I/O. PWM = GPIO[9] (Figure 4b).
-# CAPIN1 = GPIO[8], CAPIN2 = GPIO[10]. PWM_o/CAPIN*_i are VIRTUAL_PIN copies
-# for ModelSim; the balls belong to GPIO[].
+# CAPIN1 = GPIO[8], CAPIN2 = GPIO[10].
 set_location_assignment PIN_AB22 -to GPIO[0]
 set_location_assignment PIN_AC15 -to GPIO[1]
 set_location_assignment PIN_AB21 -to GPIO[2]
@@ -353,9 +357,10 @@ set_location_assignment PIN_AH26 -to GPIO[33]
 set_location_assignment PIN_AH23 -to GPIO[34]
 set_location_assignment PIN_AG26 -to GPIO[35]
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO
-set_instance_assignment -name VIRTUAL_PIN ON -to PWM_o
-set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN1_i
-set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN2_i
+
+# PWM_o / CAPIN1_i / CAPIN2_i are NOT top-level ports of RV32IMscMCU_FPGA.
+# Capture/PWM use GPIO[8]/[9]/[10]. ModelSim still has the copy ports on
+# RV32IMscMCU.
 
 # --- Clause 9 / 6.iv: the USART's two RS-232 pins (Phase 12B) ---
 # Locations and I/O standard from the course's own Terasic table,
@@ -370,24 +375,8 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD_i
 set_location_assignment PIN_G9 -to UART_TXD_o
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD_o
 
-# --- Observation ports: entity stays, no FPGA balls (clause 7) ---
-set_instance_assignment -name VIRTUAL_PIN ON -to pc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to instruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to RegWrite_ctrl_o
-set_instance_assignment -name VIRTUAL_PIN ON -to MemWrite_ctrl_o
-set_instance_assignment -name VIRTUAL_PIN ON -to Branch_ctrl_o
-set_instance_assignment -name VIRTUAL_PIN ON -to read_data1_o
-set_instance_assignment -name VIRTUAL_PIN ON -to read_data2_o
-set_instance_assignment -name VIRTUAL_PIN ON -to write_data_o
-set_instance_assignment -name VIRTUAL_PIN ON -to alu_res_o
-set_instance_assignment -name VIRTUAL_PIN ON -to brTaken_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_addr_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_data_wr_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_data_rd_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_cs_o
-set_instance_assignment -name VIRTUAL_PIN ON -to unmapped_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_wren_o
-set_instance_assignment -name VIRTUAL_PIN ON -to mclk_cnt_o
+# Observation ports are not on RV32IMscMCU_FPGA. SignalTap taps GPIO[9] /
+# KEY_i at this top (stp_pwm.stp); core probes are hierarchical inside MCU.
 
 # SignalTap for test4 PWM (no scope). Same net Lab 4 tapped as GPIO[9]
 # (Auxiliary/Lab4/Quartus/stp1.stp + Lab4_HW.qsf ENABLE_SIGNALTAP).

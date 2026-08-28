@@ -138,6 +138,8 @@ ARCHITECTURE structure OF RV32IMpipelinedMCU IS
 	SIGNAL uart_tx_ev_w			: STD_LOGIC;
 	SIGNAL uart_rx_clr_w		: STD_LOGIC;
 	SIGNAL uart_tx_clr_w		: STD_LOGIC;
+	SIGNAL uart_txd_w			: STD_LOGIC := '1';	-- idle high
+	SIGNAL uart_rxd_w			: STD_LOGIC;
 
 	SIGNAL btctl1_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
 	SIGNAL btctl2_rd_w			: STD_LOGIC_VECTOR(7 DOWNTO 0);
@@ -561,17 +563,22 @@ BEGIN
 		btcnt_o		=> open
 	);
 
-	GPIO <= (9 => pwm_w, OTHERS => 'Z');
+	-- USB-TTL on JP5 (3.3 V): adapter TX -> GPIO[1] (FPGA RX), adapter RX <-
+	-- GPIO[3] (FPGA TX). Same mapping as the single-cycle top.
+	GPIO <= (9 => pwm_w, 3 => uart_txd_w, OTHERS => 'Z');
 	PWM_o <= pwm_w;
+	UART_TXD_o <= uart_txd_w;
 	FPGA_CAPIN:
 	if (MODELSIM = 0) generate
 		capin1_w <= GPIO(8);
 		capin2_w <= GPIO(10);
+		uart_rxd_w <= GPIO(1);
 	end generate FPGA_CAPIN;
 	SIM_CAPIN:
 	if (MODELSIM /= 0) generate
 		capin1_w <= CAPIN1_i;
 		capin2_w <= CAPIN2_i;
+		uart_rxd_w <= UART_RXD_i;
 	end generate SIM_CAPIN;
 
 	--=======================================
@@ -595,8 +602,8 @@ BEGIN
 		lane1_i		=> lane1_w,				-- 0x2019 RXBUF
 		lane2_i		=> lane2_w,				-- 0x201A TXBUF
 		data_i		=> data_bus_w,
-		rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
-		txd_o		=> UART_TXD_o,			-- PIN_G9
+		rxd_i		=> uart_rxd_w,			-- FPGA: GPIO[1]; sim: UART_RXD_i
+		txd_o		=> uart_txd_w,			-- FPGA: GPIO[3] (and PIN_G9 copy)
 		rx_ev_o		=> uart_rx_ev_w,
 		rxerr_ev_o	=> uart_rxerr_ev_w,
 		tx_ev_o		=> uart_tx_ev_w,
@@ -681,4 +688,87 @@ BEGIN
 		dtcm_wren_o			<= '0';
 	end generate DBGPORTS;
 
+END structure;
+
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE work.cond_compilation_package.all;
+
+--============================================================================
+-- RV32IMpipelinedMCU_FPGA — Quartus chip top. Board pins only.
+-- Same reason as RV32IMscMCU_FPGA: VIRTUAL_PIN ON on leftover ports is what
+-- produced the 353 virtual-pin row. This wrapper exposes only the 105 assigned
+-- MCU I/O balls. ModelSim still instantiates RV32IMpipelinedMCU (debug ports
+-- and BPADDR_i stay there). PWM/capture are GPIO[9]/[8]/[10], not extra ports.
+--============================================================================
+ENTITY RV32IMpipelinedMCU_FPGA IS
+	PORT(
+		clk_i				:IN		STD_LOGIC;
+		rst_i				:IN		STD_LOGIC;
+		SW_i				:IN		STD_LOGIC_VECTOR(9 DOWNTO 0);
+		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1);
+		GPIO				:INOUT	STD_LOGIC_VECTOR(35 DOWNTO 0);
+		LEDR_o				:OUT	STD_LOGIC_VECTOR(9 DOWNTO 0);
+		HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX3_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		UART_RXD_i			:IN		STD_LOGIC;
+		UART_TXD_o			:OUT	STD_LOGIC
+	);
+END RV32IMpipelinedMCU_FPGA;
+
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE work.cond_compilation_package.all;
+
+ARCHITECTURE structure OF RV32IMpipelinedMCU_FPGA IS
+BEGIN
+	MCU : ENTITY work.RV32IMpipelinedMCU
+		GENERIC MAP (
+			GEN_DEBUG_PORTS	=> FALSE,
+			MODELSIM		=> G_MODELSIM
+		)
+		PORT MAP (
+			clk_i			=> clk_i,
+			rst_i			=> rst_i,
+			BPADDR_i		=> (OTHERS => '0'),
+			SW_i			=> SW_i,
+			KEY_i			=> KEY_i,
+			GPIO			=> GPIO,
+			CAPIN1_i		=> '0',
+			CAPIN2_i		=> '0',
+			PWM_o			=> OPEN,
+			LEDR_o			=> LEDR_o,
+			HEX0_o			=> HEX0_o,
+			HEX1_o			=> HEX1_o,
+			HEX2_o			=> HEX2_o,
+			HEX3_o			=> HEX3_o,
+			HEX4_o			=> HEX4_o,
+			HEX5_o			=> HEX5_o,
+			UART_RXD_i		=> UART_RXD_i,
+			UART_TXD_o		=> UART_TXD_o,
+			IFpc_o			=> OPEN,
+			IFinstruction_o	=> OPEN,
+			IDpc_o			=> OPEN,
+			IDinstruction_o	=> OPEN,
+			EXpc_o			=> OPEN,
+			EXinstruction_o	=> OPEN,
+			MEMpc_o			=> OPEN,
+			MEMinstruction_o	=> OPEN,
+			WBpc_o			=> OPEN,
+			WBinstruction_o	=> OPEN,
+			STRIGGER_o		=> OPEN,
+			CLKCNT_o		=> OPEN,
+			STCNT_o			=> OPEN,
+			FHCNT_o			=> OPEN,
+			MemWrite_ctrl_o	=> OPEN,
+			alu_res_o		=> OPEN,
+			read_data2_o	=> OPEN,
+			dtcm_cs_o		=> OPEN,
+			unmapped_o		=> OPEN,
+			dtcm_wren_o		=> OPEN
+		);
 END structure;

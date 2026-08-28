@@ -79,14 +79,16 @@
 --   Still to attach here: the Basic Timer, the interrupt controller, the
 --   division accelerator (built as a leaf in 7A, wired in 7B) and the USART.
 --
--- SIGNAL-TAP PORTS
+-- SIGNAL-TAP / PPA PORTS
 --   §7: "Location pins used for the validation phase (Signal-Tap) need to be
 --   removed in the final step using a suitable parameter in the generate VHDL
---   statement." VHDL cannot conditionally declare a port, so the observation
---   ports always exist and the GEN_DEBUG_PORTS generate decides whether they
---   are driven from the core or tied off. Tied off, synthesis prunes the paths
---   and the .qsf carries no location assignment for them, which is what the
---   clause asks for.
+--   statement." VHDL cannot conditionally declare a port, so this entity still
+--   has the observation ports (ModelSim and SignalTap hierarchy). Quartus does
+--   not compile this entity as the chip top: RV32IMscMCU_FPGA below is the
+--   board-only wrapper (clause 5/6 I/O only). That is what makes Flow Summary
+--   "Total virtual pins" = 0 — VIRTUAL_PIN ON on leftover ports is what was
+--   producing the 274 virtual-pin row, and deleting those assignments without
+--   removing the ports would just dump them onto unused FPGA balls.
 --============================================================================
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
@@ -414,6 +416,8 @@ ARCHITECTURE structure OF RV32IMscMCU IS
 	SIGNAL uart_tx_ev_w			: STD_LOGIC;
 	SIGNAL uart_rx_clr_w		: STD_LOGIC;
 	SIGNAL uart_tx_clr_w		: STD_LOGIC;
+	SIGNAL uart_txd_w			: STD_LOGIC := '1';	-- idle high
+	SIGNAL uart_rxd_w			: STD_LOGIC;
 	SIGNAL uart_cs_w			: STD_LOGIC;	-- for the stub notices below
 
 	-- Phase 14: GEN_INTERRUPT as a signal, so the reader enables can be ANDed
@@ -977,17 +981,25 @@ BEGIN
 	-- J15 expansion header (clause 4). PWM on GPIO[9] (Lab 4 / Figure 4b);
 	-- CAPIN1/2 on GPIO[8]/[10]. Remaining bits high-Z so they are inputs.
 	-- ModelSim still uses CAPIN1_i / CAPIN2_i / PWM_o (TBs already drive those).
-	GPIO <= (9 => pwm_w, OTHERS => 'Z');
+	--
+	-- USB-TTL on JP5 (3.3 V), not the DE2-115 RS-232 DB9: a TTL adapter must
+	-- not sit on MAX232 levels. Adapter TX -> FPGA RX = GPIO[1]; adapter RX <-
+	-- FPGA TX = GPIO[3]. UART_TXD_o still copies TX onto PIN_G9; PIN_G12 is
+	-- unused on the FPGA build because RX is taken from GPIO[1].
+	GPIO <= (9 => pwm_w, 3 => uart_txd_w, OTHERS => 'Z');
 	PWM_o <= pwm_w;
+	UART_TXD_o <= uart_txd_w;
 	FPGA_CAPIN:
 	if (MODELSIM = 0) generate
 		capin1_w <= GPIO(8);
 		capin2_w <= GPIO(10);
+		uart_rxd_w <= GPIO(1);
 	end generate FPGA_CAPIN;
 	SIM_CAPIN:
 	if (MODELSIM /= 0) generate
 		capin1_w <= CAPIN1_i;
 		capin2_w <= CAPIN2_i;
+		uart_rxd_w <= UART_RXD_i;
 	end generate SIM_CAPIN;
 
 	--=======================================
@@ -1081,8 +1093,8 @@ BEGIN
 			lane1_i		=> lane1_w,				-- 0x2019 RXBUF
 			lane2_i		=> lane2_w,				-- 0x201A TXBUF
 			data_i		=> data_bus_w,
-			rxd_i		=> UART_RXD_i,			-- PIN_G12 (Terasic CSV)
-			txd_o		=> UART_TXD_o,			-- PIN_G9
+			rxd_i		=> uart_rxd_w,			-- FPGA: GPIO[1]; sim: UART_RXD_i
+			txd_o		=> uart_txd_w,			-- FPGA: GPIO[3] (and PIN_G9 copy)
 			rx_ev_o		=> uart_rx_ev_w,
 			rxerr_ev_o	=> uart_rxerr_ev_w,
 			tx_ev_o		=> uart_tx_ev_w,
@@ -1097,7 +1109,7 @@ BEGIN
 		-- resting level and not merely a convenient constant: a board built
 		-- this way must not look to a connected terminal like a permanent
 		-- start bit.
-		UART_TXD_o        <= '1';
+		uart_txd_w        <= '1';
 		uart_rx_ev_w      <= '0';
 		uart_rxerr_ev_w   <= '0';
 		uart_tx_ev_w      <= '0';
@@ -1335,4 +1347,92 @@ BEGIN
 		mclk_cnt_o			<= (others => '0');
 	end generate;
 
+END structure;
+
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE work.cond_compilation_package.all;
+
+--============================================================================
+-- RV32IMscMCU_FPGA — Quartus chip top. Board pins only.
+--
+-- Why a second entity in this file (not a new DUT file): clause 7 and the
+-- Area table's I/O column want the fitted top to be MCU I/O and nothing else.
+-- This entity is that top. RV32IMscMCU above stays the ModelSim / SignalTap
+-- entity (testbenches map pc_o, PWM_o, …). Quartus/RV32IMscMCU.qsf sets
+-- TOP_LEVEL_ENTITY to this name.
+--
+-- Ports here are exactly the 105 assigned balls: clk, KEY0, SW9-0, KEY3-1,
+-- LEDR9-0, HEX5-0, GPIO[35:0], UART_RXD, UART_TXD. PWM and capture live on
+-- GPIO[9]/[8]/[10] (F18); the PWM_o / CAPIN*_i ports are ModelSim copies
+-- and are left open. Observation ports are open with GEN_DEBUG_PORTS FALSE
+-- so they prune.
+--============================================================================
+ENTITY RV32IMscMCU_FPGA IS
+	PORT(
+		clk_i				:IN		STD_LOGIC;
+		rst_i				:IN		STD_LOGIC;
+		SW_i				:IN		STD_LOGIC_VECTOR(9 DOWNTO 0);
+		KEY_i				:IN		STD_LOGIC_VECTOR(3 DOWNTO 1);
+		GPIO				:INOUT	STD_LOGIC_VECTOR(35 DOWNTO 0);
+		LEDR_o				:OUT	STD_LOGIC_VECTOR(9 DOWNTO 0);
+		HEX0_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX1_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX2_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX3_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX4_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		HEX5_o				:OUT	STD_LOGIC_VECTOR(6 DOWNTO 0);
+		UART_RXD_i			:IN		STD_LOGIC;
+		UART_TXD_o			:OUT	STD_LOGIC
+	);
+END RV32IMscMCU_FPGA;
+
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE work.cond_compilation_package.all;
+
+ARCHITECTURE structure OF RV32IMscMCU_FPGA IS
+BEGIN
+	MCU : ENTITY work.RV32IMscMCU
+		GENERIC MAP (
+			GEN_DEBUG_PORTS	=> FALSE,
+			GEN_INTERRUPT	=> G_GEN_INTERRUPT,
+			MODELSIM		=> G_MODELSIM
+		)
+		PORT MAP (
+			clk_i			=> clk_i,
+			rst_i			=> rst_i,
+			SW_i			=> SW_i,
+			KEY_i			=> KEY_i,
+			GPIO			=> GPIO,
+			CAPIN1_i		=> '0',
+			CAPIN2_i		=> '0',
+			PWM_o			=> OPEN,
+			LEDR_o			=> LEDR_o,
+			HEX0_o			=> HEX0_o,
+			HEX1_o			=> HEX1_o,
+			HEX2_o			=> HEX2_o,
+			HEX3_o			=> HEX3_o,
+			HEX4_o			=> HEX4_o,
+			HEX5_o			=> HEX5_o,
+			UART_RXD_i		=> UART_RXD_i,
+			UART_TXD_o		=> UART_TXD_o,
+			pc_o			=> OPEN,
+			instruction_o	=> OPEN,
+			RegWrite_ctrl_o	=> OPEN,
+			MemWrite_ctrl_o	=> OPEN,
+			Branch_ctrl_o	=> OPEN,
+			read_data1_o	=> OPEN,
+			read_data2_o	=> OPEN,
+			write_data_o	=> OPEN,
+			alu_res_o		=> OPEN,
+			brTaken_o		=> OPEN,
+			dtcm_addr_o		=> OPEN,
+			dtcm_data_wr_o	=> OPEN,
+			dtcm_data_rd_o	=> OPEN,
+			dtcm_cs_o		=> OPEN,
+			unmapped_o		=> OPEN,
+			dtcm_wren_o		=> OPEN,
+			mclk_cnt_o		=> OPEN
+		);
 END structure;

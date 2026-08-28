@@ -61,6 +61,11 @@ ARCHITECTURE test OF tb_interrupt_ctrl IS
 	-- sources
 	SIGNAL bt_set	: STD_LOGIC := '0';
 	SIGNAL keys	 	: STD_LOGIC_VECTOR(3 DOWNTO 1) := "000";	-- pressed levels
+	SIGNAL rx_ev	: STD_LOGIC := '0';
+	SIGNAL rxerr_ev	: STD_LOGIC := '0';
+	SIGNAL tx_ev	: STD_LOGIC := '0';
+	SIGNAL rx_clr	: STD_LOGIC := '0';
+	SIGNAL tx_clr	: STD_LOGIC := '0';
 
 	-- handshake
 	SIGNAL gie		: STD_LOGIC := '0';
@@ -87,8 +92,11 @@ BEGIN
 		data_i			=> wdata,
 		bt_ifg_set_i	=> bt_set,
 		key_pressed_i	=> keys,
-		-- rxerr_ev_i / rx_ev_i / tx_ev_i left at their '0' defaults: UART
-		-- sources arrive in Phase 12
+		rxerr_ev_i		=> rxerr_ev,
+		rx_ev_i			=> rx_ev,
+		tx_ev_i			=> tx_ev,
+		rx_clr_i		=> rx_clr,
+		tx_clr_i		=> tx_clr,
 		gie_i			=> gie,
 		inta_i			=> inta,
 		intr_o			=> intr,
@@ -164,6 +172,15 @@ BEGIN
 			wait until falling_edge(clk);
 			bt_set <= '0';
 		end procedure bt_pulse;
+
+		-- one-cycle pulse on a UART event / clear, same alignment as bt_pulse
+		procedure uart_pulse(signal s : out STD_LOGIC) is
+		begin
+			wait until falling_edge(clk);
+			s <= '1';
+			wait until falling_edge(clk);
+			s <= '0';
+		end procedure uart_pulse;
 
 		-- the accept cycle: INTA low across exactly one rising edge (REQ p15).
 		-- with_bt fires the BT event in the SAME cycle -- the P7h freeze case.
@@ -331,6 +348,88 @@ BEGIN
 		wr_ie(x"04"); settle(1);
 		chk(ifg_rd = x"04", "P9b the masked BT request was not remembered (A22)");
 
+		-- ---- P10 rules b and c, the SOFTWARE halves (REQ p12) ------------------
+		-- Reading RXBUF clears RXIFG; writing TXBUF clears TXIFG. These clear
+		-- the RAW latch, which is what makes polled UART possible.
+		wr_ie(x"00");
+		wr_ifg(x"00");
+		wr_ie(x"03"); settle(1);				-- RXIE | TXIE
+		uart_pulse(rx_ev); settle(1);
+		chk(ifg_rd = x"01", "P10a IFG=0x" & to_hstring(ifg_rd) &
+			" != 0x01 after a clean RX event");
+		uart_pulse(rx_clr); settle(1);
+		chk(ifg_rd = x"00", "P10b reading RXBUF must clear RXIFG (rule b)");
+
+		uart_pulse(tx_ev); settle(1);
+		chk(ifg_rd = x"02", "P10c IFG=0x" & to_hstring(ifg_rd) &
+			" != 0x02 after a TX-accept event");
+		uart_pulse(tx_clr); settle(1);
+		chk(ifg_rd = x"00", "P10d writing TXBUF must clear TXIFG (rule c)");
+
+		uart_pulse(rx_ev); settle(1);
+		-- a character arriving in the SAME cycle as the read must survive
+		wait until falling_edge(clk);
+		rx_ev <= '1'; rx_clr <= '1';
+		wait until falling_edge(clk);
+		rx_ev <= '0'; rx_clr <= '0';
+		settle(2);
+		chk(ifg_rd = x"01", "P10e a character arriving in the same edge as "
+			& "the RXBUF read must leave RXIFG SET");
+		wr_ifg(x"00"); settle(1);
+		uart_pulse(rx_clr); settle(1);
+
+		wr_ie(x"00");
+		uart_pulse(rx_ev); settle(1);			-- latches invisibly
+		uart_pulse(rx_clr); settle(1);			-- consumed while masked
+		wr_ie(x"01"); settle(1);
+		chk(ifg_rd = x"00", "P10f a request already consumed through RXBUF "
+			& "must NOT come back when RXIE is enabled");
+
+		-- ---- P11 UART TYPE 04h / 08h / 0Ch -- REQ p14 vector table ------------
+		wr_ie(x"00");
+		wr_ifg(x"00");
+		wr_ie(x"03"); settle(1);				-- RXIE | TXIE
+		uart_pulse(rx_ev); settle(1);
+		chk(ifg_rd = x"01" and type_rd = x"08",
+			"P11a clean RX: IFG=0x" & to_hstring(ifg_rd) & " TYPE=0x" &
+			to_hstring(type_rd) & " (expected IFG=0x01 TYPE=0x08)");
+		wr_ifg(x"00"); settle(1);
+
+		uart_pulse(rxerr_ev); settle(1);
+		chk(ifg_rd = x"01" and type_rd = x"04",
+			"P11b status error: IFG=0x" & to_hstring(ifg_rd) & " TYPE=0x" &
+			to_hstring(type_rd) & " (expected IFG=0x01 TYPE=0x04)");
+		wr_ifg(x"00"); settle(1);
+
+		wait until falling_edge(clk);
+		rx_ev <= '1'; rxerr_ev <= '1';			-- overrun: both, same edge
+		wait until falling_edge(clk);
+		rx_ev <= '0'; rxerr_ev <= '0';
+		settle(1);
+		chk(type_rd = x"04", "P11c overrun must present TYPE 04h, got 0x" &
+			to_hstring(type_rd));
+		uart_pulse(rx_ev); settle(1);
+		chk(type_rd = x"04", "P11d a clean RX onto a pending error must "
+			& "leave TYPE at 04h, got 0x" & to_hstring(type_rd));
+
+		gie <= '1';
+		inta_pulse;								-- service the error
+		chk(capt = x"04", "P11e pushed TYPE=0x" & to_hstring(capt) &
+			" != 0x04");
+		chk(ifg_rd = x"00", "P11e servicing TYPE 04h must auto-clear RXIFG");
+		gie <= '0';
+
+		uart_pulse(tx_ev); settle(1);
+		chk(ifg_rd = x"02" and type_rd = x"0C",
+			"P11f TX: IFG=0x" & to_hstring(ifg_rd) & " TYPE=0x" &
+			to_hstring(type_rd) & " (expected IFG=0x02 TYPE=0x0C)");
+		gie <= '1';
+		inta_pulse;
+		chk(capt = x"0C", "P11g pushed TYPE=0x" & to_hstring(capt) &
+			" != 0x0C");
+		chk(ifg_rd = x"00", "P11g TXIFG must auto-clear at service (rule c)");
+		gie <= '0';
+
 		-- ---- verdict -------------------------------------------------------------
 		report "" severity note;
 		report "========= INTERRUPT CTRL (Phase 9A) SUMMARY =========" severity note;
@@ -340,7 +439,8 @@ BEGIN
 			report "  VERDICT: PASS - raw latches behind the masked view, A22 " &
 				"comeback, the test1 init pattern, W0C, view-based priority " &
 				"and INTR, the frozen TYPE capture, the a-vs-d clearing " &
-				"split, and KEY events on the RELEASE only." severity note;
+				"split, KEY events on the RELEASE only, UART RXBUF/TXBUF " &
+				"clears (rules b/c), and UART TYPE 04h/08h/0Ch." severity note;
 		else
 			report "  VERDICT: FAIL - " & integer'image(f) &
 				" failure(s). Read the FAIL lines above." severity error;

@@ -269,7 +269,7 @@ begin
     end process;
 
     -- NEXT STATE AND OUTPUTS LOGIC
-    process (rx_pstate, UART_RXD, rx_clk_en, rx_bit_count)
+    process (rx_pstate, UART_RXD, rx_clk_en, rx_bit_count, PARITY_EN)
     begin
         case rx_pstate is
 

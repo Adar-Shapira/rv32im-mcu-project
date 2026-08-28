@@ -39,7 +39,9 @@
 
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE115F29C7
-set_global_assignment -name TOP_LEVEL_ENTITY RV32IMpipelinedMCU
+# Board-only wrapper in RV32IMpipelinedMCU.vhd. Same reason as the SC
+# project: compiling RV32IMpipelinedMCU as top produced 353 virtual pins.
+set_global_assignment -name TOP_LEVEL_ENTITY RV32IMpipelinedMCU_FPGA
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 21.1.0
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "00:22:21  JULY 15, 2026"
 set_global_assignment -name LAST_QUARTUS_VERSION "21.1.0 Lite Edition"
@@ -109,10 +111,9 @@ set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 # ============================================================================
 # The PDF does not list FPGA ball numbers. Balls / I/O standards are Lab 5
 # (clk, KEY0) + Lab4_HW.qsf / Terasic CSV (SW, KEY, LEDR, HEX, GPIO).
-# Board ports are identical on RV32IMpipelinedMCU. Observation ports differ
-# (Figure 8 five-stage set instead of the SC core probes) and are VIRTUAL_PIN
-# per clause 7. BPADDR_i is a debug input, not an MCU I/O -- VIRTUAL_PIN so
-# it does not steal SW pins (PORT_SW is SW7-0, clause 5).
+# Board ports are identical on RV32IMpipelinedMCU_FPGA. Observation ports
+# (Figure 8 five-stage set, BPADDR_i) stay on RV32IMpipelinedMCU for ModelSim
+# and are not part of this chip top — that is what makes virtual pins = 0.
 # ============================================================================
 
 # Unused FPGA balls must not drive populated DE2-115 nets.
@@ -224,7 +225,6 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX5_o
 
 # --- Expansion header J15 / JP5: GPIO[35:0] (Terasic CSV).
 # PWM = GPIO[9] (Figure 4b). CAPIN1 = GPIO[8], CAPIN2 = GPIO[10].
-# PWM_o/CAPIN*_i are VIRTUAL_PIN copies for ModelSim; the balls belong to GPIO[].
 set_location_assignment PIN_AB22 -to GPIO[0]
 set_location_assignment PIN_AC15 -to GPIO[1]
 set_location_assignment PIN_AB21 -to GPIO[2]
@@ -262,9 +262,9 @@ set_location_assignment PIN_AH26 -to GPIO[33]
 set_location_assignment PIN_AH23 -to GPIO[34]
 set_location_assignment PIN_AG26 -to GPIO[35]
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO
-set_instance_assignment -name VIRTUAL_PIN ON -to PWM_o
-set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN1_i
-set_instance_assignment -name VIRTUAL_PIN ON -to CAPIN2_i
+
+# PWM_o / CAPIN*_i are ModelSim copies on RV32IMpipelinedMCU, not ports of
+# RV32IMpipelinedMCU_FPGA. Balls are GPIO[8]/[9]/[10].
 
 # --- Clause 9 / 6.iv: the USART's two RS-232 pins (Phase 12B) ---
 # Locations and I/O standard from the course's own Terasic table,
@@ -279,28 +279,8 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD_i
 set_location_assignment PIN_G9 -to UART_TXD_o
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD_o
 
-# --- Observation / debug ports: entity stays, no FPGA balls (clause 7) ---
-set_instance_assignment -name VIRTUAL_PIN ON -to BPADDR_i
-set_instance_assignment -name VIRTUAL_PIN ON -to IFpc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to IFinstruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to IDpc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to IDinstruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to EXpc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to EXinstruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to MEMpc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to MEMinstruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to WBpc_o
-set_instance_assignment -name VIRTUAL_PIN ON -to WBinstruction_o
-set_instance_assignment -name VIRTUAL_PIN ON -to STRIGGER_o
-set_instance_assignment -name VIRTUAL_PIN ON -to CLKCNT_o
-set_instance_assignment -name VIRTUAL_PIN ON -to STCNT_o
-set_instance_assignment -name VIRTUAL_PIN ON -to FHCNT_o
-set_instance_assignment -name VIRTUAL_PIN ON -to MemWrite_ctrl_o
-set_instance_assignment -name VIRTUAL_PIN ON -to alu_res_o
-set_instance_assignment -name VIRTUAL_PIN ON -to read_data2_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_cs_o
-set_instance_assignment -name VIRTUAL_PIN ON -to unmapped_o
-set_instance_assignment -name VIRTUAL_PIN ON -to dtcm_wren_o
+# Observation / BPADDR / PWM_o are not ports of RV32IMpipelinedMCU_FPGA.
+# SignalTap taps GPIO[9] / KEY_i at this top (stp_pwm.stp).
 
 # SignalTap for interrupt test4 PWM (no scope). Transcribed from
 # Quartus/RV32IMscMCU/RV32IMscMCU.qsf + stp_pwm.stp. Same net Lab 4

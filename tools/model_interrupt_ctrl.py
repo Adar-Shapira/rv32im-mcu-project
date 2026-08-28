@@ -30,13 +30,15 @@ mid-cycle would see.
 
 Sources -> bits (REQ p14, benchmark-cross-checked in DOC/02 section 3.1):
   [0] RX  [1] TX  [2] BT  [3] KEY1  [4] KEY2  [5] KEY3
-TYPE codes by priority: 08 (A23), 0C, 10, 14, 18, 1C; 00 when idle.
+TYPE codes by priority: 04 (UART status error) / 08 (UART RX) share RXIFG,
+then 0C, 10, 14, 18, 1C; 00 when idle. The error/data split is a side latch
+(rxerr_q), not a second IFG bit -- REQ p14's own vector table.
 """
 
 import sys
 
-TYPES = [0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C]     # per bit 0..5
-AUTOCLR = {0x08: 0, 0x0C: 1, 0x10: 2}            # rules b / c / a; KEYs excluded (rule d)
+TYPES = [0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C]     # bits 1..5; bit 0 is 04h or 08h
+AUTOCLR = {0x04: 0, 0x08: 0, 0x0C: 1, 0x10: 2}   # rules b / c / a; KEYs excluded (rule d)
 
 
 class Intc:
@@ -50,13 +52,16 @@ class Intc:
         self.key_h = [0, 0, 0]       # history flop
         self.type_capt = 0
         self.push = 0
+        self.rxerr = 0               # cause of pending RXIFG: 1 => TYPE 04h
 
     def view(self):
         return self.irq & self.ie    # the p13 AND gates: IFGx = irq AND eint
 
     def type_now(self):
         v = self.view()
-        for i in range(6):
+        if v & 1:
+            return 0x04 if self.rxerr else 0x08
+        for i in range(1, 6):
             if (v >> i) & 1:
                 return TYPES[i]
         return 0
@@ -101,6 +106,7 @@ class Intc:
         if rst:
             self.ie = 0
             self.irq = 0
+            self.rxerr = 0
             self.key_s1 = [0, 0, 0]
             self.key_s2 = [0, 0, 0]
             self.key_h = [0, 0, 0]
@@ -116,6 +122,14 @@ class Intc:
             b = set_w[i] or (((self.irq >> i) & 1) and not clr_w[i])
             nxt |= (1 if b else 0) << i
         self.irq = nxt
+
+        if set_w[0]:
+            if clr_w[0]:
+                self.rxerr = 1 if rxerr else 0
+            else:
+                self.rxerr = 1 if (self.rxerr or rxerr) else 0
+        elif clr_w[0]:
+            self.rxerr = 0
 
         for k in range(3):
             self.key_h[k] = pre_s2[k]
@@ -348,6 +362,52 @@ def main():
     chk(v["ifg"] == 0x00, f"P10f IFG={v['ifg']:#04x}: a request already "
         "consumed through RXBUF must NOT come back when RXIE is enabled")
 
+    # ---- P11 UART TYPE 04h vs 08h vs 0Ch -- REQ p14 vector table -------------
+    # One RXIFG bit, two TYPE codes. The cause latch is what the encoder
+    # needs; error (status) outranks a clean RX when both are true (P2).
+    step(wr=("ie", 0x00))
+    step(wr=("ifg", 0x00))
+    step(wr=("ie", 0x03))                # RXIE | TXIE
+    step(rx=1)
+    v = step()
+    chk(v["ifg"] == 0x01 and v["type"] == 0x08,
+        f"P11a TYPE={v['type']:#04x} IFG={v['ifg']:#04x}: a clean RX must "
+        "present 08h, not 04h")
+    step(wr=("ifg", 0x00))
+
+    step(rxerr=1)
+    v = step()
+    chk(v["ifg"] == 0x01 and v["type"] == 0x04,
+        f"P11b TYPE={v['type']:#04x} IFG={v['ifg']:#04x}: a status error must "
+        "present 04h on the SAME RXIFG bit")
+    step(wr=("ifg", 0x00))
+
+    step(rx=1, rxerr=1)                  # overrun: both pulses, same edge
+    v = step()
+    chk(v["type"] == 0x04,
+        f"P11c TYPE={v['type']:#04x}: overrun (data+error together) must "
+        "present 04h -- p14 priority 1 outranks priority 2")
+    step(rx=1)                           # a later clean character must not demote it
+    v = step()
+    chk(v["type"] == 0x04,
+        f"P11d TYPE={v['type']:#04x}: a clean RX onto a pending error must "
+        "leave TYPE at 04h until RXIFG is cleared")
+
+    v = step(gie=1, inta=0)              # accept: freeze 04h, auto-clear RXIFG
+    v = step()
+    chk(v["type_capt"] == 0x04, f"P11e pushed {v['type_capt']:#04x} != 0x04")
+    chk(v["ifg"] == 0x00, f"P11e IFG={v['ifg']:#04x}: servicing TYPE 04h must "
+        "auto-clear RXIFG (rule b applies to both UART TYPE codes)")
+
+    step(tx=1)
+    v = step()
+    chk(v["ifg"] == 0x02 and v["type"] == 0x0C,
+        f"P11f TYPE={v['type']:#04x} IFG={v['ifg']:#04x}: TX must present 0Ch")
+    step(gie=1, inta=0)
+    v = step()
+    chk(v["type_capt"] == 0x0C, f"P11g pushed {v['type_capt']:#04x} != 0x0C")
+    chk(v["ifg"] == 0x00, "P11g TXIFG must auto-clear at service (rule c)")
+
     print(f"checks failed: {len(fails)}")
     for m in fails:
         print("  FAIL", m)
@@ -356,8 +416,9 @@ def main():
     print("PASS -- every expected value in tb_interrupt_ctrl.vhd reproduces from")
     print("the RTL semantics: raw latches with the masked view (falsified-A6),")
     print("A22 comeback, the test1 init pattern, W0C, view-based priority and")
-    print("INTR, BT auto-clear vs KEY manual clear, frozen TYPE capture, and")
-    print("KEY events on the RELEASE edge only.")
+    print("INTR, BT auto-clear vs KEY manual clear, frozen TYPE capture,")
+    print("KEY events on the RELEASE edge only, UART RXBUF/TXBUF clears,")
+    print("and UART TYPE 04h/08h/0Ch per the p14 vector table.")
     return 0
 
 
