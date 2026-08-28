@@ -27,6 +27,45 @@ add wave -noupdate -color Yellow -itemcolor Yellow -radix unsigned ${TB}/STCNT_o
 
 TreeUpdate [SetDefaultTree]
 quietly WaveActivateNextPane
+add wave -noupdate -divider {GPIO + INTERRUPT + TIMER}
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/KEY_i
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/SW_i
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/ledr_q
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/hex_q
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX0_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX1_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX2_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX3_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX4_o
+add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/HEX5_o
+add wave -noupdate -expand -group GPIO /tb_rv32impipelinedmcu/MCU/PWM_o
+add wave -noupdate -expand -group INTR /tb_rv32impipelinedmcu/MCU/intr_w
+add wave -noupdate -expand -group INTR /tb_rv32impipelinedmcu/MCU/inta_w
+add wave -noupdate -expand -group INTR /tb_rv32impipelinedmcu/MCU/gie_w
+add wave -noupdate -expand -group INTR -radix hexadecimal /tb_rv32impipelinedmcu/MCU/INTC/ie_o
+add wave -noupdate -expand -group INTR -radix hexadecimal /tb_rv32impipelinedmcu/MCU/INTC/ifg_o
+add wave -noupdate -expand -group INTR -radix hexadecimal /tb_rv32impipelinedmcu/MCU/INTC/type_o
+add wave -noupdate -expand -group INTR /tb_rv32impipelinedmcu/MCU/CORE/accept_w
+add wave -noupdate -expand -group INTR /tb_rv32impipelinedmcu/MCU/CORE/CTL/Reti_ctrl_o
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btctl1_q
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btctl2_q
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/capmd_w
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/capisel_w
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btcnt_q
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btcl0_q
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btcl1_q
+add wave -noupdate -expand -group TIMER /tb_rv32impipelinedmcu/MCU/TIMER/cap_ev_w
+add wave -noupdate -expand -group TIMER -radix hexadecimal /tb_rv32impipelinedmcu/MCU/TIMER/btcapr_q
+add wave -noupdate -expand -group DIV ${CORE}/CTL/DivStart_ctrl_o
+add wave -noupdate -expand -group DIV ${CORE}/CTL/DivRem_ctrl_o
+add wave -noupdate -expand -group DIV ${CORE}/CTL/div_w
+add wave -noupdate -expand -group DIV ${CORE}/CTL/rem_w
+add wave -noupdate -expand -group DIV ${CORE}/DIVU/start_i
+add wave -noupdate -expand -group DIV -radix hexadecimal ${CORE}/DIVU/dividend_i
+add wave -noupdate -expand -group DIV -radix hexadecimal ${CORE}/DIVU/divisor_i
+
+TreeUpdate [SetDefaultTree]
+quietly WaveActivateNextPane
 add wave -noupdate -divider {GPIO}
 add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/SW_i
 add wave -noupdate -expand -group GPIO -radix hexadecimal /tb_rv32impipelinedmcu/MCU/LEDR_o
