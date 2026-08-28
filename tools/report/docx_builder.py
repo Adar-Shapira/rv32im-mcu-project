@@ -77,47 +77,196 @@ FONT = ('<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" '
         'w:cstheme="majorBidi"/>')
 MONO = '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>'
 
-HEB = re.compile(r'[֐-׿]')
-
-
 def esc(s):
     return (s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
 
 
+# ===========================================================================
+# BIDI
+# ===========================================================================
+# Word lays text out with the Unicode Bidi Algorithm.  What <w:rtl/> on a run
+# actually controls is the direction of that run's NEUTRAL characters -- the
+# spaces, punctuation, parentheses and dashes.  Strong characters (Hebrew
+# letters, Latin letters) resolve from their own Unicode class no matter what
+# the flag says.  So getting mixed Hebrew/English right is entirely a question
+# of putting each neutral in the run with the correct flag, and that is what
+# this section computes.
+#
+# The rule this replaces -- "a neutral joins whatever segment came before it"
+# -- is wrong in three ways that all showed up in the first draft:
+#
+#   "מרבבי (multiplexers)"        the '(' landed in the Hebrew run, and a
+#                                 parenthesis at RTL level is MIRRORED, so it
+#                                 rendered as ')' on the wrong side
+#   "20.732 ns"                   the number was swallowed by the Hebrew run
+#                                 and detached from its unit
+#   "ב-EX, ולכן"                  the comma stayed in the Latin run and came
+#                                 out on the wrong side of the Hebrew
+#
+# What is implemented here is the Unicode algorithm's W4, W7 and N1/N2 rules,
+# with one deliberate departure documented at PHRASE below.
 # ---------------------------------------------------------------------------
-# run splitting -- the bidi core
-# ---------------------------------------------------------------------------
-def _classify(ch):
-    if '֐' <= ch <= '׿':
-        return 'H'
-    if ch.isalpha():
-        return 'L'
-    return 'N'                                  # digits, punctuation, space
+
+HEB = re.compile(r'[֐-׿יִ-ﭏ]')
+
+# Characters that UBA W4 folds into a number when they sit between two digits,
+# so "3.768", "02:51" and "8-16" survive as single left-to-right tokens.
+_NUM_JOIN = set('.,:/- –−')
+
+# European terminators (UBA W5): they join an adjacent number, which is what
+# keeps "12.7%" from rendering as "%12.7".
+_NUM_TERM = set('%‰°$€£#')
+
+# A sign written directly against a digit belongs to the number.  Strict UBA
+# leaves a LEADING sign neutral, which inside a Hebrew paragraph puts it on
+# the wrong side -- "+503" comes out as "503+".  Same class of deliberate
+# departure as PHRASE below, and for the same reason.
+_NUM_SIGN = set('+-−±')
+
+# Bidi controls a caller may have typed by hand.  They are stripped: this
+# module decides direction, and a stray RLM would inject a strong R character
+# into the middle of an identifier.
+_CONTROLS = dict.fromkeys(map(ord, '‎‏‪‫‬'
+                                   '⁦⁧⁨⁩'), None)
 
 
-def _segments(text):
-    """Split into (is_hebrew, chunk).  Neutrals stick to what came before."""
-    out = []
-    cur, kind = '', None
-    for ch in text:
-        c = _classify(ch)
-        if c == 'N':
-            cur += ch
-            continue
-        if kind is None:
-            kind = c
-            cur += ch
-        elif c == kind:
-            cur += ch
+def _resolve(text, force_ltr=None, base='R'):
+    """Per-character render direction ('R'/'L') for a paragraph whose base
+    direction is `base`.
+
+    `force_ltr[i]` marks characters inside a `code` span, whose non-Hebrew
+    characters are treated as strong LTR so an identifier can never be pulled
+    into the Hebrew direction.
+    """
+    n = len(text)
+    cls = []
+    for i, ch in enumerate(text):
+        heb = bool(HEB.match(ch))
+        if force_ltr and force_ltr[i] and not heb:
+            cls.append('L')
+        elif heb:
+            cls.append('R')
+        elif ch.isdigit():
+            cls.append('EN')
+        elif ch.isalpha():
+            cls.append('L')
         else:
-            out.append((kind, cur))
-            kind, cur = c, ch
-    if cur:
-        out.append((kind if kind else 'L', cur))
-    # leading neutrals with no letters at all
-    if not out and text:
-        out = [('L', text)]
-    return [(k == 'H', v) for k, v in out]
+            cls.append('N')
+
+    # W4 -- a single separator between two digits is part of the number.
+    for i in range(1, n - 1):
+        if (cls[i] == 'N' and text[i] in _NUM_JOIN
+                and cls[i - 1] == 'EN' and cls[i + 1] == 'EN'):
+            cls[i] = 'EN'
+
+    # W5 -- a terminator touching a number joins it:  12.7%, 85C, 20°.
+    i = 0
+    while i < n:
+        if cls[i] == 'N' and text[i] in _NUM_TERM:
+            j = i
+            while j < n and cls[j] == 'N' and text[j] in _NUM_TERM:
+                j += 1
+            if (i > 0 and cls[i - 1] == 'EN') or (j < n and cls[j] == 'EN'):
+                for k in range(i, j):
+                    cls[k] = 'EN'
+            i = j
+        else:
+            i += 1
+
+    # A sign written against a digit is part of that number (see _NUM_SIGN) --
+    # but ONLY when nothing strong precedes it.  In "ו-0x2004" and "ל-115200"
+    # the hyphen is a Hebrew prefix connector, not a minus, and it has to stay
+    # neutral so it renders on the Hebrew side.
+    for i in range(n):
+        if (cls[i] == 'N' and text[i] in _NUM_SIGN
+                and i + 1 < n and cls[i + 1] == 'EN'
+                and (i == 0 or cls[i - 1] == 'N')):
+            cls[i] = 'EN'
+
+    # W7 -- a number whose nearest preceding strong character is Latin is part
+    # of that Latin word:  0x2000, v1.1, Cyclone IV.
+    last = None
+    for i in range(n):
+        if cls[i] in ('L', 'R'):
+            last = cls[i]
+        elif cls[i] == 'EN' and last == 'L':
+            cls[i] = 'L'
+
+    def side(c):
+        return 'R' if c == 'R' else 'L'      # a number sides with Latin
+
+    # N0 -- a matching bracket PAIR resolves as a unit, taking the direction
+    # of the strong text it encloses.  Without this each bracket resolves on
+    # its own from its own neighbours, and the one that lands at RTL level is
+    # mirrored while its partner is not:  "KEY[3-1]" came out "[KEY[3-1", and
+    # "(10%)" came out "(10%(".
+    close = {'(': ')', '[': ']', '{': '}'}
+    stack, pairs = [], []
+    for i, ch in enumerate(text):
+        if cls[i] != 'N':
+            continue
+        if ch in close:
+            stack.append((i, close[ch]))
+        elif stack and ch == stack[-1][1]:
+            pairs.append((stack.pop()[0], i))
+    for o, c in pairs:
+        inner = {side(x) for x in cls[o + 1:c] if x != 'N'}
+        if base in inner:
+            cls[o] = cls[c] = base
+        elif inner:
+            cls[o] = cls[c] = inner.pop()
+
+    # N1/N2 -- resolve each maximal gap of neutrals from what surrounds it.
+    # A gap between two same-direction items takes that direction; anything
+    # else -- including both boundaries between the scripts, and the start and
+    # end of the paragraph -- takes the base direction.
+    #
+    # PHRASE: strict UBA says numbers "act as R" when resolving neighbouring
+    # neutrals, which in a Hebrew paragraph puts the space in "20 MHz" at RTL
+    # level and renders it "MHz 20".  Treating a number as siding with Latin
+    # (see side() above) keeps the phrase reading left to right.  That is the
+    # one deliberate departure from the standard here, and it is what an
+    # author would otherwise have to force with LRM marks.
+    i = 0
+    while i < n:
+        if cls[i] != 'N':
+            i += 1
+            continue
+        j = i
+        while j < n and cls[j] == 'N':
+            j += 1
+        before = cls[i - 1] if i > 0 else None
+        after = cls[j] if j < n else None
+        if before is not None and after is not None \
+                and side(before) == side(after):
+            fill = side(before)
+        else:
+            fill = base
+        for k in range(i, j):
+            cls[k] = fill
+        i = j
+
+    # A number that stayed EN renders left to right (bidi level 2), same as L.
+    return ['R' if c == 'R' else 'L' for c in cls]
+
+
+def _spans(text, bold, mono):
+    """Split the inline markup into (text, bold, mono) spans.
+
+        **bold**    -> bold
+        `code`      -> Consolas, and forced LTR
+    """
+    out = []
+    for part in re.split(r'(\*\*.+?\*\*|`[^`]+`)', text):
+        if not part:
+            continue
+        if part.startswith('**') and part.endswith('**') and len(part) > 4:
+            out.extend(_spans(part[2:-2], True, mono))
+        elif part.startswith('`') and part.endswith('`') and len(part) > 2:
+            out.append((part[1:-1], bold, True))
+        else:
+            out.append((part, bold, mono))
+    return out
 
 
 def _rpr(hebrew, bold=False, mono=False, size=None, color=None, italic=False):
@@ -136,35 +285,39 @@ def _rpr(hebrew, bold=False, mono=False, size=None, color=None, italic=False):
     return ''.join(p)
 
 
-def _runs(text, bold=False, mono=False, size=None, color=None, italic=False):
-    """Text -> a run sequence with <w:rtl/> only on the Hebrew parts.
+def _runs(text, bold=False, mono=False, size=None, color=None, italic=False,
+          base='R'):
+    """Text -> Word runs, each carrying <w:rtl/> iff it renders right-to-left.
 
-    Two inline markers are honoured so callers can write ordinary strings:
-        **bold**    -> bold run
-        `code`      -> Consolas run, and never marked rtl (identifiers are
-                       Latin, and a monospace identifier that picked up an
-                       rtl run would render its brackets mirrored)
+    Direction is resolved over the WHOLE paragraph string, not per markup
+    span, because a neutral's direction depends on the strong characters on
+    both sides of it -- and those may live in a different span.  Resolving
+    span-by-span is what produced the mirrored parenthesis in the first draft.
+
+    `base` must match the paragraph's own direction: 'R' for the body, 'L' for
+    the equation and code paragraphs, which are emitted without <w:bidi/>.
     """
-    out = []
-    for part in re.split(r'(\*\*.+?\*\*|`[^`]+`)', text):
-        if not part:
-            continue
-        b, m = bold, mono
-        if part.startswith('**') and part.endswith('**') and len(part) > 4:
-            # re-enter so a `code` span nested inside a bold span still
-            # becomes monospace instead of leaking its backticks
-            out.append(_runs(part[2:-2], True, mono, size, color, italic))
-            continue
-        elif part.startswith('`') and part.endswith('`') and len(part) > 2:
-            part, m = part[1:-1], True
-            sz = size if size else 20
-            out.append('<w:r>' + _rpr(False, b, True, sz, color, italic)
-                       + f'<w:t xml:space="preserve">{esc(part)}</w:t></w:r>')
-            continue
-        for is_heb, chunk in _segments(part):
+    spans = _spans(text.translate(_CONTROLS), bold, mono)
+    if not spans:
+        return ''
+    full = ''.join(s[0] for s in spans)
+    force = [m for t, _, m in spans for _ in t]
+    dirs = _resolve(full, force, base)
+
+    out, pos = [], 0
+    for txt, b, m in spans:
+        i = 0
+        while i < len(txt):
+            d = dirs[pos + i]
+            j = i + 1
+            while j < len(txt) and dirs[pos + j] == d:
+                j += 1
+            sz = size if size is not None else (20 if m else None)
             out.append(
-                '<w:r>' + _rpr(is_heb, b, m, size, color, italic)
-                + f'<w:t xml:space="preserve">{esc(chunk)}</w:t></w:r>')
+                '<w:r>' + _rpr(d == 'R', b, m, sz, color, italic)
+                + f'<w:t xml:space="preserve">{esc(txt[i:j])}</w:t></w:r>')
+            i = j
+        pos += len(txt)
     return ''.join(out)
 
 
@@ -245,13 +398,14 @@ class Doc:
                       size=20), jc='both', after=120)
 
     def eq(self, text):
-        self._p(_runs(text, mono=True, size=20), jc='center',
+        # base='L' because the paragraph is emitted without <w:bidi/>
+        self._p(_runs(text, mono=True, size=20, base='L'), jc='center',
                 before=80, after=80, bidi=False)
 
     def code(self, text):
         for line in text.split('\n'):
-            self._p(_runs(line or ' ', mono=True, size=18), jc='left',
-                    after=0, bidi=False, ind=284)
+            self._p(_runs(line or ' ', mono=True, size=18, base='L'),
+                    jc='left', after=0, bidi=False, ind=284)
         self.body.append('<w:p><w:pPr><w:spacing w:after="120"/></w:pPr></w:p>')
 
     def pagebreak(self):
