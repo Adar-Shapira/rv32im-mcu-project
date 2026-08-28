@@ -81,10 +81,12 @@ TWO IMAGES, ONE PROGRAM
 
 USAGE
     python3 tools/gen_uart_menu.py
-        writes SIM/RV32IMscMCU/menu/{ITCM.hex,DTCM.hex}       (board, 0.5 s)
-               SIM/RV32IMscMCU/menusim/{ITCM.hex,DTCM.hex}    (simulation)
-               SIM/RV32IMscMCU/menu/listing.txt               (both, plus the
-                                                               expected streams)
+        Assembles UART/uart_menu.s (the hex source) and writes:
+          SIM/RV32IMscMCU/menu/{ITCM.hex,DTCM.hex}       (board, 0.5 s)
+          SIM/RV32IMscMCU/menusim/{ITCM.hex,DTCM.hex}    (simulation)
+          SIM/RV32IMscMCU/menu/listing.txt
+        uart_menu.c is the readable C description of the same program; it is
+        not assembled into the hex.
 """
 
 import pathlib
@@ -93,12 +95,13 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from gen_isa_test import enc, li32, ihex, M32               # noqa: E402
+from gen_isa_test import ihex, M32                          # noqa: E402
 from model_uart import UartPeriph, divider                  # noqa: E402
 from model_interrupt_ctrl import Intc                       # noqa: E402
 from model_basic_timer import Timer                         # noqa: E402
+from uart_menu_asm import assemble_file, encode_itcm, RETI_WORD  # noqa: E402
 
-RETI_WORD = 0x00020067
+FW = ROOT / "UART"
 
 # ── MMIO ─────────────────────────────────────────────────────────────────────
 UCTL_A, RXBUF_A, TXBUF_A = 0x2018, 0x2019, 0x201A
@@ -139,200 +142,19 @@ MASK_BUSY = 0x80
 
 
 # ── the program ──────────────────────────────────────────────────────────────
-def build():
-    """Returns (instructions, labels) with branch labels already resolved.
+def load_program(sim):
+    """Assemble uart_menu.s. Returns (prog, byte_labels, dtcm, strings).
 
-    Branch targets are written as ("L", "NAME") and resolved at the end, so no
-    offset in this file is hand-counted. `addi rd,zero,"NAME"` resolves to that
-    label's BYTE address, which is how the vector table gets its handlers.
+    uart_menu.c is the readable C description of the same program; hex comes
+    only from the .s (li is expanded with li32, not lui).
     """
-    prog, labels = [], {}
+    return assemble_file(FW / "uart_menu.s", sim=sim)
 
-    def emit(*ins):
-        prog.append(tuple(ins))
 
-    def label(name):
-        labels[name] = len(prog)
-
-    def li(reg, val):
-        for ins in li32(reg, val):
-            emit(*ins)
-
-    def br(mn, ra, rb, target):
-        emit(mn, ra, rb, ("L", target))
-
-    def jump(target):
-        br("beq", "zero", "zero", target)
-
-    # ---- init --------------------------------------------------------------
-    li("a0", UCTL_A)
-    li("a1", RXBUF_A)
-    li("a2", TXBUF_A)
-    li("a3", IE_A)
-    li("a4", IFG_A)
-    li("a5", LEDR_A)
-    li("a6", BTCTL1_A)
-    li("a7", BTCMPR0_A)
-    emit("addi", "s0", "zero", VBASE)
-    emit("addi", "s1", "zero", S_MENU)
-    emit("addi", "s2", "zero", S_NEGEV)
-    emit("addi", "s6", "zero", 0xFF)         # the 8-bit wrap mask
-    emit("addi", "t6", "zero", MASK_BUSY)
-
-    emit("addi", "t0", "zero", 0x08)         # UCTL: 115200, no parity, running
-    emit("sw",   "t0", 0, "a0")
-
-    emit("sw", "zero", 0, "a3")              # IE  = 0, before anything can fire
-    emit("sw", "zero", 0, "a4")              # IFG = 0 while still masked
-
-    emit("addi", "t0", "zero", "ISR_RX")     # vector word 2, TYPE 08h
-    emit("sw",   "t0", 8, "zero")
-    emit("addi", "t0", "zero", "ISR_BT")     # vector word 4, TYPE 10h
-    emit("sw",   "t0", 16, "zero")
-    emit("addi", "t0", "zero", "ISR_KEY1")   # vector word 5, TYPE 14h
-    emit("sw",   "t0", 20, "zero")
-
-    emit("addi", "t0", "zero", 0x24)         # BTCTL1 = BTHOLD | BTCLR
-    emit("sw",   "t0", 0, "a6")
-    emit("lw",   "t0", V_HALFSEC, "s0")      # the ONLY board/sim difference
-    emit("sw",   "t0", 0, "a7")              # BTCMPR0
-    emit("sw", "zero", 0, "a6")              # BTCTL1 = 0: run, /1, BTINT=EQU0
-
-    emit("sw", "zero", V_MODE, "s0")
-    emit("sw", "zero", V_VALUE, "s0")
-    emit("sw", "zero", V_TICK, "s0")
-    emit("sw", "zero", V_CMD, "s0")
-    emit("sw", "zero", V_KEYMSG, "s0")
-    emit("sw", "zero", V_KEYARM, "s0")
-    emit("sw", "s1", V_SENDPTR, "s0")        # transmit the menu at startup
-
-    emit("addi", "t0", "zero", 0x0D)         # IE = KEY1IE | BTIE | RXIE
-    emit("sw",   "t0", 0, "a3")
-    emit("addi", "gp", "zero", 1)            # EINT (GIE = gp[0])
-
-    # ---- main loop ---------------------------------------------------------
-    label("LOOP")
-    emit("lw", "t0", V_CMD, "s0")
-    br("beq", "t0", "zero", "L_TICK")
-    emit("sw", "zero", V_CMD, "s0")          # consume it
-    emit("addi", "t1", "zero", 0x31)
-    br("beq", "t0", "t1", "C1")
-    emit("addi", "t1", "zero", 0x32)
-    br("beq", "t0", "t1", "C2")
-    emit("addi", "t1", "zero", 0x33)
-    br("beq", "t0", "t1", "C3")
-    emit("addi", "t1", "zero", 0x34)
-    br("beq", "t0", "t1", "C4")
-    emit("addi", "t1", "zero", 0x35)
-    br("beq", "t0", "t1", "C5")
-    jump("L_TICK")                           # anything else: ignored
-
-    label("C1")                              # 1. count up from 0x00
-    emit("addi", "t1", "zero", 1)
-    emit("sw",   "t1", V_MODE, "s0")
-    emit("sw", "zero", V_VALUE, "s0")
-    jump("L_TICK")
-
-    label("C2")                              # 2. count down from 0xFF
-    emit("addi", "t1", "zero", 2)
-    emit("sw",   "t1", V_MODE, "s0")
-    emit("addi", "t1", "zero", 0xFF)
-    emit("sw",   "t1", V_VALUE, "s0")
-    jump("L_TICK")
-
-    label("C3")                              # 3. clear all LEDs
-    emit("sw", "zero", V_MODE, "s0")
-    emit("sw", "zero", V_VALUE, "s0")
-    emit("sw", "zero", 0, "a5")
-    jump("L_TICK")
-
-    label("C4")                              # 4. arm the KEY1 message
-    emit("addi", "t1", "zero", 1)
-    emit("sw",   "t1", V_KEYARM, "s0")
-    jump("L_TICK")
-
-    label("C5")                              # 5. show the menu again
-    emit("sw", "s1", V_SENDPTR, "s0")
-
-    label("L_TICK")
-    emit("lw", "t0", V_TICK, "s0")
-    br("beq", "t0", "zero", "L_KEY")
-    emit("sw", "zero", V_TICK, "s0")
-    emit("lw", "t1", V_MODE, "s0")
-    br("beq", "t1", "zero", "L_KEY")         # idle: the tick does nothing
-    emit("lw", "t2", V_VALUE, "s0")
-    emit("sw", "t2", 0, "a5")                # PORT_LEDR shows it
-    emit("addi", "t0", "zero", 1)
-    br("beq", "t1", "t0", "T_UP")
-    emit("addi", "t2", "t2", -1)             # mode 2: down
-    jump("T_STORE")
-    label("T_UP")
-    emit("addi", "t2", "t2", 1)              # mode 1: up
-    label("T_STORE")
-    emit("and", "t2", "t2", "s6")            # wrap in 8 bits
-    emit("sw",  "t2", V_VALUE, "s0")
-
-    label("L_KEY")
-    emit("lw", "t0", V_KEYMSG, "s0")
-    br("beq", "t0", "zero", "L_SEND")
-    emit("sw", "zero", V_KEYMSG, "s0")
-    emit("sw", "s2", V_SENDPTR, "s0")
-
-    label("L_SEND")
-    emit("lw", "t0", V_SENDPTR, "s0")
-    br("beq", "t0", "zero", "LOOP")          # nothing to send
-    emit("lw",  "t1", 0, "a0")               # UCTL
-    emit("and", "t1", "t1", "t6")            # BUSY
-    br("bne", "t1", "zero", "LOOP")          # try again next pass
-    emit("lw", "t2", 0, "t0")                # the character
-    br("beq", "t2", "zero", "S_DONE")
-    emit("sw", "t2", 0, "a2")                # TXBUF
-    emit("addi", "t0", "t0", 4)
-    emit("sw", "t0", V_SENDPTR, "s0")
-    jump("LOOP")
-    label("S_DONE")
-    emit("sw", "zero", V_SENDPTR, "s0")
-    jump("LOOP")
-
-    # ---- the three handlers ------------------------------------------------
-    # t3/t4 only, plus the read-only address registers. See the header.
-    label("ISR_RX")
-    emit("lw", "t3", 0, "a1")                # RXBUF; the read clears RXIFG too
-    emit("sw", "t3", V_CMD, "s0")
-    emit("RAW", RETI_WORD)
-
-    label("ISR_BT")
-    emit("addi", "t3", "zero", 1)
-    emit("sw",   "t3", V_TICK, "s0")
-    emit("RAW", RETI_WORD)
-
-    label("ISR_KEY1")
-    emit("lw", "t3", V_KEYARM, "s0")
-    br("beq", "t3", "zero", "K_CLR")
-    emit("addi", "t3", "zero", 1)
-    emit("sw",   "t3", V_KEYMSG, "s0")
-    label("K_CLR")
-    emit("lw",   "t3", 0, "a4")              # IFG, at its odd address 0x202D
-    emit("addi", "t4", "zero", 0xF7)         # KEY1IFG_MASK's low byte
-    emit("and",  "t3", "t3", "t4")           # the supplied ISRs' own idiom
-    emit("sw",   "t3", 0, "a4")              # W0C: rule d, manual clear
-    emit("RAW", RETI_WORD)
-
-    # ---- resolve ------------------------------------------------------------
-    byte_labels = {k: v * 4 for k, v in labels.items()}
-    for name, addr in byte_labels.items():
-        assert addr < 2048, (f"label {name} is at {addr:#x}, past addi's 12-bit "
-                             f"signed immediate: the program needs restructuring")
-    out = []
-    for i, ins in enumerate(prog):
-        if ins[0] == "addi" and isinstance(ins[3], str):
-            out.append(("addi", ins[1], ins[2], byte_labels[ins[3]]))
-        elif ins[0] in ("beq", "bne") and isinstance(ins[3], tuple):
-            target = labels[ins[3][1]]
-            out.append((ins[0], ins[1], ins[2], (target - i) * 4))
-        else:
-            out.append(ins)
-    return out, byte_labels
+def build():
+    """Returns (instructions, labels) from the firmware sources."""
+    prog, labels, _, _ = load_program(sim=False)
+    return prog, labels
 
 
 def dtcm_image(halfsec):
@@ -508,7 +330,8 @@ def interpret(prog, labels, halfsec, trace=False):
         mn = ins[0]
         wr_u = wr_i = wr_t = rd_u = None
 
-        if mn == "RAW" and ins[1] == RETI_WORD:
+        if (mn == "jalr" and ins[1] == "zero" and ins[2] == 0 and ins[3] == "tp") or \
+           (mn == "RAW" and ins[1] == RETI_WORD):
             rset("gp", rget("gp") | 1)
             pc = rget("tp")
             tick()
@@ -576,18 +399,51 @@ def vhdl_string(s):
 
 
 def main():
-    prog, labels = build()
-    words = [ins[1] if ins[0] == "RAW" else enc(*ins) for ins in prog]
+    prog, labels, dtcm_board, strs = load_program(sim=False)
+    prog_sim, labels_sim, dtcm_sim, _ = load_program(sim=True)
+    if labels["ISR_RX"] != 0x22C or labels["ISR_BT"] != 0x238 or \
+       labels["ISR_KEY1"] != 0x244:
+        sys.exit("ISR labels moved; update ISR_RX_A / ISR_BT_A / ISR_KEY1_A "
+                 f"in UART/uart_menu.s (got RX={labels['ISR_RX']:#x} "
+                 f"BT={labels['ISR_BT']:#x} KEY1={labels['ISR_KEY1']:#x})")
+    if strs["MENU"] != MENU or strs["NEGEV"] != NEGEV:
+        sys.exit("firmware MENU/NEGEV strings do not match the generator contract")
+    if dtcm_board != dtcm_image(HALFSEC_BOARD):
+        sys.exit("assembled board DTCM does not match dtcm_image(HALFSEC_BOARD)")
+    if dtcm_sim != dtcm_image(HALFSEC_SIM):
+        sys.exit("assembled sim DTCM does not match dtcm_image(HALFSEC_SIM)")
+
+    words = encode_itcm(prog)
     itcm = ihex(words)
+    dtcm_board_hex = ihex(dtcm_board)
+    dtcm_sim_hex = ihex(dtcm_sim)
 
     out_board = ROOT / "SIM" / "RV32IMscMCU" / "menu"
     out_sim = ROOT / "SIM" / "RV32IMscMCU" / "menusim"
+    gold = {
+        "menu/ITCM": out_board / "ITCM.hex",
+        "menu/DTCM": out_board / "DTCM.hex",
+        "menusim/ITCM": out_sim / "ITCM.hex",
+        "menusim/DTCM": out_sim / "DTCM.hex",
+    }
+    want = {
+        "menu/ITCM": itcm,
+        "menu/DTCM": dtcm_board_hex,
+        "menusim/ITCM": itcm,
+        "menusim/DTCM": dtcm_sim_hex,
+    }
+    mismatch = [n for n, p in gold.items()
+                if p.exists() and p.read_text(encoding="utf-8") != want[n]]
+    if mismatch:
+        sys.exit("assembled images differ from the committed hex: " +
+                 ", ".join(mismatch))
+
     for d in (out_board, out_sim):
         d.mkdir(parents=True, exist_ok=True)
     (out_board / "ITCM.hex").write_text(itcm)
     (out_sim / "ITCM.hex").write_text(itcm)
-    (out_board / "DTCM.hex").write_text(ihex(dtcm_image(HALFSEC_BOARD)))
-    (out_sim / "DTCM.hex").write_text(ihex(dtcm_image(HALFSEC_SIM)))
+    (out_board / "DTCM.hex").write_text(dtcm_board_hex)
+    (out_sim / "DTCM.hex").write_text(dtcm_sim_hex)
 
     # the claim in the header, enforced
     assert (out_board / "ITCM.hex").read_bytes() == \
@@ -622,7 +478,8 @@ def main():
         sys.exit(f"CROSS-CHECK FAILED: item 3 left PORT_LEDR at {ledr[-1]:#04x}")
 
     lines = [
-        "Clause 8 UART menu firmware -- tools/gen_uart_menu.py",
+        "Clause 8 UART menu firmware -- UART/uart_menu.s",
+        "(uart_menu.c is the readable C description; hex is assembled from the .s)",
         f"{len(prog)} instructions. ONE program, TWO data images: the ITCMs are",
         "byte-identical and only the V_HALFSEC word differs.",
         "",
@@ -701,6 +558,7 @@ def main():
     if checked:
         print(f"  {checked} testbench(es) carry exactly these two strings")
 
+    print(f"  assembled {FW / 'uart_menu.s'}")
     print(f"  {len(prog)} instructions, ITCM identical in both image sets")
     print(f"  menu {len(MENU)} chars, message {len(NEGEV)} chars, "
           f"stream {len(expected)} chars reproduced exactly")

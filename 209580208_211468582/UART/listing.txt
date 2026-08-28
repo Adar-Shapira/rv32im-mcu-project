@@ -1,4 +1,4 @@
-Clause 8 UART menu firmware -- UART/uart_menu.s
+Clause 8 UART menu firmware -- uart_menu.s
 (uart_menu.c is the readable C description; hex is assembled from the .s)
 154 instructions. ONE program, TWO data images: the ITCMs are
 byte-identical and only the V_HALFSEC word differs.

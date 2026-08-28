@@ -1,0 +1,285 @@
+--============================================================================
+-- Copyright 2026 Hananya Ribo 
+-- Advanced CPU architecture and Hardware Accelerators Lab 361-1-4693 BGU
+-- Pipelined RISC-V RV32IM Core - MEM stage
+-- DMEMORY holds multiplier stage 2, the DTCM (altsyncram, written on the
+-- inverted clock exactly as in the single-cycle version), and MEM/WB.
+-- Pipeline changes vs the single-cycle version:
+--   * the MEM/WB pipeline register is added around the DTCM: it carries the
+--     load data, the ALU result, PC+4, the destination register and the
+--     WB-stage control bits (RegDst/RegWrite/MemtoReg) to WRITEBACK;
+--     wb_rd_o/wb_RegWrite_ctrl_o also feed FORWARD_UNIT
+--   * no stall/flush port: branches and jumps are resolved in the MEM
+--     stage, so the MEM-stage instruction is always older than any
+--     redirect/stall and always proceeds to WB
+-- DTCM timing within the MEM cycle: the address register is loaded at the
+-- falling edge (inverted clock) and the output is unregistered, so the read
+-- data is valid in the second half of the cycle and is latched into the
+-- MEM/WB register at the next rising edge; a store is likewise committed at
+-- the falling edge of its MEM cycle.
+--============================================================================
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE IEEE.STD_LOGIC_ARITH.ALL;
+USE IEEE.STD_LOGIC_SIGNED.ALL;
+USE work.const_package.all;
+
+LIBRARY altera_mf;
+USE altera_mf.altera_mf_components.all;
+
+ENTITY dmemory IS
+	generic(
+		DATA_BUS_WIDTH 	: integer := 32;
+		DTCM_ADDR_WIDTH : integer := 8;
+		WORDS_NUM 		: integer := 256;
+		PC_WIDTH 		: integer := 10
+	);
+	PORT(	
+		--Inputs
+		clk_i				: IN 	STD_LOGIC;
+		rst_i				: IN 	STD_LOGIC;
+		-- EX/MEM inputs (MEM-stage view produced by EXECUTE)
+		dtcm_addr_i 		: IN 	STD_LOGIC_VECTOR(DTCM_ADDR_WIDTH-1 DOWNTO 0);	-- sliced from mem_alu_res in the top
+		dtcm_data_wr_i 		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- store data (forwarded rs2 value)
+		MemRead_ctrl_i  	: IN 	STD_LOGIC;
+		MemWrite_ctrl_i 	: IN 	STD_LOGIC;
+		-- Slice 2: access width. Default MEM_W keeps older instantiations word-only.
+		MemOp_ctrl_i		: IN 	STD_LOGIC_VECTOR(2 DOWNTO 0) := MEM_W;
+		byte_sel_i			: IN 	STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";
+		-- Slice 1 (G-305). Default '1' so a core-only TB still writes DTCM.
+		dtcm_cs_i			: IN 	STD_LOGIC := '1';
+		-- Slice 1: MMIO read data, captured into MEM/WB when dtcm_cs_i = '0'.
+		dbus_rdata_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0) := (OTHERS => '0');
+		-- Slice 4: entry Cycle 2 vector fetch. Forces the load mux onto the
+		-- raw RAM word even if the decoder's dtcm_cs is 0 on the leftover MEM
+		-- address. Defaulted so a pre-interrupt instantiation is unchanged.
+		vec_fetch_i			: IN	STD_LOGIC := '0';
+		-- MEM-stage values carried through to the MEM/WB register
+		pc_i				: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		pc_plus4_i			: IN	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);			-- WB value for jal/jalr
+		instruction_i		: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		alu_res_i			: IN 	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB value for ALU instructions
+		rd_i				: IN 	STD_LOGIC_VECTOR(4 DOWNTO 0);
+		-- Figure 7 EX/MEM multiplier partial products and control
+		mul_p0_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p1_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p2_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		mul_p3_i			: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+		Mul_ctrl_i			: IN	STD_LOGIC;
+		-- WB-stage control bits (from the EX/MEM register)
+		RegDst_ctrl_i 		: IN 	STD_LOGIC;
+		RegWrite_ctrl_i 	: IN 	STD_LOGIC;
+		MemtoReg_ctrl_i 	: IN 	STD_LOGIC;
+		
+		--Outputs
+		-- MEM-stage (combinational) - debug/Signal-Tap
+		dtcm_data_rd_o 		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		dtcm_wren_o			: OUT	STD_LOGIC;
+		mem_forward_data_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		-- MEM/WB pipeline register outputs (WB-stage view, to IDECODE + FORWARD_UNIT)
+		wb_pc_o				: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		wb_pc_plus4_o		: OUT	STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+		wb_instruction_o	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		wb_alu_res_o		: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+		wb_dtcm_data_rd_o 	: OUT	STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);	-- WB value for loads
+		wb_rd_o				: OUT	STD_LOGIC_VECTOR(4 DOWNTO 0);					-- FORWARD_UNIT + RF write port
+		-- carried control bits: WB stage (wb_RegWrite also feeds FORWARD_UNIT)
+		wb_RegDst_ctrl_o 	: OUT	STD_LOGIC;
+		wb_RegWrite_ctrl_o 	: OUT	STD_LOGIC;
+		wb_MemtoReg_ctrl_o 	: OUT	STD_LOGIC
+	);
+END dmemory;
+
+
+ARCHITECTURE behavior OF dmemory IS
+	CONSTANT NOP_INSTRUCTION		: STD_LOGIC_VECTOR(31 DOWNTO 0) := X"00000013";
+	CONSTANT NBYTES					: integer := DATA_BUS_WIDTH/8;
+	COMPONENT multiplier_2 IS
+		PORT(
+			p0_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p1_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p2_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			p3_i	: IN	STD_LOGIC_VECTOR(15 DOWNTO 0);
+			res_o	: OUT	STD_LOGIC_VECTOR(31 DOWNTO 0)
+		);
+	END COMPONENT;
+
+	SIGNAL wrclk_w 				: STD_LOGIC;
+	SIGNAL wren_w				: STD_LOGIC;
+	SIGNAL q_w					: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL load_data_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mul_res_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_result_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL store_sub_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL store_data_w			: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL byteena_sub_w		: STD_LOGIC_VECTOR(NBYTES-1 DOWNTO 0);
+	SIGNAL byteena_w			: STD_LOGIC_VECTOR(NBYTES-1 DOWNTO 0);
+	SIGNAL byte_w				: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL half_w				: STD_LOGIC_VECTOR(15 DOWNTO 0);
+	SIGNAL extend_w				: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	-- MEM/WB pipeline register
+	SIGNAL mem_wb_pc_q			: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_pc_plus4_q	: STD_LOGIC_VECTOR(PC_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_instruction_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_alu_res_q		: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_dtcm_data_q	: STD_LOGIC_VECTOR(DATA_BUS_WIDTH-1 DOWNTO 0);
+	SIGNAL mem_wb_rd_q			: STD_LOGIC_VECTOR(4 DOWNTO 0);
+	SIGNAL mem_wb_RegDst_q		: STD_LOGIC;
+	SIGNAL mem_wb_RegWrite_q	: STD_LOGIC;
+	SIGNAL mem_wb_MemtoReg_q	: STD_LOGIC;
+	
+BEGIN
+	assert DATA_BUS_WIDTH = 32
+		report "DMEMORY: the sub-word logic assumes a 32-bit data bus (4 byte lanes)"
+		severity failure;
+
+	-- Figure 7 multiplier stage 2 (MEM): combine the partial products that
+	-- crossed the EX/MEM register. The selected result is used for both
+	-- MEM forwarding and the MEM/WB ALU-result field.
+	MUL2: multiplier_2
+	PORT MAP(
+		p0_i	=> mul_p0_i,
+		p1_i	=> mul_p1_i,
+		p2_i	=> mul_p2_i,
+		p3_i	=> mul_p3_i,
+		res_o	=> mul_res_w
+	);
+
+	mem_result_w <= mul_res_w WHEN Mul_ctrl_i = '1' ELSE alu_res_i;
+
+	-- Slice 1 (G-305): SFR stores must not write the DTCM. Same gate as
+	-- DUT/RV32IMscMCU/DMEMORY.vhd:192.
+	wren_w <= MemWrite_ctrl_i AND dtcm_cs_i;
+
+	-- Slice 2 store path. Transcribed from DUT/RV32IMscMCU/DMEMORY.vhd:138-151.
+	with MemOp_ctrl_i select store_sub_w <=
+		dtcm_data_wr_i( 7 DOWNTO 0) & dtcm_data_wr_i( 7 DOWNTO 0) &
+		dtcm_data_wr_i( 7 DOWNTO 0) & dtcm_data_wr_i( 7 DOWNTO 0)	when MEM_B,
+		dtcm_data_wr_i(15 DOWNTO 0) & dtcm_data_wr_i(15 DOWNTO 0)	when MEM_H,
+		dtcm_data_wr_i												when others;
+
+	byteena_sub_w <=	"0001"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "00")	ELSE
+						"0010"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "01")	ELSE
+						"0100"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "10")	ELSE
+						"1000"	WHEN (MemOp_ctrl_i = MEM_B and byte_sel_i = "11")	ELSE
+						"0011"	WHEN (MemOp_ctrl_i = MEM_H and byte_sel_i(1) = '0')	ELSE
+						"1100"	WHEN (MemOp_ctrl_i = MEM_H and byte_sel_i(1) = '1')	ELSE
+						(others => '1');
+
+	store_data_w	<= store_sub_w;
+	byteena_w		<= byteena_sub_w;
+
+	-- Slice 2 load extract-and-extend. Transcribed from
+	-- DUT/RV32IMscMCU/DMEMORY.vhd:156-171. Applied to the RAM word only;
+	-- MMIO already returns a right-justified 32-bit value on the bus.
+	with byte_sel_i select byte_w <=
+		q_w( 7 DOWNTO  0)	when "00",
+		q_w(15 DOWNTO  8)	when "01",
+		q_w(23 DOWNTO 16)	when "10",
+		q_w(31 DOWNTO 24)	when others;
+
+	half_w <= q_w(31 DOWNTO 16) WHEN byte_sel_i(1) = '1' ELSE q_w(15 DOWNTO 0);
+
+	with MemOp_ctrl_i select extend_w <=
+		(23 DOWNTO 0 => byte_w(7))		& byte_w	when MEM_B,
+		(23 DOWNTO 0 => '0')			& byte_w	when MEM_BU,
+		(15 DOWNTO 0 => half_w(15))		& half_w	when MEM_H,
+		(15 DOWNTO 0 => '0')			& half_w	when MEM_HU,
+		q_w											when others;
+
+	-- Load-data region mux. DTCM (extracted) when A13=0; MMIO bus otherwise.
+	-- Reference: DUT/RV32IMscMCU/RV32IM_CORE.vhd:554.
+	-- Slice 4: vec_fetch overrides so Mem[TYPE] is the whole DTCM word.
+	load_data_w <= q_w WHEN vec_fetch_i = '1' ELSE
+				   extend_w WHEN dtcm_cs_i = '1' ELSE dbus_rdata_i;
+
+	--=======================================
+	-- DTCM (RAM) connection
+	--=======================================
+	data_memory : altsyncram
+	GENERIC MAP  (
+		operation_mode			=> "SINGLE_PORT",
+		width_a					=> DATA_BUS_WIDTH,
+		widthad_a				=> DTCM_ADDR_WIDTH,
+		numwords_a 				=> WORDS_NUM,
+		byte_size				=> 8,
+		width_byteena_a			=> NBYTES,
+		lpm_hint 				=> "ENABLE_RUNTIME_MOD = YES,INSTANCE_NAME = DTCM",
+		lpm_type 				=> "altsyncram",
+		outdata_reg_a 			=> "UNREGISTERED",
+		init_file 				=> "C:\TestPrograms\Quartus21_1\app_bin\DTCM.hex",
+		intended_device_family 	=> "Cyclone"
+	)
+	PORT MAP (
+		wren_a 					=> wren_w,
+		clock0					=> wrclk_w,
+		address_a				=> dtcm_addr_i,
+		data_a					=> store_data_w,
+		byteena_a				=> byteena_w,
+		q_a						=> q_w
+	);
+
+	wrclk_w <= NOT clk_i;	-- Load memory address register with write clock
+
+	misalign_check : process(all)
+	begin
+		if dtcm_cs_i = '1'
+		   and (MemRead_ctrl_i = '1' or MemWrite_ctrl_i = '1')
+		   and (MemOp_ctrl_i = MEM_H or MemOp_ctrl_i = MEM_HU)
+		   and byte_sel_i(0) = '1' then
+			report "DMEMORY: misaligned half-word access at byte offset " &
+				integer'image(CONV_INTEGER(byte_sel_i)) &
+				" - aligned down to the even offset. RV32I would trap here."
+				severity warning;
+		end if;
+	end process misalign_check;
+
+--------------------------------------------------------------------------------------------------------
+-- MEM/WB pipeline register
+-- The MEM-stage instruction is never stalled or flushed (redirects originate
+-- here), so the register loads unconditionally every rising edge.
+--------------------------------------------------------------------------------------------------------
+PROCESS (clk_i, rst_i)
+BEGIN
+	IF rst_i = '1' THEN
+		mem_wb_pc_q			<= (OTHERS => '0');
+		mem_wb_pc_plus4_q	<= (OTHERS => '0');
+		mem_wb_instruction_q	<= NOP_INSTRUCTION;
+		mem_wb_alu_res_q	<= (OTHERS => '0');
+		mem_wb_dtcm_data_q	<= (OTHERS => '0');
+		mem_wb_rd_q			<= (OTHERS => '0');
+		mem_wb_RegDst_q		<= '0';
+		mem_wb_RegWrite_q	<= '0';
+		mem_wb_MemtoReg_q	<= '0';
+	ELSIF (clk_i'EVENT AND clk_i='1') THEN
+		mem_wb_pc_q			<= pc_i;
+		mem_wb_pc_plus4_q	<= pc_plus4_i;
+		mem_wb_instruction_q	<= instruction_i;
+		mem_wb_alu_res_q	<= mem_result_w;
+		mem_wb_dtcm_data_q	<= load_data_w;
+		mem_wb_rd_q			<= rd_i;
+		mem_wb_RegDst_q		<= RegDst_ctrl_i;
+		mem_wb_RegWrite_q	<= RegWrite_ctrl_i;
+		mem_wb_MemtoReg_q	<= MemtoReg_ctrl_i;
+	END IF;
+END PROCESS;
+
+--------------------------------------------------------------------------------------------------------
+	-- MEM-stage output (combinational)
+	dtcm_data_rd_o		<= load_data_w;
+	dtcm_wren_o			<= wren_w;
+	mem_forward_data_o	<= mem_result_w;
+	
+	-- MEM/WB register outputs (WB-stage view)
+	wb_pc_o				<= mem_wb_pc_q;
+	wb_pc_plus4_o		<= mem_wb_pc_plus4_q;
+	wb_instruction_o	<= mem_wb_instruction_q;
+	wb_alu_res_o		<= mem_wb_alu_res_q;
+	wb_dtcm_data_rd_o	<= mem_wb_dtcm_data_q;
+	wb_rd_o				<= mem_wb_rd_q;
+	wb_RegDst_ctrl_o	<= mem_wb_RegDst_q;
+	wb_RegWrite_ctrl_o	<= mem_wb_RegWrite_q;
+	wb_MemtoReg_ctrl_o	<= mem_wb_MemtoReg_q;
+--------------------------------------------------------------------------------------------------------
+	
+END behavior;

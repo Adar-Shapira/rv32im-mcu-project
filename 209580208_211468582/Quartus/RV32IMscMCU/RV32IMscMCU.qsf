@@ -1,0 +1,419 @@
+# -------------------------------------------------------------------------- #
+#
+# Copyright (C) 2021  Intel Corporation. All rights reserved.
+# Your use of Intel Corporation's design tools, logic functions 
+# and other software and tools, and any partner logic 
+# functions, and any output files from any of the foregoing 
+# (including device programming or simulation files), and any 
+# associated documentation or information are expressly subject 
+# to the terms and conditions of the Intel Program License 
+# Subscription Agreement, the Intel Quartus Prime License Agreement,
+# the Intel FPGA IP License Agreement, or other applicable license
+# agreement, including, without limitation, that your use is for
+# the sole purpose of programming logic devices manufactured by
+# Intel and sold by Intel or its authorized distributors.  Please
+# refer to the applicable agreement for further details, at
+# https://fpgasoftware.intel.com/eula.
+#
+# -------------------------------------------------------------------------- #
+#
+# Quartus Prime
+# Version 21.1.0 Build 842 10/21/2021 SJ Lite Edition
+# Date created = 23:52:42  July 14, 2026
+#
+# -------------------------------------------------------------------------- #
+#
+# Notes:
+#
+# 1) The default values for assignments are stored in the file:
+#		RV32IM_CORE_assignment_defaults.qdf
+#    If this file doesn't exist, see file:
+#		assignment_defaults.qdf
+#
+# 2) Intel recommends that you do not modify this file. This
+#    file is updated automatically by the Quartus Prime software
+#    and any changes you make may be lost or overwritten.
+#
+# -------------------------------------------------------------------------- #
+
+
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE115F29C7
+# Board-only wrapper in RV32IMscMCU.vhd. RV32IMscMCU itself still has the
+# ModelSim observation ports; compiling THAT as top is what produced
+# "Total virtual pins = 274" (VIRTUAL_PIN ON on those ports + PWM/CAPIN
+# copies). This wrapper exposes only the 105 assigned MCU I/O balls.
+set_global_assignment -name TOP_LEVEL_ENTITY RV32IMscMCU_FPGA
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 21.1.0
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "23:52:42  JULY 14, 2026"
+set_global_assignment -name LAST_QUARTUS_VERSION "21.1.0 Lite Edition"
+set_global_assignment -name SDC_FILE RV32IMscMCU.sdc
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IMscMCU.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/RV32IM_CORE.vhd
+# Phase 5A/5B. ADDR_DECODER is instantiated by RV32IMscMCU.vhd (the DEC instance),
+# so it MUST be here or Analysis & Synthesis fails to bind the component -- there
+# is no SEARCH_PATH assignment in this project, and Quartus resolves a component
+# only from the file list.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/ADDR_DECODER.vhd
+# Phase 4A. Instantiated four times by DIV_UNIT (Phase 7B1) -- its first real
+# use -- and later by the UART. DIV_UNIT is not itself instantiated until 7B2, so
+# for now synthesis still prunes the whole subtree and it costs nothing here.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/SYNC.vhd
+# Phase 7A. Figure 9's division accelerator, in the same not-yet-instantiated
+# state as SYNC above and listed for exactly the same reason: so it is analysed,
+# and so the two file lists stay in step.
+#
+# CORRECTION TO AN EARLIER VERSION OF THIS COMMENT. It claimed that listing the
+# file here would make Quartus report div_accel's area and DIVCLK Fmax, and the
+# plan turned that into a deliverable. That was FALSE, and it contradicted the
+# SYNC comment nine lines above in this same file, which states the true
+# behaviour: synthesis prunes an uninstantiated entity. TOP_LEVEL_ENTITY is
+# RV32IMscMCU, nothing instantiates div_accel yet, and nothing drives divclk_i --
+# so the block is elaborated and dropped, contributes no row to the resource
+# table, and presents no clock for the Timing Analyzer to report an Fmax on.
+# Getting those two numbers needs either Phase 7B's instantiation or a dedicated
+# revision with TOP_LEVEL_ENTITY div_accel plus a create_clock on divclk_i; that
+# is a Phase 14 item, not something this line buys.
+#
+# LESSON, BECAUSE IT COST A BLOCKER ONCE:
+# this project has TWO file lists - SIM/RV32IMscMCU/compile.do for ModelSim and
+# this .qsf for Quartus - and there is no SEARCH_PATH, so a file added to only
+# one of them binds in one tool and fails in the other.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_ACCEL.vhd
+# Phase 7B1/7B2. DIV_UNIT wraps DIV_ACCEL with the four clock-domain crossings,
+# the MCLK-side handshake and the signed div/rem wrapper, and RV32IM_CORE now
+# instantiates it -- so this subtree is LIVE and appears in the resource tables.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DIV_UNIT.vhd
+# Phase 8A/8B. The Basic Timer core (skeleton from Auxiliary/Lab4/DUT/pwm.vhd).
+# AS OF PHASE 8B it is LIVE: RV32IMscMCU instantiates it on pclk_w, its five
+# registers sit on the bus, and PWM_o / CAPIN1_i / CAPIN2_i are new top-level
+# pins waiting on B1/F18 for locations.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BASIC_TIMER.vhd
+# Phase 9A. The Interrupt Controller (IE/IFG/TYPE, the falsified-A6 latches,
+# priority onto TYPE, INTR/INTA). Wired since 9C; since 12B its three UART
+# source inputs and the two rule-b/c clear inputs are driven too, so every
+# input it has now has a real source.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/INTERRUPT_CTRL.vhd
+# Phase 12A/12B. The USART (bonus, clause 6.iv). INSTANTIATED SINCE 12B: the
+# MCU top wires uart_periph to CS_UART's three lanes and brings UART_RXD_i /
+# UART_TXD_o out to PIN_G12 / PIN_G9, so all six are now live logic and their
+# area belongs in the PPA tables.
+# Four are jakubcabal's MIT code -- UART_TX/PARITY/DEBOUNCER byte-identical,
+# UART_RX plus one RX_BUSY port -- UART_CORE is his top level adapted for a
+# runtime rounded baud divider, UART_PERIPH is ours. The MIT licence text
+# lives at Auxiliary/USART Material/UART_FPGA_option1/LICENSE and each file
+# carries the author's own header; the report must attribute it (Phase 16).
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_PARITY.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_DEBOUNCER.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_TX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_RX.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_CORE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/UART_PERIPH.vhd
+# Phase 6A. Both instantiated by RV32IMscMCU.vhd (P_LEDR/P_HEX0..5 and the SEGGEN
+# generate), so both must be listed here.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/GPO_PORT.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/HEX_DECODER.vhd
+# Phase 6B. Instantiated nine times by RV32IMscMCU.vhd (eight readable registers
+# plus the bus terminator), so it must be listed.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/BIDIRPIN.vhd
+
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL.vhd
+# Phase 4B. PLL_GEN.vhd is PLL.vhd with the ratio, the input period, the device
+# family and the CBX hint promoted to generics -- PLL.vhd's entity has no
+# generics at all, so three instances of it would give three copies of ONE
+# frequency. PLL.vhd is left byte-identical and the core still instantiates it.
+# CLOCK_TREE.vhd is Figure 1's block: three pll_gen instances, per forum answer
+# F6. AS OF PHASE 4C BOTH ARE LIVE: RV32IMscMCU instantiates CLOCK_TREE, clk_i
+# reaches it and nothing else, and the core receives mclk.
+#
+# EXPECT TWO PLLs, NOT THREE -- corrected 2026-08-26. This block used to say
+# "expect THREE PLLs ... two would mean the divider is being optimised away",
+# which contradicts the measured note further down this same file ("two pll_gen
+# instances ... Total PLLs = 2"). The measured note is the true one, and the
+# reason is a default, not a defect: SMCLK_SHARES_MCLK is TRUE
+# (CLOCK_TREE.vhd:150), so the SHARE_YES branch assigns smclk_w <= mclk_w and no
+# third pll_gen is instantiated at all. Forum answer F6 permits MCLK = SMCLK for
+# a single-cycle core, so two is the correct number here. Three would only be
+# right after setting SMCLK_SHARES_MCLK => FALSE.
+#
+# The divider IS still exercised at two: accelclk comes from the P_ACCEL
+# instance. What would show the divider being optimised away is P_ACCEL's clock
+# missing from the Timing Analyzer's clock list, not the PLL count.
+#
+# TWO THINGS ONLY THIS TOOL CAN ANSWER, both in PLL_GEN.vhd's header:
+#   1. the family string says "Cyclone II" while FAMILY above is "Cyclone IV E".
+#      Inherited from PLL.vhd, and Lab 5 compiled and ran on the board with it.
+#      Left at the known-working value; pass DEVICE_FAMILY => "Cyclone IV E" if
+#      Quartus rejects a PLL parameter.
+#   2. three instances with different parameters share one CBX_MODULE_PREFIX.
+#      Normally correct. If Quartus reports colliding megafunction parameters,
+#      give each instance its own LPM_HINT_STR.
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/PLL_GEN.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/CLOCK_TREE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/MUL16.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/IFETCH.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/IDECODE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/EXECUTE.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/DMEMORY.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/CONTROL.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/const_package.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/cond_compilation_package.vhd
+set_global_assignment -name VHDL_FILE ../../DUT/RV32IMscMCU/aux_package.vhd
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 1
+set_global_assignment -name NOMINAL_CORE_SUPPLY_VOLTAGE 1.2V
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_global_assignment -name POWER_PRESET_COOLING_SOLUTION "23 MM HEAT SINK WITH 200 LFPM AIRFLOW"
+set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
+set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
+set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
+# F6: two pll_gen instances (MCLK + ACCEL; SMCLK shares MCLK). Analysis &
+# Synthesis already reports Total PLLs = 2 with distinct CBX prefixes
+# (PLL_MCLK / PLL_ACCEL). The Fitter then merges them into one physical PLL
+# with clk[0]=50 MHz and clk[1]=20 MHz -- fit.rpt Info (176132) and
+# "Auto Merge PLLs = On" (the Quartus default). That is exactly the one-module
+# tree Hanan forbade. Intel KB: set AUTO_MERGE_PLLS OFF.
+# Assignments -> Settings -> Fitter Settings -> More Fitter Settings.
+set_global_assignment -name AUTO_MERGE_PLLS OFF
+
+# ============================================================================
+# PIN ASSIGNMENTS vs Final Project 2026 definition (clauses 3, 4, 5, 6, 7)
+# ============================================================================
+# The PDF does not list FPGA ball numbers. It lists devices and MMIO widths.
+# Balls / I/O standards: Lab 5 (clk, KEY0) + Lab4_HW.qsf / Terasic CSV
+# (SW, KEY, LEDR, HEX, GPIO). That is what makes clause 3 "load onto an FPGA
+# board" possible on the DE2-115 (Figure 4b).
+#
+# Clause 3  KEY0 = system RESET          -> rst_i = PIN_M23
+#           baseclk 50 MHz (Figure 1)    -> clk_i = PIN_Y2 (CLOCK_50)
+# Clause 4  SW9-SW0                      -> SW_i[9..0]
+#           KEY3-KEY0                    -> KEY_i[3..1] + rst_i (KEY0)
+#           LEDR9-LEDR0                  -> LEDR_o[9..0]
+#           HEX5-HEX0                    -> HEX0_o .. HEX5_o (7-seg each)
+#           Expansion header 2x20        -> GPIO[35..0] (36 I/Os; 4 holes are
+#                                           VCC/GND, not FPGA pins)
+# Clause 5  PORT_LEDR = LEDR7-0          -> LEDR_o[7..0] from the GPO; [9:8]=0
+#           PORT_SW   = SW7-0            -> SW_i[7..0] to the GPI; [9:8] unused
+#           PORT_HEXn                    -> HEX0_o .. HEX5_o
+# Clause 6  PORT_PB = KEY[3-1]           -> KEY_i[3..1]
+#           PWM / CAPIN (timer)          -> GPIO[9] / [8] / [10]  (F18: choose
+#                                           three header pins. GPIO[9] is the
+#                                           Figure 4b scope CH1 pin.)
+# Clause 7  only MCU I/O to Pin Planner  -> board ports have locations on
+#           RV32IMscMCU_FPGA. Observation ports are not on that top (they
+#           stay on RV32IMscMCU for ModelSim). PWM is tapped in SignalTap on
+#           GPIO[9] (stp_pwm.stp), not as extra board pins.
+# USART (0x2018..) is bonus; no UART pins until that peripheral is wired.
+# ============================================================================
+
+# Unused FPGA balls must not drive populated DE2-115 nets.
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS "AS INPUT TRI-STATED WITH WEAK PULL-UP"
+
+# --- Clock and KEY0 reset (Lab 5) ---
+set_location_assignment PIN_Y2 -to clk_i
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to clk_i
+set_location_assignment PIN_M23 -to rst_i
+set_instance_assignment -name IO_STANDARD "2.5 V" -to rst_i
+
+# --- Clause 4: SW9-SW0. PORT_SW MMIO is SW7-0 (clause 5). ---
+set_location_assignment PIN_AB28 -to SW_i[0]
+set_location_assignment PIN_AC28 -to SW_i[1]
+set_location_assignment PIN_AC27 -to SW_i[2]
+set_location_assignment PIN_AD27 -to SW_i[3]
+set_location_assignment PIN_AB27 -to SW_i[4]
+set_location_assignment PIN_AC26 -to SW_i[5]
+set_location_assignment PIN_AD26 -to SW_i[6]
+set_location_assignment PIN_AB26 -to SW_i[7]
+set_location_assignment PIN_AC25 -to SW_i[8]
+set_location_assignment PIN_AB25 -to SW_i[9]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to SW_i
+
+# --- KEY3-1 (clause 6.i). KEY0 is rst_i above. ---
+set_location_assignment PIN_M21 -to KEY_i[1]
+set_location_assignment PIN_N21 -to KEY_i[2]
+set_location_assignment PIN_R24 -to KEY_i[3]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to KEY_i
+
+# --- Clause 4: LEDR9-LEDR0. PORT_LEDR MMIO is LEDR7-0 (clause 5). ---
+set_location_assignment PIN_G19 -to LEDR_o[0]
+set_location_assignment PIN_F19 -to LEDR_o[1]
+set_location_assignment PIN_E19 -to LEDR_o[2]
+set_location_assignment PIN_F21 -to LEDR_o[3]
+set_location_assignment PIN_F18 -to LEDR_o[4]
+set_location_assignment PIN_E18 -to LEDR_o[5]
+set_location_assignment PIN_J19 -to LEDR_o[6]
+set_location_assignment PIN_H19 -to LEDR_o[7]
+set_location_assignment PIN_J17 -to LEDR_o[8]
+set_location_assignment PIN_G17 -to LEDR_o[9]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to LEDR_o
+
+# --- HEX0 ---
+set_location_assignment PIN_G18 -to HEX0_o[0]
+set_location_assignment PIN_F22 -to HEX0_o[1]
+set_location_assignment PIN_E17 -to HEX0_o[2]
+set_location_assignment PIN_L26 -to HEX0_o[3]
+set_location_assignment PIN_L25 -to HEX0_o[4]
+set_location_assignment PIN_J22 -to HEX0_o[5]
+set_location_assignment PIN_H22 -to HEX0_o[6]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to HEX0_o
+
+# --- HEX1 ---
+set_location_assignment PIN_M24 -to HEX1_o[0]
+set_location_assignment PIN_Y22 -to HEX1_o[1]
+set_location_assignment PIN_W21 -to HEX1_o[2]
+set_location_assignment PIN_W22 -to HEX1_o[3]
+set_location_assignment PIN_W25 -to HEX1_o[4]
+set_location_assignment PIN_U23 -to HEX1_o[5]
+set_location_assignment PIN_U24 -to HEX1_o[6]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to HEX1_o
+
+# --- HEX2 ---
+set_location_assignment PIN_AA25 -to HEX2_o[0]
+set_location_assignment PIN_AA26 -to HEX2_o[1]
+set_location_assignment PIN_Y25 -to HEX2_o[2]
+set_location_assignment PIN_W26 -to HEX2_o[3]
+set_location_assignment PIN_Y26 -to HEX2_o[4]
+set_location_assignment PIN_W27 -to HEX2_o[5]
+set_location_assignment PIN_W28 -to HEX2_o[6]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to HEX2_o
+
+# --- HEX3 (CSV: [6..2] 3.3-V LVTTL, [1..0] 2.5 V) ---
+set_location_assignment PIN_V21 -to HEX3_o[0]
+set_location_assignment PIN_U21 -to HEX3_o[1]
+set_location_assignment PIN_AB20 -to HEX3_o[2]
+set_location_assignment PIN_AA21 -to HEX3_o[3]
+set_location_assignment PIN_AD24 -to HEX3_o[4]
+set_location_assignment PIN_AF23 -to HEX3_o[5]
+set_location_assignment PIN_Y19 -to HEX3_o[6]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to HEX3_o[0]
+set_instance_assignment -name IO_STANDARD "2.5 V" -to HEX3_o[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX3_o[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX3_o[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX3_o[4]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX3_o[5]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX3_o[6]
+
+# --- HEX4 ---
+set_location_assignment PIN_AB19 -to HEX4_o[0]
+set_location_assignment PIN_AA19 -to HEX4_o[1]
+set_location_assignment PIN_AG21 -to HEX4_o[2]
+set_location_assignment PIN_AH21 -to HEX4_o[3]
+set_location_assignment PIN_AE19 -to HEX4_o[4]
+set_location_assignment PIN_AF19 -to HEX4_o[5]
+set_location_assignment PIN_AE18 -to HEX4_o[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX4_o
+
+# --- HEX5 ---
+set_location_assignment PIN_AD18 -to HEX5_o[0]
+set_location_assignment PIN_AC18 -to HEX5_o[1]
+set_location_assignment PIN_AB18 -to HEX5_o[2]
+set_location_assignment PIN_AH19 -to HEX5_o[3]
+set_location_assignment PIN_AG19 -to HEX5_o[4]
+set_location_assignment PIN_AF18 -to HEX5_o[5]
+set_location_assignment PIN_AH18 -to HEX5_o[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to HEX5_o
+
+# --- Expansion header J15 / JP5: GPIO[35:0] (Terasic CSV). 40-pin header
+# includes VCC/GND which are not FPGA I/O. PWM = GPIO[9] (Figure 4b).
+# CAPIN1 = GPIO[8], CAPIN2 = GPIO[10].
+set_location_assignment PIN_AB22 -to GPIO[0]
+set_location_assignment PIN_AC15 -to GPIO[1]
+set_location_assignment PIN_AB21 -to GPIO[2]
+set_location_assignment PIN_Y17 -to GPIO[3]
+set_location_assignment PIN_AC21 -to GPIO[4]
+set_location_assignment PIN_Y16 -to GPIO[5]
+set_location_assignment PIN_AD21 -to GPIO[6]
+set_location_assignment PIN_AE16 -to GPIO[7]
+set_location_assignment PIN_AD15 -to GPIO[8]
+set_location_assignment PIN_AE15 -to GPIO[9]
+set_location_assignment PIN_AC19 -to GPIO[10]
+set_location_assignment PIN_AF16 -to GPIO[11]
+set_location_assignment PIN_AD19 -to GPIO[12]
+set_location_assignment PIN_AF15 -to GPIO[13]
+set_location_assignment PIN_AF24 -to GPIO[14]
+set_location_assignment PIN_AE21 -to GPIO[15]
+set_location_assignment PIN_AF25 -to GPIO[16]
+set_location_assignment PIN_AC22 -to GPIO[17]
+set_location_assignment PIN_AE22 -to GPIO[18]
+set_location_assignment PIN_AF21 -to GPIO[19]
+set_location_assignment PIN_AF22 -to GPIO[20]
+set_location_assignment PIN_AD22 -to GPIO[21]
+set_location_assignment PIN_AG25 -to GPIO[22]
+set_location_assignment PIN_AD25 -to GPIO[23]
+set_location_assignment PIN_AH25 -to GPIO[24]
+set_location_assignment PIN_AE25 -to GPIO[25]
+set_location_assignment PIN_AG22 -to GPIO[26]
+set_location_assignment PIN_AE24 -to GPIO[27]
+set_location_assignment PIN_AH22 -to GPIO[28]
+set_location_assignment PIN_AF26 -to GPIO[29]
+set_location_assignment PIN_AE20 -to GPIO[30]
+set_location_assignment PIN_AG23 -to GPIO[31]
+set_location_assignment PIN_AF20 -to GPIO[32]
+set_location_assignment PIN_AH26 -to GPIO[33]
+set_location_assignment PIN_AH23 -to GPIO[34]
+set_location_assignment PIN_AG26 -to GPIO[35]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO
+
+# PWM_o / CAPIN1_i / CAPIN2_i are NOT top-level ports of RV32IMscMCU_FPGA.
+# Capture/PWM use GPIO[8]/[9]/[10]. ModelSim still has the copy ports on
+# RV32IMscMCU.
+
+# --- Clause 9 / 6.iv: the USART's two RS-232 pins (Phase 12B) ---
+# Locations and I/O standard from the course's own Terasic table,
+# Auxiliary/Lab4/Auxiliary/DE2_115_pin_assignments.csv:
+#     UART_RXD, Input,  PIN_G12, 3.3-V LVTTL
+#     UART_TXD, Output, PIN_G9,  3.3-V LVTTL
+# UART_CTS (PIN_G14) and UART_RTS (PIN_J13) are in that table too but this
+# USART is 8N1 with no hardware flow control, so they are deliberately left
+# unassigned rather than tied to an invented level.
+set_location_assignment PIN_G12 -to UART_RXD_i
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD_i
+set_location_assignment PIN_G9 -to UART_TXD_o
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD_o
+
+# Observation ports are not on RV32IMscMCU_FPGA. SignalTap taps GPIO[9] /
+# KEY_i at this top (stp_pwm.stp); core probes are hierarchical inside MCU.
+
+# SignalTap for test4 PWM (no scope). Same net Lab 4 tapped as GPIO[9]
+# (Auxiliary/Lab4/Quartus/stp1.stp + Lab4_HW.qsf ENABLE_SIGNALTAP).
+# Clock is clk_i = CLOCK_50, matching Lab 4's acq_clk = CLOCK_50.
+# Depth 16384 @ 50 MHz ~ 328 us, enough for one 5 kHz period (200 us).
+# Quartus fills the SLD node assignments from this file on compile
+# (same pattern as Lab 5 RV32IM_CORE.qsf ENABLE_SIGNALTAP / SIGNALTAP_FILE).
+# SIGNAL-TAP: SHIPPED OFF, ON FOR THE CAPTURES -- decided 2026-08-27
+# Clause 7 makes SignalTap validation mandatory, so stp_pwm.stp is part of the
+# submission and the two assignments naming it stay here. But ENABLE_SIGNALTAP
+# ships OFF, for a specific reason: the inspection protocol's part 0 compiles
+# the submitted design "without the Signal Tap file" and burns it on the spot
+# (DOC/04 section 9.1). Pinned with SignalTap OFF is a SEVENTH configuration --
+# neither the three performance revisions, which have no pins and cannot be
+# burned, nor the three hardware revisions, which have SignalTap on -- and it
+# is the one the grade actually runs. Shipping it as the default state means
+# the room's compile works out of the box.
+#
+# For the mandatory captures, flip this one line to ON. Nothing else changes:
+# the pins, the .stp and the SLD_NODE assignments below are already here.
+# Expect the memory-bit count to jump when it is ON -- that is the
+# instrumentation, and it is exactly why the PPA numbers must come from a
+# revision with it OFF (D-2: Lab 5 reported 483,328 bits where the design uses
+# 131,072).
+set_global_assignment -name ENABLE_SIGNALTAP OFF
+set_global_assignment -name USE_SIGNALTAP_FILE stp_pwm.stp
+set_global_assignment -name SIGNALTAP_FILE stp_pwm.stp
+
+# REMOVED 2026-08-27: this line was
+#     set_global_assignment -name SLD_FILE db/stp_pwm_auto_stripped.stp
+# It points into db/, which is Quartus's own build output -- present on the
+# machine that last compiled and in no clean clone, no ZIP, and no inspection-
+# room download. Clause 10 forbids "files that are a result of compilation" in
+# the submission, so db/ cannot be shipped to satisfy it either. Quartus writes
+# this line itself when it processes the .stp, so removing it costs nothing and
+# a fresh compile from the packaged files no longer starts with a missing file.
+
+set_global_assignment -name POWER_DEFAULT_TOGGLE_RATE 12.5%
+set_global_assignment -name POWER_DEFAULT_INPUT_IO_TOGGLE_RATE 12.5%
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
