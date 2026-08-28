@@ -253,15 +253,20 @@ def _resolve(text, force_ltr=None, base='R'):
 def _spans(text, bold, mono):
     """Split the inline markup into (text, bold, mono) spans.
 
-        **bold**    -> bold
         `code`      -> Consolas, and forced LTR
+        **...**     -> markers STRIPPED, weight unchanged
+
+    Bold is reserved for headings and table header rows.  The `**` markers are
+    still recognised so the source text stays readable and so a marker can
+    never leak into the page, but they no longer set the bold bit: emphasis
+    scattered through body prose was making the report look shouted at.
     """
     out = []
     for part in re.split(r'(\*\*.+?\*\*|`[^`]+`)', text):
         if not part:
             continue
         if part.startswith('**') and part.endswith('**') and len(part) > 4:
-            out.extend(_spans(part[2:-2], True, mono))
+            out.extend(_spans(part[2:-2], bold, mono))
         elif part.startswith('`') and part.endswith('`') and len(part) > 2:
             out.append((part[1:-1], bold, True))
         else:
@@ -269,13 +274,14 @@ def _spans(text, bold, mono):
     return out
 
 
-def _rpr(hebrew, bold=False, mono=False, size=None, color=None, italic=False):
+def _rpr(hebrew, bold=False, mono=False, size=None, color=None):
+    # No italic anywhere, by instruction.  A slanted Latin word inside Hebrew
+    # leans the wrong way against the text direction and reads as a defect,
+    # so the option is not exposed at all rather than left available.
     p = ['<w:rPr>']
     p.append(MONO if mono else FONT)
     if bold:
         p.append('<w:b/><w:bCs/>')
-    if italic:
-        p.append('<w:i/><w:iCs/>')
     if size:
         p.append(f'<w:sz w:val="{size}"/><w:szCs w:val="{size}"/>')
     p.append(f'<w:color w:val="{color or "000000"}"/>')
@@ -285,8 +291,7 @@ def _rpr(hebrew, bold=False, mono=False, size=None, color=None, italic=False):
     return ''.join(p)
 
 
-def _runs(text, bold=False, mono=False, size=None, color=None, italic=False,
-          base='R'):
+def _runs(text, bold=False, mono=False, size=None, color=None, base='R'):
     """Text -> Word runs, each carrying <w:rtl/> iff it renders right-to-left.
 
     Direction is resolved over the WHOLE paragraph string, not per markup
@@ -314,7 +319,7 @@ def _runs(text, bold=False, mono=False, size=None, color=None, italic=False,
                 j += 1
             sz = size if size is not None else (20 if m else None)
             out.append(
-                '<w:r>' + _rpr(d == 'R', b, m, sz, color, italic)
+                '<w:r>' + _rpr(d == 'R', b, m, sz, color)
                 + f'<w:t xml:space="preserve">{esc(txt[i:j])}</w:t></w:r>')
             i = j
         pos += len(txt)
@@ -392,11 +397,6 @@ class Doc:
     def bullet(self, text):
         self._p(_runs('•  ' + text), jc='both', after=60, ind=284)
 
-    def note(self, text):
-        """A visibly-marked gap: evidence that has to be captured on Windows."""
-        self._p(_runs('[[ ' + text + ' ]]', color='C00000', bold=True,
-                      size=20), jc='both', after=120)
-
     def eq(self, text):
         # base='L' because the paragraph is emitted without <w:bidi/>
         self._p(_runs(text, mono=True, size=20, base='L'), jc='center',
@@ -448,8 +448,8 @@ class Doc:
         self._caption(f'איור {self.fig_n}: ', caption)
 
     def _caption(self, label, text):
-        inner = (_runs(label, bold=True, size=19)
-                 + _runs(text, size=19))
+        # the label is not bold: bold is for headings and header rows only
+        inner = _runs(label + text, size=19)
         self._p(inner, jc='center', after=160)
 
     # -- tables -------------------------------------------------------------
