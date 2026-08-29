@@ -107,6 +107,79 @@ def check_modelsim_switch(scripts, findings):
     return n
 
 
+# ---------------------------------------------------------------------------
+# The clause 8 menu image now exists in THREE places, and nothing but this
+# check keeps them equal:
+#
+#   SIM/RV32IMscMCU/menu/       what run_uart_menu.do simulates (the board build)
+#   UART/                       the deliverable, loaded onto the board via ISMCE
+#   209580208_211468582/UART/   the same, staged into the submission ZIP
+#
+# The report says "the program tested in simulation is the same program that
+# runs on the board" and prints a character count taken from the DTCM text. If
+# one copy is regenerated and another is not, that sentence quietly stops being
+# true and the failure is invisible: every copy is a valid image, so nothing
+# refuses to load and nothing reports an error -- the board simply runs a
+# different program from the one the testbench scored. Same class as the .h/.hex
+# confusion above, which is why it lives in the same tool.
+#
+# menusim/ is the SECOND data image of the SAME program: its ITCM must match
+# byte for byte, and its DTCM must NOT (it carries the shortened BTCMPR0). Both
+# directions are asserted -- an identical DTCM would mean the simulation build
+# was never regenerated after the constant changed.
+MENU_SRC = "SIM/RV32IMscMCU/menu"
+MENU_COPIES = ("UART", "209580208_211468582/Benchmark Apps/UART/bin")
+MENU_SIM = "SIM/RV32IMscMCU/menusim"
+
+
+def _digest(path):
+    import hashlib
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def check_menu_images(findings):
+    src = ROOT / MENU_SRC
+    if not src.is_dir():
+        return 0
+    n = 0
+    for name in ("ITCM.hex", "DTCM.hex"):
+        ref = src / name
+        if not ref.is_file():
+            findings.append(f"{MENU_SRC}/{name}: MISSING -- it is the source "
+                            f"the submitted menu images are copies of")
+            continue
+        want = _digest(ref)
+        for rel in MENU_COPIES:
+            other = ROOT / rel / name
+            n += 1
+            if not other.is_file():
+                findings.append(f"{rel}/{name}: MISSING -- the clause 8 menu "
+                                f"image is a submission deliverable")
+            elif _digest(other) != want:
+                findings.append(
+                    f"{rel}/{name} DIFFERS from {MENU_SRC}/{name} -- the image "
+                    f"on the board is not the one the testbench scored")
+
+    sim = ROOT / MENU_SIM
+    if sim.is_dir():
+        for name, must_match in (("ITCM.hex", True), ("DTCM.hex", False)):
+            a, b = src / name, sim / name
+            if not (a.is_file() and b.is_file()):
+                continue
+            n += 1
+            same = _digest(a) == _digest(b)
+            if must_match and not same:
+                findings.append(
+                    f"{MENU_SIM}/{name} differs from {MENU_SRC}/{name} -- the "
+                    f"two builds must be ONE program, only the data differs")
+            if not must_match and same:
+                findings.append(
+                    f"{MENU_SIM}/{name} is IDENTICAL to {MENU_SRC}/{name} -- "
+                    f"the simulation build should carry the shortened "
+                    f"BTCMPR0, so it was probably not regenerated")
+    return n
+
+
 def main():
     findings = []
     checked = 0
@@ -115,6 +188,7 @@ def main():
         sys.exit("no .do scripts found - run this from the repo root")
 
     n_vsim = check_modelsim_switch(scripts, findings)
+    n_menu = check_menu_images(findings)
 
     for s in scripts:
         rel = s.relative_to(ROOT)
@@ -148,13 +222,15 @@ def main():
 
     print(f"checked {checked} app_bin staging copies across {len(scripts)} .do scripts")
     print(f"checked {n_vsim} whole-MCU vsim line(s) for -gMODELSIM")
+    print(f"checked {n_menu} clause 8 menu image copy/copies for drift")
     if findings:
         print(f"\n{len(findings)} FINDING(S):")
         for f in findings:
             print(f"  - {f}")
         return 1
     print("clean: every staged image is an existing .hex M9K-intel/generated "
-          "file, and every whole-MCU vsim line sets MODELSIM explicitly")
+          "file, every whole-MCU vsim line sets MODELSIM explicitly, and the "
+          "submitted menu images match the ones the testbench scored")
     return 0
 
 
