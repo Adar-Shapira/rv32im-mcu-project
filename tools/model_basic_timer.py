@@ -63,6 +63,7 @@ class Timer:
         ifg = [equ0_ev, equ1_ev, cap_ev, 0][f["intc"]]
 
         pre_cnt, pre_s1, pre_s2 = self.cnt, self.s1, self.s2
+        pre_cmpr0, pre_cmpr1 = self.cmpr0, self.cmpr1
 
         # commit: regs
         if rst:
@@ -73,8 +74,21 @@ class Timer:
                 which, lane, val = wr
                 if which == "ctl" and lane == 0: self.ctl1 = val & 0xFF
                 if which == "ctl" and lane == 1: self.ctl2 = val & 0xFF
-                if which == "cmpr0": self.cmpr0 = val & M32; self.cl0 = val & M32
-                if which == "cmpr1": self.cmpr1 = val & M32; self.cl1 = val & M32
+                if which == "cmpr0": self.cmpr0 = val & M32
+                if which == "cmpr1": self.cmpr1 = val & M32
+            # HEU0 (DOC/03 Q8): shadows follow BTCMPR while held/cleared,
+            # and transfer at EQU0. Same-cycle write supplies the new data
+            # because the ELSE arm samples pre-edge BTCMPR (VHDL signal delay).
+            heu0 = f["hold"] or f["clr"] or equ0_ev
+            if heu0:
+                if wr is not None and wr[0] == "cmpr0":
+                    self.cl0 = wr[2] & M32
+                else:
+                    self.cl0 = pre_cmpr0
+                if wr is not None and wr[0] == "cmpr1":
+                    self.cl1 = wr[2] & M32
+                else:
+                    self.cl1 = pre_cmpr1
             if cap_ev:
                 self.capr = pre_cnt
         # presc / count (no reset arms; pre-edge fields)
@@ -247,6 +261,24 @@ def main():
     measure_period()
     n = measure_period()
     chk(n == 4008, f"P8 FREQ_5K interval {n} != 4008")
+
+    # ---- P10 HEU0: live write of a smaller period must not strand ----------
+    wctl1(0x24)
+    wcmpr0(40)
+    wctl1(0x00)
+    while t.cnt <= 20:
+        t.edge()
+    chk(t.cnt > 10, "P10 setup: cnt not past 10")
+    wcmpr0(10)
+    chk(t.cnt > 10, "P10: live write must not snap BTCL0 (would wrap/strand)")
+    guard = 0
+    while t.edge() == 0:
+        guard += 1
+        assert guard < 100, "P10: never wrapped at old BTCL0=40"
+        chk(t.cnt <= 40, "P10: cnt exceeded old BTCL0 after live write")
+    chk(t.cnt == 0, "P10: wrap did not land on 0")
+    n = measure_period()
+    chk(n == 11, f"P10 new period {n} != 11")
 
     print(f"checks failed: {len(fails)}   (BTIFG events counted: {ifg_total})")
     for m in fails:

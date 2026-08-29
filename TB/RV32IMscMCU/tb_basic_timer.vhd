@@ -42,6 +42,10 @@
 --       SMCLK cycles -- NOT the 4000 exact 5 kHz needs. The bench asserts
 --       4008 and PRINTS the discrepancy: the hardware follows Hanan's F17,
 --       the finding belongs to the benchmark constant (same class as B2).
+--   P10 HEU0 LIVE PERIOD UPDATE. Write BTCMPR0=10 while BTCNT is already
+--       past 10: the current period must still wrap at the OLD BTCL0, and
+--       the NEXT period must be 11. Immediate-on-write (A21) would strand
+--       the counter (F17 equality never hits) and fail this.
 --   P9  ANTI-VACUITY: events were really counted.
 --
 -- SAMPLING CONVENTION: value captures and comparisons happen after a FALLING
@@ -419,6 +423,33 @@ BEGIN
 			"(500+1)*8 = 4008 SMCLK cycles = 4990 Hz. Exactly 5 kHz needs " &
 			"BTCMPR0 = 499. Same class as B2's SEC_PERIOD factor-8 discrepancy."
 			severity note;
+
+		-- ================= P10: HEU0 -- write-while-running must not strand ==
+		-- test3 KEY ISRs and test4 STATE1 write BTCMPR0 while the timer is
+		-- already counting. Immediate shadow update (old A21) made EQU0 miss
+		-- when the new period was already behind BTCNT, and the counter ran
+		-- to 2^32. DOC/03 Q8: transfer while held/cleared and at EQU0.
+		wr_ctl1(x"24");								-- hold + clear
+		bus_write("cmpr0", 0, STD_LOGIC_VECTOR(to_unsigned(40, 32)));
+		wrap_limit <= 40; wrap_guard_en <= TRUE;
+		wr_ctl1(x"00");								-- run, SSEL=00
+		loop
+			wait until falling_edge(clk);
+			exit when to_integer(unsigned(cnt_r)) > 20;
+		end loop;
+		bus_write("cmpr0", 0, STD_LOGIC_VECTOR(to_unsigned(10, 32)));
+		wait until falling_edge(clk);
+		chk(to_integer(unsigned(cnt_r)) > 10,
+			"P10 setup: BTCNT should still be past 10 after the live write");
+		wait until rising_edge(clk) and ifg_set = '1';
+		wait until falling_edge(clk);
+		chk(to_integer(unsigned(cnt_r)) = 0,
+			"P10: wrap after live write landed at " &
+			integer'image(to_integer(unsigned(cnt_r))) & ", expected 0");
+		wrap_limit <= 10;
+		measure_period(t0);
+		chk(t0 = 11, "P10 new period after EQU0 transfer: " &
+			integer'image(t0) & ", expected 11 (BTCL0=10)");
 
 		-- ================= P9 + verdict =====================================
 		wrap_guard_en <= FALSE;
