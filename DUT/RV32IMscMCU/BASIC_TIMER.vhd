@@ -81,13 +81,16 @@
 --   -- which is exactly "three options" in two bits. 01 and 11 are assumption
 --   A20; a different answer to B4 changes one selected-signal-assignment.
 --
--- THE SHADOW LATCHES (assumption A21): Figure 7 draws BTCL0/BTCL1 loaded from
---   BTCMPR0/BTCMPR1 through latches enabled by "HEU0" -- a label defined
---   nowhere (open question P1). Implemented as immediate transfer on the bus
---   write, which is indistinguishable from any deferred-update scheme in every
---   supplied benchmark (they all configure the compare registers while the
---   timer is held). Falsified by HEU0 turning out to mean update-on-EQU0; the
---   change is one enable term on the shadow assignment.
+-- THE SHADOW LATCHES (DOC/03 Q8; A21 is FALSIFIED): Figure 7 enables BTCL0/
+--   BTCL1 with "HEU0". Q8: transfer BTCMPRx → BTCLx while BTHOLD or BTCLR,
+--   and at each EQU0 period boundary. Immediate-on-write (A21) is what the
+--   first draft did, and it is indistinguishable ONLY while the timer is
+--   held -- which is how sys_init / bt_cmp_config first-load the period.
+--   test3 KEY ISRs and test4 STATE1 write BTCMPR0 while the timer is already
+--   counting. With F17's equality-only EQU0, a live write of a period the
+--   counter has already passed never matches, and BTCNT runs to 2^32. That
+--   is the FPGA symptom "every KEY ticks at the same rate / KEY1 does not
+--   change the interval". The enable term below is the Q8 transfer.
 --
 -- BUS-SIDE CONVENTIONS -- the ones Phase 5A established and F15 confirmed:
 --   byte registers take data_i(7 DOWNTO 0) whatever the byte address (A1..A0
@@ -223,17 +226,30 @@ BEGIN
 				IF ctl_cs_i = '1' AND lane1_i = '1' THEN
 					btctl2_q <= data_i(7 DOWNTO 0);
 				END IF;
-				-- Word registers own all four lanes (A12). The shadow latch
-				-- takes the same value on the same edge -- assumption A21.
+				-- Word registers own all four lanes (A12). BTCMPR updates on
+				-- the write; BTCL follows only when HEU0 is high (below).
 				IF cmpr0_cs_i = '1' THEN
 					btcmpr0_q	<= data_i;
-					btcl0_q		<= data_i;
 				END IF;
 				IF cmpr1_cs_i = '1' THEN
 					btcmpr1_q	<= data_i;
-					btcl1_q		<= data_i;
 				END IF;
 				-- No BTCAPR write arm: capture hardware owns it.
+			END IF;
+			-- HEU0 (DOC/03 Q8): shadows track BTCMPR while held or cleared,
+			-- and capture the programmed value at the EQU0 wrap. A same-cycle
+			-- bus write supplies data_i because btcmpr*_q has not yet updated.
+			IF (bthold_w = '1' OR btclr_w = '1' OR equ0_ev_w = '1') THEN
+				IF MemWrite_i = '1' AND cmpr0_cs_i = '1' THEN
+					btcl0_q <= data_i;
+				ELSE
+					btcl0_q <= btcmpr0_q;
+				END IF;
+				IF MemWrite_i = '1' AND cmpr1_cs_i = '1' THEN
+					btcl1_q <= data_i;
+				ELSE
+					btcl1_q <= btcmpr1_q;
+				END IF;
 			END IF;
 			-- Capture wins over nothing -- BTCAPR has no bus write to race.
 			IF cap_ev_w = '1' THEN
